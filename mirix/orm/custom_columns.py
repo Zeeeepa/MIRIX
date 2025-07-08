@@ -1,9 +1,11 @@
 import base64
+import os
 from typing import List, Union
 
 import numpy as np
-from sqlalchemy import JSON
+from sqlalchemy import JSON, LargeBinary
 from sqlalchemy.types import BINARY, TypeDecorator
+from sqlalchemy.dialects.postgresql import BYTEA
 
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import ToolRuleType
@@ -115,9 +117,15 @@ class MessageContentColumn(TypeDecorator):
 
 
 class CommonVector(TypeDecorator):
-    """Custom SQLAlchemy column type for storing vectors in SQLite."""
+    """Custom SQLAlchemy column type for storing vectors in SQLite and PostgreSQL/PGLite."""
 
-    impl = BINARY
+    # Use BYTEA for PostgreSQL/PGLite compatibility, BINARY for SQLite
+    # Check if we're using PGLite mode or PostgreSQL
+    _use_bytea = (
+        os.environ.get('MIRIX_FORCE_COMMON_VECTOR', 'false').lower() == 'true' or
+        os.environ.get('MIRIX_USE_PGLITE', 'false').lower() == 'true'
+    )
+    impl = BYTEA if _use_bytea else BINARY
     cache_ok = True
 
     def process_bind_param(self, value, dialect):

@@ -35,7 +35,9 @@
     "copy-backend": "node scripts/copy-prebuilt-backend.js",
     "test-dmg-direct": "node scripts/test-dmg-direct.js",
     "test-backend-logging": "node scripts/test-backend-logging.js",
-    "test-loading-modal": "node scripts/test-loading-modal.js"
+    "test-loading-modal": "node scripts/test-loading-modal.js",
+    "pglite-dev": "node scripts/start-pglite-dev.js",
+    "pglite-pack": "MIRIX_USE_PGLITE=true npm run build && npm run copy-backend && electron-builder"
   },
   "eslintConfig": {
     "extends": [
@@ -57,7 +59,7 @@
   },
   "devDependencies": {
     "concurrently": "^7.6.0",
-    "electron": "^25.3.0",
+    "electron": "^37.2.0",
     "electron-builder": "^24.6.3",
     "wait-on": "^7.0.1"
   },
@@ -92,7 +94,6 @@
       "**/node_modules/@electric-sql/pglite/dist/pglite.data",
       "**/node_modules/@electric-sql/pglite/dist/pglite.wasm"
     ],
-
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dmg",

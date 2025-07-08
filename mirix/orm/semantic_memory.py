@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING, Optional
 from sqlalchemy import Column, JSON, String, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, declared_attr, relationship
@@ -103,7 +104,7 @@ class SemanticMemoryItem(SqlalchemyBase, OrganizationMixin):
     )
     
     # Vector embedding field based on database type
-    if settings.mirix_pg_uri_no_default:
+    if settings.mirix_pg_uri_no_default and not os.environ.get('MIRIX_FORCE_COMMON_VECTOR', 'false').lower() == 'true':
         from pgvector.sqlalchemy import Vector
         details_embedding = mapped_column(Vector(MAX_EMBEDDING_DIM), nullable=True)
         name_embedding = mapped_column(Vector(MAX_EMBEDDING_DIM), nullable=True)

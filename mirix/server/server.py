@@ -75,6 +75,23 @@ from mirix.services.tool_manager import ToolManager
 from mirix.services.user_manager import UserManager
 from mirix.utils import get_friendly_error_msg, get_utc_time, json_dumps, json_loads
 
+# Check for PGLite mode early and set environment variable before any ORM imports
+USE_PGLITE = os.environ.get('MIRIX_USE_PGLITE', 'false').lower() == 'true'
+if USE_PGLITE:
+    # Set environment variable to force CommonVector usage in ORM models
+    os.environ['MIRIX_FORCE_COMMON_VECTOR'] = 'true'
+
+from abc import abstractmethod
+from datetime import datetime, timezone
+from typing import Callable, Dict, List, Optional, Union
+
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from starlette.responses import StreamingResponse
+
+from mirix import constants
+
 logger = get_logger(__name__)
 
 
@@ -181,94 +198,764 @@ def db_error_handler():
         # raise ValueError(f"SQLite DB error: {str(e)}")
         exit(1)
 
-# Check for PGlite mode
-USE_PGLITE = os.environ.get('MIRIX_USE_PGLITE', 'false').lower() == 'true'
-
+# Set up PGLite mode
 if USE_PGLITE:
     print("PGlite mode detected - setting up PGlite adapter")
     
-    # Import PGlite connector
+    # Import and initialize PGlite connector
+    from mirix.database.pglite_connector import pglite_connector
+    
+    # Create database schema for PGLite (PostgreSQL compatible)
     try:
-        from mirix.database.pglite_connector import pglite_connector
+        print("Creating database schema for PGlite...")
         
-        # Create a simple adapter to make PGlite work with existing code
-        class PGliteSession:
-            """Adapter to make PGlite work with SQLAlchemy-style code"""
+        # Get the DDL SQL statements using PostgreSQL dialect
+        from sqlalchemy.schema import CreateTable
+        from sqlalchemy.dialects import postgresql
+        
+        # Create enum types first
+        print("Creating enum types...")
+        from mirix.schemas.sandbox_config import SandboxType
+        
+        # Create SandboxType enum
+        enum_values = "', '".join([e.value for e in SandboxType])
+        create_enum_sql = f"CREATE TYPE sandboxtype AS ENUM ('{enum_values}')"
+        try:
+            pglite_connector.execute_sql(create_enum_sql)
+            print("✅ Created enum type: sandboxtype")
+        except Exception as enum_error:
+            if "already exists" in str(enum_error).lower():
+                print("ℹ️  Enum type sandboxtype already exists, skipping")
+            else:
+                print(f"❌ Failed to create enum type sandboxtype: {enum_error}")
+                raise enum_error
+        
+        # Define table creation order manually to handle dependencies
+        # Core tables first, then dependent tables
+        table_order = [
+            'organizations', 'users', 'providers',
+            'agents', 'sandbox_configs', 'sandbox_environment_variables', 'agent_environment_variables',
+            'block', 'tools',  # Fixed: 'tool' -> 'tools'
+            'blocks_agents', 'tools_agents', 'agents_tags',
+            'steps',  # Fixed: must come before messages due to FK dependency
+            'messages',
+            'files',  # Added missing table
+            'episodic_memory', 'semantic_memory', 'procedural_memory',
+            'knowledge_vault', 'resource_memory', 'cloud_file_mapping'
+        ]
+        
+        # Create tables in specified order
+        created_tables = set()
+        
+        # First, create tables in the specified order
+        for table_name in table_order:
+            if table_name in Base.metadata.tables:
+                table = Base.metadata.tables[table_name]
+                create_table_sql = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+                try:
+                    pglite_connector.execute_sql(create_table_sql)
+                    print(f"✅ Created table: {table.name}")
+                    created_tables.add(table_name)
+                except Exception as table_error:
+                    if "already exists" in str(table_error).lower():
+                        print(f"ℹ️  Table {table.name} already exists, skipping")
+                        created_tables.add(table_name)
+                    else:
+                        print(f"❌ Failed to create table {table.name}: {table_error}")
+                        print(f"Failed SQL (first 200 chars): {create_table_sql[:200]}...")
+                        raise table_error
+        
+        # Create any remaining tables not in the order list
+        for table_name, table in Base.metadata.tables.items():
+            if table_name not in created_tables:
+                create_table_sql = str(CreateTable(table).compile(dialect=postgresql.dialect()))
+                try:
+                    pglite_connector.execute_sql(create_table_sql)
+                    print(f"✅ Created table: {table.name}")
+                except Exception as table_error:
+                    if "already exists" in str(table_error).lower():
+                        print(f"ℹ️  Table {table.name} already exists, skipping")
+                    else:
+                        print(f"❌ Failed to create table {table.name}: {table_error}")
+                        print(f"Failed SQL (first 200 chars): {create_table_sql[:200]}...")
+                        raise table_error
+        
+        print("✅ Database schema created successfully")
+    except Exception as e:
+        print(f"❌ Failed to create database schema: {e}")
+        raise e
+    
+    # Set config for PGLite mode
+    config.recall_storage_type = "pglite"
+    config.recall_storage_uri = "pglite://local"
+    config.archival_storage_type = "pglite" 
+    config.archival_storage_uri = "pglite://local"
+    
+    # Create a simple query builder for PGlite
+    class PGliteQuery:
+        """Simple query builder that mimics SQLAlchemy Query API"""
+        
+        def __init__(self, model_class, session):
+            self.model_class = model_class
+            self.session = session
+            self._filters = []
             
-            def __init__(self, connector):
-                self.connector = connector
+        def filter(self, *conditions):
+            """Add filter conditions"""
+            # Handle SQLAlchemy-style conditions
+            for condition in conditions:
+                try:
+                    # First try to convert the condition to string and parse it
+                    condition_str = str(condition)
+                    
+                    # Handle IN operations by looking for the IN keyword in the string
+                    if ' IN ' in condition_str:
+                        # Parse the string to extract column name and values
+                        try:
+                            # Extract column name and values from the string
+                            # Format is usually like: "column_name IN [value1, value2, ...]"
+                            parts = condition_str.split(' IN ')
+                            if len(parts) == 2:
+                                column_name = parts[0].split('.')[-1]  # Get the column name after the last dot
+                                values_str = parts[1]
+                                
+                                # Handle different value formats
+                                if values_str.startswith('[') and values_str.endswith(']'):
+                                    # List format: [value1, value2, ...]
+                                    values_str = values_str[1:-1]  # Remove brackets
+                                    values = [v.strip().strip("'\"") for v in values_str.split(',')]
+                                elif values_str.startswith('(') and values_str.endswith(')'):
+                                    # Tuple format: (value1, value2, ...)
+                                    values_str = values_str[1:-1]  # Remove parentheses
+                                    values = [v.strip().strip("'\"") for v in values_str.split(',')]
+                                else:
+                                    # Single value or other format
+                                    values = [values_str.strip().strip("'\"")]
+                                
+                                # Create SQL IN clause
+                                quoted_values = [f"'{v}'" if isinstance(v, str) and v != 'NULL' else str(v) for v in values if v]
+                                if quoted_values:
+                                    self._filters.append(f"{column_name} IN ({', '.join(quoted_values)})")
+                                continue
+                        except Exception as parse_error:
+                            # Fall through to other parsing methods
+                            pass
+                    
+                    # Handle different types of conditions more carefully
+                    if hasattr(condition, 'left') and hasattr(condition, 'right'):
+                        # Handle binary expressions like model.id == 'value'
+                        if hasattr(condition.left, 'name'):
+                            column_name = condition.left.name
+                            
+                            # Handle the right side value
+                            right_value = None
+                            if hasattr(condition.right, 'value'):
+                                right_value = condition.right.value
+                            elif hasattr(condition.right, 'effective_value'):
+                                right_value = condition.right.effective_value
+                            else:
+                                # Try to get the value directly
+                                right_value = condition.right
+                            
+                            # Handle different operators
+                            if hasattr(condition, 'operator'):
+                                op = str(condition.operator)
+                                if op == '=':
+                                    if isinstance(right_value, str):
+                                        self._filters.append(f"{column_name} = '{right_value}'")
+                                    elif isinstance(right_value, bool):
+                                        self._filters.append(f"{column_name} = {'true' if right_value else 'false'}")
+                                    else:
+                                        self._filters.append(f"{column_name} = {right_value}")
+                                elif op == 'in' or 'in_' in op.lower():
+                                    # Enhanced IN operator handling
+                                    if hasattr(condition.right, 'clauses'):
+                                        values = []
+                                        for clause in condition.right.clauses:
+                                            if hasattr(clause, 'value'):
+                                                values.append(clause.value)
+                                            else:
+                                                values.append(str(clause))
+                                        quoted_values = [f"'{v}'" if isinstance(v, str) else str(v) for v in values]
+                                        self._filters.append(f"{column_name} IN ({', '.join(quoted_values)})")
+                                    elif hasattr(condition.right, 'value') and isinstance(condition.right.value, (list, tuple)):
+                                        # Handle direct list/tuple values
+                                        values = list(condition.right.value)
+                                        quoted_values = [f"'{v}'" if isinstance(v, str) else str(v) for v in values]
+                                        self._filters.append(f"{column_name} IN ({', '.join(quoted_values)})")
+                                    elif hasattr(condition, 'right') and hasattr(condition.right, '__iter__') and not isinstance(condition.right, str):
+                                        # Handle iterable right side
+                                        try:
+                                            values = list(condition.right)
+                                            quoted_values = [f"'{v}'" if isinstance(v, str) else str(v) for v in values]
+                                            self._filters.append(f"{column_name} IN ({', '.join(quoted_values)})")
+                                        except:
+                                            # Fall back to string representation parsing
+                                            if hasattr(condition.right, '__str__'):
+                                                right_str = str(condition.right)
+                                                if '[' in right_str and ']' in right_str:
+                                                    # Extract values from string representation
+                                                    values_str = right_str.split('[')[1].split(']')[0]
+                                                    values = [v.strip().strip("'\"") for v in values_str.split(',')]
+                                                    quoted_values = [f"'{v}'" if isinstance(v, str) else str(v) for v in values if v]
+                                                    self._filters.append(f"{column_name} IN ({', '.join(quoted_values)})")
+                                                else:
+                                                    self._filters.append(f"{column_name} IN ({right_value})")
+                                            else:
+                                                self._filters.append(f"{column_name} IN ({right_value})")
+                                    else:
+                                        # Single value IN
+                                        if isinstance(right_value, str):
+                                            self._filters.append(f"{column_name} IN ('{right_value}')")
+                                        else:
+                                            self._filters.append(f"{column_name} IN ({right_value})")
+                                else:
+                                    # Default to equality for unknown operators
+                                    if isinstance(right_value, str):
+                                        self._filters.append(f"{column_name} = '{right_value}'")
+                                    elif isinstance(right_value, bool):
+                                        self._filters.append(f"{column_name} = {'true' if right_value else 'false'}")
+                                    else:
+                                        self._filters.append(f"{column_name} = {right_value}")
+                            else:
+                                # No operator info, assume equality
+                                if isinstance(right_value, str):
+                                    self._filters.append(f"{column_name} = '{right_value}'")
+                                elif isinstance(right_value, bool):
+                                    self._filters.append(f"{column_name} = {'true' if right_value else 'false'}")
+                                else:
+                                    self._filters.append(f"{column_name} = {right_value}")
+                                    
+                    elif hasattr(condition, 'element') and hasattr(condition, 'value'):
+                        # Handle simple comparisons
+                        if hasattr(condition.element, 'name'):
+                            column_name = condition.element.name
+                            value = condition.value
+                            if isinstance(value, str):
+                                self._filters.append(f"{column_name} = '{value}'")
+                            elif isinstance(value, bool):
+                                self._filters.append(f"{column_name} = {'true' if value else 'false'}")
+                            else:
+                                self._filters.append(f"{column_name} = {value}")
+                    else:
+                        # Try to stringify the condition safely
+                        # Basic parsing for simple conditions
+                        if ' = ' in condition_str:
+                            self._filters.append(condition_str)
+                        elif ' IN ' in condition_str:
+                            # Already handled above
+                            pass
+                        else:
+                            print(f"Warning: Could not parse condition: {condition_str}")
+                            
+                except Exception as e:
+                    print(f"Warning: Could not process filter condition: {condition}, error: {e}")
+                    # Try to fall back to string representation
+                    try:
+                        condition_str = str(condition)
+                        if ' = ' in condition_str or ' IN ' in condition_str:
+                            self._filters.append(condition_str)
+                    except:
+                        pass
+            return self
+            
+        def all(self):
+            """Execute query and return all results"""
+            # Build SELECT query
+            table_name = self.model_class.__tablename__
+            columns = []
+            
+            # Get column names from the model
+            if hasattr(self.model_class, '__table__'):
+                # Quote reserved keywords in column names
+                columns = []
+                for col in self.model_class.__table__.columns:
+                    col_name = f'"{col.name}"' if col.name in ['limit', 'order', 'group'] else col.name
+                    columns.append(col_name)
+            else:
+                # Fallback to common columns
+                columns = ['*']
                 
-            def execute(self, query, params=None):
-                """Execute a query using PGlite bridge"""
-                if hasattr(query, 'compile'):
-                    # Handle SQLAlchemy query objects
+            select_clause = ', '.join(columns) if columns != ['*'] else '*'
+            query = f"SELECT {select_clause} FROM {table_name}"
+            
+            # Add WHERE clauses
+            if self._filters:
+                query += " WHERE " + " AND ".join(self._filters)
+                
+            # Add soft delete filter if model has is_deleted
+            if hasattr(self.model_class, 'is_deleted'):
+                if self._filters:
+                    query += " AND is_deleted = false"
+                else:
+                    query += " WHERE is_deleted = false"
+            
+            try:
+                result = self.session.connector.execute_query(query)
+                # Create a ResultWrapper with proper query context and return converted objects
+                query_context = type('QueryContext', (), {
+                    'model_class': self.model_class
+                })()
+                wrapper = ResultWrapper(result, query_context)
+                return wrapper.all()
+            except Exception as e:
+                print(f"PGliteQuery error: {e}")
+                return []
+
+    # Create a simple adapter to make PGlite work with existing code
+    class PGliteSession:
+        """Adapter to make PGlite work with SQLAlchemy-style code"""
+        
+        def __init__(self, connector):
+            self.connector = connector
+            self._objects = []  # Track objects to be persisted
+            
+        def execute(self, query, params=None):
+            """Execute a query using PGlite bridge"""
+            query_context = None
+            
+            # Convert query to string safely
+            if hasattr(query, 'compile'):
+                # Handle SQLAlchemy query objects
+                try:
+                    # Try to compile safely
                     compiled = query.compile(compile_kwargs={"literal_binds": True})
                     query_str = str(compiled)
-                else:
+                    
+                    # Try to extract model class from the query - enhanced detection
+                    model_class = None
+                    
+                    # Method 1: Check column_descriptions
+                    if hasattr(query, 'column_descriptions'):
+                        for desc in query.column_descriptions:
+                            if desc.get('entity'):
+                                model_class = desc['entity']
+                                break
+                    
+                    # Method 2: Check if it's a Select query with selected_columns
+                    if not model_class and hasattr(query, 'selected_columns'):
+                        for col in query.selected_columns:
+                            if hasattr(col, 'table') and hasattr(col.table, 'entity'):
+                                model_class = col.table.entity
+                                break
+                    
+                    # Method 3: Check froms (tables being selected from)
+                    if not model_class and hasattr(query, 'froms'):
+                        for table in query.froms:
+                            if hasattr(table, 'entity'):
+                                model_class = table.entity
+                                break
+                    
+                    # Method 4: Check table attribute directly
+                    if not model_class and hasattr(query, 'table') and hasattr(query.table, 'entity'):
+                        model_class = query.table.entity
+                    
+                    # Method 5: For complex queries, try to infer from the SQL string
+                    if not model_class:
+                        # Look for table names in the compiled SQL and try to map back to models
+                        from mirix.orm.sqlalchemy_base import Base
+                        query_str_lower = query_str.lower()
+                        for table_name, table in Base.metadata.tables.items():
+                            if f"from {table_name}" in query_str_lower or f"FROM {table_name}" in query_str:
+                                # Found the table, now try to find the corresponding model class
+                                if hasattr(table, 'entity'):
+                                    model_class = table.entity
+                                    break
+                                # Alternative: search through all registered models
+                                for cls in Base.__subclasses__():
+                                    if hasattr(cls, '__tablename__') and cls.__tablename__ == table_name:
+                                        model_class = cls
+                                        break
+                                if model_class:
+                                    break
+                    
+                    # Create query context if we found a model class
+                    if model_class:
+                        query_context = type('QueryContext', (), {
+                            'model_class': model_class
+                        })()
+                        
+                except Exception as e:
+                    # If compilation fails, fall back to string representation
+                    print(f"Warning: Could not compile query: {e}")
                     query_str = str(query)
-                
-                result = self.connector.execute_query(query_str, params)
-                
-                # Create a simple result wrapper
-                class ResultWrapper:
-                    def __init__(self, data):
-                        self.rows = data.get('rows', [])
-                        self.rowcount = data.get('rowCount', 0)
-                        
-                    def scalars(self):
-                        return self.rows
-                        
-                    def all(self):
-                        return self.rows
-                        
-                    def first(self):
-                        return self.rows[0] if self.rows else None
-                        
-                return ResultWrapper(result)
-                
-            def commit(self):
-                pass  # PGlite handles commits automatically
-                
-            def rollback(self):
-                pass  # Basic implementation
-                
-            def close(self):
-                pass  # No need to close PGlite sessions
-        
-        class PGliteEngine:
-            """Engine adapter for PGlite"""
+            else:
+                query_str = str(query)
             
-            def __init__(self, connector):
-                self.connector = connector
-                
-            def connect(self):
-                return PGliteSession(self.connector)
-                
-        # Create the engine
-        engine = PGliteEngine(pglite_connector)
+            try:
+                result = self.connector.execute_query(query_str, params)
+            except Exception as e:
+                # Return empty result on error
+                result = {'rows': [], 'rowCount': 0}
+            
+            # Always return a ResultWrapper with query context
+            return ResultWrapper(result, query_context)
+            
+        def add(self, obj):
+            """Add an object to the session"""
+            self._objects.append(obj)
+            # For PGlite, we'll flush immediately to keep it simple
+            self.flush()
+            
+        def flush(self):
+            """Flush pending changes to the database"""
+            for obj in self._objects:
+                if hasattr(obj, '__table__'):
+                    # Generate INSERT SQL
+                    table = obj.__table__
+                    columns = []
+                    values = []
+                    for column in table.columns:
+                        if hasattr(obj, column.name):
+                            value = getattr(obj, column.name)
+                            # Handle None values with proper defaults
+                            if value is None:
+                                # First check SQLAlchemy default (client-side)
+                                if column.default is not None:
+                                    if callable(column.default.arg):
+                                        # Execute the default function
+                                        try:
+                                            # Try calling with no arguments first
+                                            value = column.default.arg()
+                                        except TypeError:
+                                            # If that fails, try with a context parameter
+                                            try:
+                                                value = column.default.arg(None)
+                                            except TypeError:
+                                                # If both fail, skip this column
+                                                print(f"Warning: Could not execute default function for {column.name}")
+                                                continue
+                                    else:
+                                        # Use the default value
+                                        value = column.default.arg
+                                    # Set the value back on the object
+                                    setattr(obj, column.name, value)
+                                # Then check server default (database-level)
+                                elif column.server_default is not None:
+                                    # Apply server default for specific types
+                                    if column.type.python_type == bool:
+                                        # Handle boolean server defaults
+                                        default_str = str(column.server_default.arg).upper()
+                                        if 'FALSE' in default_str or 'false' in default_str:
+                                            value = False
+                                        elif 'TRUE' in default_str or 'true' in default_str:
+                                            value = True
+                                        else:
+                                            value = False  # Default fallback for boolean columns
+                                        # Set the value back on the object
+                                        setattr(obj, column.name, value)
+                                    elif column.type.python_type == str:
+                                        if 'uuid' in str(column.server_default).lower():
+                                            # Let database handle UUID generation
+                                            continue
+                                        else:
+                                            # Skip other server defaults
+                                            continue
+                                    elif column.type.python_type == datetime:
+                                        # Let database handle datetime defaults
+                                        continue
+                                    else:
+                                        continue
+                            
+                            # Handle custom column types that should default to empty lists
+                            if value is None:
+                                # Check for custom column types that return lists when None
+                                if hasattr(column.type, 'process_result_value'):
+                                    try:
+                                        # Call the deserializer with None to get the default value
+                                        default_value = column.type.process_result_value(None, None)
+                                        if isinstance(default_value, list):
+                                            setattr(obj, column.name, default_value)
+                                            # For non-nullable fields, we need to insert the empty JSON array
+                                            if not column.nullable:
+                                                column_name = f'"{column.name}"' if column.name in ['limit', 'order', 'group'] else column.name
+                                                columns.append(column_name)
+                                                values.append("'[]'")  # Empty JSON array
+                                            continue
+                                    except:
+                                        # If deserialization fails, continue with normal flow
+                                        pass
+                                # Handle regular list fields
+                                elif hasattr(column.type, 'python_type') and getattr(column.type, 'python_type', None) == list:
+                                    setattr(obj, column.name, [])
+                                    # For non-nullable fields, we need to insert the empty JSON array
+                                    if not column.nullable:
+                                        column_name = f'"{column.name}"' if column.name in ['limit', 'order', 'group'] else column.name
+                                        columns.append(column_name)
+                                        values.append("'[]'")  # Empty JSON array
+                                    continue
+                            
+                            if value is not None:
+                                # Quote reserved keywords
+                                column_name = f'"{column.name}"' if column.name in ['limit', 'order', 'group'] else column.name
+                                columns.append(column_name)
+                                
+                                # Handle custom column types first
+                                if hasattr(column.type, 'process_bind_param'):
+                                    try:
+                                        # Process through custom column type's bind parameter method
+                                        processed_value = column.type.process_bind_param(value, None)
+                                        if processed_value is not None:
+                                            import json
+                                            json_str = json.dumps(processed_value).replace("'", "''")
+                                            values.append(f"'{json_str}'")
+                                        else:
+                                            values.append('NULL')
+                                        continue
+                                    except Exception as e:
+                                        # If custom processing fails, fall through to default handling
+                                        pass
+                                
+                                if isinstance(value, str):
+                                    # Escape single quotes in string values
+                                    escaped_value = value.replace("'", "''")
+                                    values.append(f"'{escaped_value}'")
+                                elif isinstance(value, bool):
+                                    values.append('true' if value else 'false')
+                                elif value is None:
+                                    values.append('NULL')
+                                elif isinstance(value, (int, float)):
+                                    values.append(str(value))
+                                elif isinstance(value, (dict, list)):
+                                    # Handle JSON fields - convert to proper JSON string
+                                    import json
+                                    json_str = json.dumps(value).replace("'", "''")
+                                    values.append(f"'{json_str}'")
+                                else:
+                                    # For other types, convert to string and escape
+                                    str_value = str(value).replace("'", "''")
+                                    values.append(f"'{str_value}'")
+                    
+                    if columns:
+                        insert_sql = f"INSERT INTO {table.name} ({', '.join(columns)}) VALUES ({', '.join(values)})"
+                        try:
+                            self.connector.execute_sql(insert_sql)
+                        except Exception as e:
+                            print(f"Failed to insert into {table.name}: {e}")
+                            print(f"SQL: {insert_sql}")
+                            
+            self._objects.clear()
+            
+        def merge(self, obj):
+            """Merge an object (for PGlite, treat as add)"""
+            self.add(obj)
+            return obj
+            
+        def delete(self, obj):
+            """Delete an object"""
+            if hasattr(obj, '__table__') and hasattr(obj, 'id'):
+                table = obj.__table__
+                delete_sql = f"DELETE FROM {table.name} WHERE id = '{obj.id}'"
+                try:
+                    self.connector.execute_sql(delete_sql)
+                except Exception as e:
+                    print(f"Failed to delete from {table.name}: {e}")
+                    
+        def refresh(self, obj):
+            """Refresh an object from the database"""
+            # For PGlite, we'll just leave the object as-is since we don't have
+            # sophisticated session management
+            pass
+            
+        def query(self, model_class):
+            """Create a query for the given model class"""
+            return PGliteQuery(model_class, self)
         
-        # Create sessionmaker
-        class PGliteSessionMaker:
-            def __init__(self, engine):
-                self.engine = engine
+        def commit(self):
+            """Commit the transaction"""
+            self.flush()  # Ensure all objects are persisted
+            
+        def rollback(self):
+            """Rollback the transaction"""
+            self._objects.clear()  # Clear pending objects
+            
+        def close(self):
+            """Close the session"""
+            pass  # No need to close PGlite sessions
+            
+        # Context manager support
+        def __enter__(self):
+            return self
+            
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            if exc_type:
+                self.rollback()
+            else:
+                self.commit()
+            self.close()
+            return False
+    
+    # Create a simple result wrapper
+    class ResultWrapper:
+        def __init__(self, data, query_context=None):
+            self.rows = data.get('rows', [])
+            self.rowcount = data.get('rowCount', 0)
+            self.query_context = query_context
+            
+        def scalars(self):
+            return self.rows
+            
+        def scalar(self):
+            """Return the first element of the first row, or None if no rows"""
+            if self.rows and len(self.rows) > 0:
+                row = self.rows[0]
+                # Try to convert back to ORM object if this was a SELECT * query
+                if self.query_context and hasattr(self.query_context, 'model_class'):
+                    try:
+                        return self._construct_orm_object(row, self.query_context.model_class)
+                    except:
+                        pass
                 
-            def __call__(self):
-                return self.engine.connect()
-                
-        SessionLocal = PGliteSessionMaker(engine)
+                # Fall back to raw value handling
+                if isinstance(row, (list, tuple)) and len(row) > 0:
+                    return row[0]
+                elif isinstance(row, dict) and row:
+                    # Return the first value if it's a dict
+                    return next(iter(row.values()))
+                else:
+                    return row
+            return None
+            
+        def _construct_orm_object(self, row_data, model_class):
+            """Attempt to construct an ORM object from raw database data"""
+            if isinstance(row_data, dict):
+                try:
+                    # Create a simple object that holds the data and has the required methods
+                    class PGliteORM:
+                        def __init__(self, data, model_cls):
+                            self._model_class = model_cls
+                            # Get valid column names to avoid accessing SQLAlchemy descriptors
+                            valid_columns = set()
+                            if hasattr(model_cls, '__table__'):
+                                valid_columns = {col.name for col in model_cls.__table__.columns}
+                            
+                            # Process column data
+                            for key, value in data.items():
+                                if key in valid_columns:
+                                    # Ensure we're setting actual values, not SQLAlchemy objects
+                                    if hasattr(value, 'value'):
+                                        actual_value = value.value
+                                    else:
+                                        actual_value = value
+                                    
+                                    # Handle custom column types that need deserialization
+                                    column = None
+                                    if hasattr(model_cls, '__table__'):
+                                        for col in model_cls.__table__.columns:
+                                            if col.name == key:
+                                                column = col
+                                                break
+                                    
+                                    if column is not None and hasattr(column.type, 'process_result_value'):
+                                        try:
+                                            # Use the custom column type's deserializer
+                                            processed_value = column.type.process_result_value(actual_value, None)
+                                            setattr(self, key, processed_value)
+                                        except Exception:
+                                            # If deserialization fails, use raw value
+                                            setattr(self, key, actual_value)
+                                    else:
+                                        setattr(self, key, actual_value)
+                        
+                        def to_pydantic(self):
+                            # Try to construct the pydantic model with our data
+                            if hasattr(self._model_class, '__pydantic_model__'):
+                                try:
+                                    # Get the Pydantic model fields to filter out unwanted fields
+                                    pydantic_model = self._model_class.__pydantic_model__
+                                    pydantic_fields = set(pydantic_model.model_fields.keys())
+                                    
+                                    # Get all attributes that correspond to table columns AND are in the Pydantic model
+                                    data = {}
+                                    if hasattr(self._model_class, '__table__'):
+                                        for col in self._model_class.__table__.columns:
+                                            if col.name in pydantic_fields and hasattr(self, col.name):
+                                                data[col.name] = getattr(self, col.name)
+                                    
+                                    return pydantic_model.model_validate(data)
+                                except Exception as e:
+                                    print(f"Error creating Pydantic model for {self._model_class}: {e}")
+                                    pass
+                            return None
+                        
+                        def __getattr__(self, name):
+                            # Fallback for any missing attributes
+                            # Don't try to access the model class directly to avoid descriptor issues
+                            return None
+                        
+                        def update(self, db_session=None, actor=None):
+                            # For PGlite, we'll just return self since we can't actually update
+                            # TODO: implement actual update logic if needed
+                            return self
+                        
+                        def create(self, db_session=None, actor=None):
+                            # For PGlite, we'll just return self since we can't actually create
+                            # TODO: implement actual create logic if needed
+                            return self
+                        
+                        def delete(self, db_session=None, actor=None):
+                            # For PGlite, we'll just return self since we can't actually delete
+                            # TODO: implement actual delete logic if needed
+                            return self
+                    
+                    return PGliteORM(row_data, model_class)
+                    
+                except Exception as e:
+                    print(f"Error constructing ORM object for {model_class}: {e}")
+                    # Print the full exception trace for debugging
+                    import traceback
+                    traceback.print_exc()
+                    return None
+            return row_data  # Return the original data if it can't be converted
+            
+        def all(self):
+            if self.query_context and hasattr(self.query_context, 'model_class'):
+                # Convert all rows to ORM objects
+                objects = []
+                for row in self.rows:
+                    if row:
+                        obj = self._construct_orm_object(row, self.query_context.model_class)
+                        if obj is not None:
+                            objects.append(obj)
+                return objects
+            return self.rows
+            
+        def first(self):
+            if self.rows:
+                row = self.rows[0]
+                if self.query_context and hasattr(self.query_context, 'model_class'):
+                    return self._construct_orm_object(row, self.query_context.model_class)
+                return row
+            return None
+    
+    class PGliteEngine:
+        """Engine adapter for PGlite"""
         
-        # Set config for PGlite mode
-        config.recall_storage_type = "pglite"
-        config.recall_storage_uri = "pglite://local"
-        config.archival_storage_type = "pglite" 
-        config.archival_storage_uri = "pglite://local"
-        
-        print("PGlite adapter initialized successfully")
-        
-    except ImportError as e:
-        print(f"Failed to import PGlite connector: {e}")
-        print("Falling back to SQLite mode")
-        USE_PGLITE = False
+        def __init__(self, connector):
+            self.connector = connector
+            
+        def connect(self):
+            return PGliteSession(self.connector)
+            
+        def execute(self, query, params=None):
+            """Execute query directly on engine"""
+            return self.connector.execute_query(str(query), params)
+            
+    # Create the engine
+    engine = PGliteEngine(pglite_connector)
+    
+    # Create sessionmaker
+    class PGliteSessionMaker:
+        def __init__(self, engine):
+            self.engine = engine
+            
+        def __call__(self):
+            return self.engine.connect()
+            
+    SessionLocal = PGliteSessionMaker(engine)
+    
+    print("PGlite adapter initialized successfully")
+
 
 if not USE_PGLITE and settings.mirix_pg_uri_no_default:
     print("Creating engine", settings.mirix_pg_uri)

@@ -16,6 +16,12 @@ load_dotenv()
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# Check for PGLite mode early and set environment variable before any ORM imports
+USE_PGLITE = os.environ.get('MIRIX_USE_PGLITE', 'false').lower() == 'true'
+if USE_PGLITE:
+    # Set environment variable to force CommonVector usage in ORM models
+    os.environ['MIRIX_FORCE_COMMON_VECTOR'] = 'true'
+
 def main():
     """Main entry point for Mirix application."""
     parser = argparse.ArgumentParser(description='Mirix AI Assistant Server')

@@ -27,8 +27,25 @@ class PGliteConnector:
                 json=data,
                 timeout=30
             )
-            response.raise_for_status()
+            
+            # Check if the response contains an error
+            if response.status_code >= 400:
+                try:
+                    error_data = response.json()
+                    if 'error' in error_data:
+                        # Create a custom exception with the actual database error message
+                        error_message = error_data['error']
+                        if 'code' in error_data:
+                            error_message += f" (code: {error_data['code']})"
+                        raise Exception(error_message)
+                except ValueError:
+                    # If JSON parsing fails, fall back to HTTP error
+                    response.raise_for_status()
+            
             return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"PGlite bridge request failed: {e}")
+            raise
         except Exception as e:
             logger.error(f"PGlite bridge request failed: {e}")
             raise

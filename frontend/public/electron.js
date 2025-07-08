@@ -7,9 +7,17 @@ const { spawn } = require('child_process');
 const screenshot = require('screenshot-desktop');
 const http = require('http');
 
+// Add WebAssembly support flags for PGLite
+app.commandLine.appendSwitch('enable-features', 'WebAssemblyThreads');
+app.commandLine.appendSwitch('enable-experimental-web-platform-features');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=4096');
+
+// Import PGLite bridge server
+const { startPGLiteBridge, stopPGLiteBridge, closePGLite } = require('../src/pglite-bridge.js');
+
 // Override isDev for packaged apps
 const isPackaged = app.isPackaged || 
-                  process.mainModule.filename.indexOf('app.asar') !== -1 ||
+                  (process.mainModule && process.mainModule.filename && process.mainModule.filename.indexOf('app.asar') !== -1) ||
                   process.execPath.indexOf('MIRIX.app') !== -1 ||
                   __dirname.indexOf('app.asar') !== -1;
 const actuallyDev = isDev && !isPackaged;
@@ -36,6 +44,10 @@ let mainWindow;
 let backendProcess = null;
 const backendPort = 8000;
 let backendLogFile = null;
+
+// PGLite bridge server
+let pgliteBridgeServer = null;
+const pgliteBridgePort = 8001;
 
 // Create screenshots directory
 function ensureScreenshotDirectory() {
@@ -250,16 +262,31 @@ function startBackendServer() {
         logToBackendFile(`❌ Source configs directory not found: ${sourceConfigsDir}`);
       }
       
+      // Check if PGLite mode is enabled
+      const usePGLite = process.env.MIRIX_USE_PGLITE === 'true';
+      
       // Prepare environment variables
       const env = {
         ...process.env,
         PORT: backendPort.toString(),
         PYTHONPATH: workingDir,
-        MIRIX_PG_URI: '', // Force SQLite fallback
         DEBUG: 'true',
         MIRIX_DEBUG: 'true',
         MIRIX_LOG_LEVEL: 'DEBUG'
       };
+      
+      if (usePGLite) {
+        // Configure for PGLite mode
+        env.MIRIX_USE_PGLITE = 'true';
+        env.MIRIX_PGLITE_BRIDGE_URL = `http://127.0.0.1:${pgliteBridgePort}`;
+        env.MIRIX_PG_URI = ''; // Clear PostgreSQL URI
+        logToBackendFile('🔧 Configuring backend for PGLite mode');
+      } else {
+        // Configure for SQLite mode (default)
+        env.MIRIX_PG_URI = ''; // Force SQLite fallback
+        env.MIRIX_USE_PGLITE = 'false';
+        logToBackendFile('🔧 Configuring backend for SQLite mode');
+      }
       
       logToBackendFile(`Environment variables: PORT=${env.PORT}, PYTHONPATH=${env.PYTHONPATH}, MIRIX_PG_URI=${env.MIRIX_PG_URI}`);
       
@@ -419,6 +446,63 @@ function stopBackendServer() {
   }
 }
 
+// PGLite bridge server management
+async function startPGLiteBridgeServer() {
+  try {
+    if (pgliteBridgeServer) {
+      logToBackendFile('PGLite bridge server already running');
+      return;
+    }
+    
+    logToBackendFile('Starting PGLite bridge server...');
+    pgliteBridgeServer = await startPGLiteBridge(pgliteBridgePort);
+    logToBackendFile(`✅ PGLite bridge server started on port ${pgliteBridgePort}`);
+    
+  } catch (error) {
+    logToBackendFile(`❌ Failed to start PGLite bridge server: ${error.message}`);
+    throw error;
+  }
+}
+
+async function stopPGLiteBridgeServer() {
+  if (pgliteBridgeServer) {
+    logToBackendFile('Stopping PGLite bridge server...');
+    stopPGLiteBridge();
+    await closePGLite();
+    pgliteBridgeServer = null;
+    logToBackendFile('✅ PGLite bridge server stopped');
+  }
+}
+
+async function isPGLiteBridgeHealthy() {
+  try {
+    const response = await new Promise((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${pgliteBridgePort}/health`, { timeout: 5000 }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            resolve(data);
+          } else {
+            reject(new Error(`Health check failed: ${res.statusCode}`));
+          }
+        });
+      });
+      
+      req.on('error', reject);
+      req.setTimeout(5000, () => {
+        req.destroy();
+        reject(new Error('Health check timeout'));
+      });
+    });
+    
+    return true;
+  } catch (error) {
+    logToBackendFile(`PGLite bridge health check failed: ${error.message}`);
+    return false;
+  }
+}
+
 function createWindow() {
   ensureScreenshotDirectory();
 
@@ -540,6 +624,15 @@ async function startBackendInBackground() {
   
   try {
     logToBackendFile('Initial backend startup...');
+    
+    // Start PGLite bridge server if enabled
+    const usePGLite = process.env.MIRIX_USE_PGLITE === 'true';
+    if (usePGLite) {
+      logToBackendFile('🔧 Starting PGLite bridge server...');
+      await startPGLiteBridgeServer();
+      logToBackendFile('✅ PGLite bridge server started');
+    }
+    
     await ensureBackendRunning();
     logToBackendFile('✅ Backend initialization complete');
     
@@ -582,15 +675,17 @@ async function startBackendInBackground() {
   }
 }
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
   stopBackendServer();
+  await stopPGLiteBridgeServer();
   if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   stopBackendServer();
+  await stopPGLiteBridgeServer();
 });
 
 app.on('web-contents-created', (event, contents) => {
