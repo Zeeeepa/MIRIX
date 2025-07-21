@@ -1,0 +1,445 @@
+.memory-list-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: white;
+}
+
+.memory-search-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f8f9fa;
+  gap: 15px;
+}
+
+.search-input-container {
+  position: relative;
+  flex: 0 0 220px;
+  max-width: 220px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #999;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 40px 10px 40px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.clear-search-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background-color 0.3s ease;
+}
+
+.clear-search-button:hover {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.refresh-button {
+  padding: 10px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: #0056b3;
+}
+
+.refresh-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.memory-items-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px 20px;
+}
+
+/* Memory item styles */
+.memory-item {
+  margin-bottom: 15px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background: white;
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+  text-align: left;
+}
+
+.memory-item:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-1px);
+}
+
+/* Episodic memory styles - now uses semantic memory styling */
+
+/* Semantic memory styles */
+.semantic-memory .memory-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 8px;
+}
+
+.semantic-memory .memory-summary {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+
+/* Procedural memory styles */
+.procedural-memory .memory-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.memory-steps {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.memory-steps ol {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+}
+
+.memory-steps li {
+  margin-bottom: 5px;
+  line-height: 1.4;
+}
+
+.memory-proficiency,
+.memory-difficulty,
+.memory-success-rate,
+.memory-time,
+.memory-practiced,
+.memory-prerequisites {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+/* Resource memory styles */
+.resource-memory .memory-filename {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.resource-memory .memory-file-type {
+  font-size: 12px;
+  color: #007bff;
+  background: #e7f3ff;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.resource-memory .memory-summary {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.memory-accessed,
+.memory-size {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+/* Core memory styles */
+.core-memory {
+  border-left: 4px solid #28a745;
+  background: #f8fff9;
+}
+
+.memory-aspect-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.memory-aspect {
+  font-size: 16px;
+  font-weight: 600;
+  color: #28a745;
+}
+
+.memory-understanding {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  background: white;
+  padding: 15px;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+}
+
+/* Credential memory styles */
+.credential-memory {
+  border-left: 4px solid #dc3545;
+  background: #fff8f8;
+}
+
+.memory-credential-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #dc3545;
+  margin-bottom: 6px;
+}
+
+.memory-credential-type {
+  font-size: 12px;
+  color: #dc3545;
+  background: #ffeaea;
+  padding: 2px 8px;
+  border-radius: 12px;
+  display: inline-block;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.memory-credential-content {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.memory-credential-source {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.memory-credential-sensitivity {
+  margin-top: 8px;
+}
+
+.sensitivity-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.sensitivity-high {
+  background: #dc3545;
+  color: white;
+}
+
+.sensitivity-medium {
+  background: #ffc107;
+  color: #212529;
+}
+
+.sensitivity-low {
+  background: #28a745;
+  color: white;
+}
+
+/* Common styles */
+.memory-details-section {
+  margin-top: 12px;
+}
+
+.expand-toggle-button {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: #666;
+}
+
+.expand-toggle-button:hover {
+  background: #e9ecef;
+  border-color: #d0d0d0;
+  color: #333;
+}
+
+
+
+.memory-details {
+  margin-top: 10px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #555;
+  border-left: 3px solid #007bff;
+}
+
+
+
+.memory-updated {
+  font-size: 11px;
+  color: #999;
+  margin-top: 8px;
+  text-align: right;
+}
+
+.memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.memory-tag {
+  background: #e7f3ff;
+  color: #0066cc;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Search highlighting */
+.search-highlight {
+  background: #fff3cd;
+  color: #856404;
+  font-weight: 600;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Loading and error states */
+.memory-list-loading,
+.memory-list-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #666;
+}
+
+.memory-list-error {
+  color: #dc3545;
+}
+
+.loading-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.retry-button {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.retry-button:hover {
+  background: #0056b3;
+}
+
+.memory-empty {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  padding: 40px 20px;
+}
+
+.memory-empty p {
+  margin: 0 0 10px 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .memory-search-section {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+  
+  .search-input-container {
+    max-width: none;
+  }
+  
+  .memory-items-container {
+    padding: 10px 15px;
+  }
+  
+  .memory-item {
+    padding: 15px;
+    margin-bottom: 10px;
+  }
+  
+  .memory-aspect-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+} 

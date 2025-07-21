@@ -104,6 +104,8 @@ class AgentWrapper():
         self.agent_name = agent_config['agent_name']
         self.model_name = agent_config['model_name']
         self.is_screen_monitor = agent_config.get('is_screen_monitor', False)
+        self.is_indexing_anything = agent_config.get('is_indexing_anything', False)
+        self.attach_image_to_memory = agent_config.get('attach_image_to_memory', False)
 
         # Initialize logger early
         self.logger = logging.getLogger(f"Mirix.AgentWrapper.{self.agent_name}")
@@ -145,7 +147,15 @@ class AgentWrapper():
                 elif agent_state.name == 'background_agent':
                     self.agent_states.background_agent_state = agent_state
 
-                system_prompt = gpt_system.get_system_text(agent_state.name) if not self.is_screen_monitor else gpt_system.get_system_text(agent_state.name + '_screen_monitor')
+                # Build system prompt path based on flags
+                if self.is_indexing_anything:
+                    system_prompt_name = 'index_anything/' + agent_state.name
+                elif self.is_screen_monitor:
+                    system_prompt_name = 'screen_monitor/' + agent_state.name
+                else:
+                    system_prompt_name = 'naive/' + agent_state.name
+                    
+                system_prompt = gpt_system.get_system_text(system_prompt_name)
 
                 self.client.server.agent_manager.update_agent_tools_and_system_prompts(
                     agent_id=agent_state.id,
@@ -154,20 +164,36 @@ class AgentWrapper():
                 )
             
             if self.agent_states.reflexion_agent_state is None:
+                # Build system prompt path for reflexion agent
+                if self.is_indexing_anything:
+                    reflexion_system_prompt = 'index_anything/reflexion_agent'
+                elif self.is_screen_monitor:
+                    reflexion_system_prompt = 'screen_monitor/reflexion_agent'
+                else:
+                    reflexion_system_prompt = 'naive/reflexion_agent'
+                    
                 reflexion_agent_state = self.client.create_agent(
                     name='reflexion_agent',
                     memory=self.agent_states.agent_state.memory,
                     agent_type=AgentType.reflexion_agent,
-                    system=gpt_system.get_system_text('reflexion_agent'),
+                    system=gpt_system.get_system_text(reflexion_system_prompt),
                 )
                 setattr(self.agent_states, 'reflexion_agent_state', reflexion_agent_state)
             
             if self.agent_states.background_agent_state is None:
+                # Build system prompt path for background agent
+                if self.is_indexing_anything:
+                    background_system_prompt = 'index_anything/background_agent'
+                elif self.is_screen_monitor:
+                    background_system_prompt = 'screen_monitor/background_agent'
+                else:
+                    background_system_prompt = 'naive/background_agent'
+                    
                 background_agent_state = self.client.create_agent(
                     name='background_agent',
                     agent_type=AgentType.background_agent,
                     memory=self.agent_states.agent_state.memory,
-                    system=gpt_system.get_system_text('background_agent'),
+                    system=gpt_system.get_system_text(background_system_prompt),
                 )
                 setattr(self.agent_states, 'background_agent_state', background_agent_state)
             
@@ -182,18 +208,34 @@ class AgentWrapper():
             for config in AGENT_CONFIGS:
                 if config['name'] == 'chat_agent':
                     # chat_agent has different parameters
+                    # Build system prompt path for chat agent
+                    if self.is_indexing_anything:
+                        chat_system_prompt = 'index_anything/chat_agent'
+                    elif self.is_screen_monitor:
+                        chat_system_prompt = 'screen_monitor/chat_agent'
+                    else:
+                        chat_system_prompt = 'naive/chat_agent'
+                        
                     agent_state = self.client.create_agent(
                         name=config['name'],
                         memory=core_memory,
-                        system=gpt_system.get_system_text(config['name']),
+                        system=gpt_system.get_system_text(chat_system_prompt),
                     )
                 else:
                     # All other agents follow the same pattern
+                    # Build system prompt path based on flags
+                    if self.is_indexing_anything:
+                        system_prompt_name = 'index_anything/' + config['name']
+                    elif self.is_screen_monitor:
+                        system_prompt_name = 'screen_monitor/' + config['name']
+                    else:
+                        system_prompt_name = 'naive/' + config['name']
+                        
                     agent_state = self.client.create_agent(
                         name=config['name'],
                         agent_type=config['agent_type'],
                         memory=core_memory,
-                        system=gpt_system.get_system_text(config['name']) if not self.is_screen_monitor else gpt_system.get_system_text(config['name']) + gpt_system.get_system_text(config['name'] + '_screen_monitor'),
+                        system=gpt_system.get_system_text(system_prompt_name),
                         include_base_tools=config['include_base_tools'],
                     )
                 
@@ -795,6 +837,7 @@ class AgentWrapper():
                       images=None, 
                       image_uris=None, 
                       voice_files=None,
+                      file_paths=None,
                       memorizing=False, 
                       delete_after_upload=True, 
                       specific_timestamps=None,
@@ -814,8 +857,9 @@ class AgentWrapper():
         if memorizing:
             
             # Validate that at least some content is provided for memorization
-            if message is None and images is None and image_uris is None and voice_files is None:
-                self.logger.warning("Warning: memorizing=True but no content (message, images, image_uris, or voice_files) provided. Skipping memorization.")
+            if (message is None and images is None and image_uris is None and 
+                voice_files is None and file_paths is None):
+                self.logger.warning("Warning: memorizing=True but no content provided. Skipping memorization.")
                 return None
             
             # Get timestamp for this memorization event
@@ -837,8 +881,10 @@ class AgentWrapper():
                     'message': message,
                     'image_uris': image_uris,
                     'voice_files': voice_files,
+                    'file_paths': file_paths,
                 },
                 timestamp,
+                attach_image_to_memory=self.attach_image_to_memory,
                 delete_after_upload=delete_after_upload,
                 async_upload=async_upload
             )
@@ -849,10 +895,10 @@ class AgentWrapper():
                 t1 = time.time()
                 # Pass the ready messages to absorb_content_into_memory if available
                 if ready_messages:
-                    self.temp_message_accumulator.absorb_content_into_memory(self.agent_states, ready_messages)
+                    self.temp_message_accumulator.absorb_content_into_memory(self.agent_states, ready_messages, attach_image_to_memory=self.attach_image_to_memory)
                 else:
                     # Force absorb with whatever is available
-                    self.temp_message_accumulator.absorb_content_into_memory(self.agent_states)
+                    self.temp_message_accumulator.absorb_content_into_memory(self.agent_states, attach_image_to_memory=self.attach_image_to_memory)
                 t2 = time.time()
                 self.logger.info(f"Time taken to absorb content into memory: {t2 - t1} seconds")
                 self.clear_old_screenshots()
@@ -892,7 +938,8 @@ class AgentWrapper():
                             })
                             extra_messages.append({
                                 'type': 'google_cloud_file_uri',
-                                'google_cloud_file_uri': file_ref.uri
+                                'google_cloud_file_uri': file_ref.uri,
+                                'mime_type': file_ref.mime_type
                             })
                         else:
                             raise NotImplementedError("Local file paths are not supported for chat context")
@@ -950,7 +997,9 @@ class AgentWrapper():
             # Add conversation to accumulator
             self.temp_message_accumulator.add_user_conversation(message, response_text)
             
-            return response_text
+            # return response_text
+            # DEBUG
+            return [{'text': response_text}, {'image': "./image_1.png"}]
 
     def cleanup_upload_workers(self):
         """Delegate to UploadManager for cleanup."""
@@ -1247,6 +1296,8 @@ class AgentWrapper():
                         'active_persona_name': getattr(self, 'active_persona_name', 'helpful_assistant'),
                         'include_recent_screenshots': getattr(self, 'include_recent_screenshots', True),
                         'is_screen_monitor': getattr(self, 'is_screen_monitor', False),
+                        'is_indexing_anything': getattr(self, 'is_indexing_anything', False),
+                        "attach_image_to_memory": getattr(self, 'attach_image_to_memory', False),
                         'backup_type': 'postgresql',
                         'backup_timestamp': datetime.now().isoformat(),
                         'connection_info': {
@@ -1288,6 +1339,8 @@ class AgentWrapper():
                         'active_persona_name': getattr(self, 'active_persona_name', 'helpful_assistant'),
                         'include_recent_screenshots': getattr(self, 'include_recent_screenshots', True),
                         'is_screen_monitor': getattr(self, 'is_screen_monitor', False),
+                        'is_indexing_anything': getattr(self, 'is_indexing_anything', False),
+                        'attach_image_to_memory': getattr(self, 'attach_image_to_memory', False),
                         'backup_type': 'sqlite',
                         'backup_timestamp': datetime.now().isoformat()
                     }

@@ -1,0 +1,167 @@
+.memory-visualization-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.memory-panel-header {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.memory-panel-header h2 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 1.8rem;
+}
+
+.memory-panel-header p {
+  margin: 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+.memory-header {
+  border-bottom: 1px solid #e0e0e0;
+  margin-bottom: 0;
+}
+
+.memory-subtabs {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory-subtabs-left {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.memory-subtab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: #666;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+  transition: all 0.3s ease;
+  border-bottom: 3px solid transparent;
+  position: relative;
+  top: 1px;
+}
+
+.memory-subtab:hover {
+  background: #f8f9fa;
+  color: #333;
+}
+
+.memory-subtab.active {
+  background: white;
+  color: #007bff;
+  border-bottom-color: #007bff;
+  box-shadow: 0 -2px 8px rgba(0,0,0,0.1);
+}
+
+.subtab-icon {
+  font-size: 16px;
+}
+
+.subtab-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.memory-content {
+  flex: 1;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-top: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.memory-search-and-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #f8f9fa;
+}
+
+.view-mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: white;
+  border-radius: 6px;
+  padding: 4px;
+  border: 1px solid #e9ecef;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.view-mode-button {
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: #666;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-mode-button:hover {
+  background: #f8f9fa;
+  color: #333;
+}
+
+.view-mode-button.active {
+  background: #007bff;
+  color: white;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.memory-visualization-container {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .memory-subtabs-left {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  
+  .memory-subtab {
+    flex: 1;
+    min-width: calc(50% - 1px);
+    justify-content: center;
+    padding: 8px 12px;
+  }
+  
+  .subtab-label {
+    font-size: 13px;
+  }
+  
+  .subtab-icon {
+    font-size: 14px;
+  }
+  
+  .memory-search-and-actions {
+    padding: 10px 15px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+} 

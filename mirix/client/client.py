@@ -535,11 +535,11 @@ class LocalClient(AbstractClient):
         except Exception as e:
             raise ValueError(f"Failed to copy image from file URI {file_uri}: {str(e)}")
 
-    def _save_image_from_google_cloud_uri(self, cloud_uri: str) -> FileMetadata:
-        """Create FileMetadata from Google Cloud URI without downloading the image.
+    def _save_file_from_google_cloud_uri(self, cloud_uri: str, mime_type: str) -> FileMetadata:
+        """Create FileMetadata from Google Cloud URI without downloading the file.
         
         Google Cloud URIs are not directly downloadable and should be stored as remote references
-        in the source_url field, similar to how regular HTTP URLs are handled.
+        in the google_cloud_url field. This can handle any file type including images, PDFs, documents, etc.
         """
         # Parse URI to get file name - Google Cloud URIs typically come in the format:
         # https://generativelanguage.googleapis.com/v1beta/files/{file_id}
@@ -550,22 +550,7 @@ class LocalClient(AbstractClient):
         file_id = os.path.basename(parsed_uri.path) or "google_cloud_file"
         file_name = f"google_cloud_{file_id}"
         
-        # Ensure file name has an extension
-        if not os.path.splitext(file_name)[1]:
-            file_name += ".jpg"  # Default to jpg for images without extension
-        
-        # Determine MIME type from extension or default to image/jpeg
-        file_extension = os.path.splitext(file_name)[1].lower()
-        file_type_map = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg', 
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.bmp': 'image/bmp',
-            '.svg': 'image/svg+xml'
-        }
-        file_type = file_type_map.get(file_extension, 'image/jpeg')
+        file_type = mime_type
 
         # Create FileMetadata with Google Cloud URI in google_cloud_url field
         file_metadata = self.file_manager.create_file_metadata(
@@ -1188,11 +1173,12 @@ class LocalClient(AbstractClient):
                         )
                 
                 elif m['type'] == 'google_cloud_file_uri':
-                    # Google Cloud file URI
+                    # Google Cloud file URI (can be any file type: images, PDFs, documents, etc.)
                     # Handle both the typo version and the correct version from the test file
                     file_uri = m.get('google_cloud_file_uri') or m.get('file_uri')
+                    mime_type = m.get('mime_type', "application/png")
 
-                    file_metadata = self._save_image_from_google_cloud_uri(file_uri)
+                    file_metadata = self._save_file_from_google_cloud_uri(file_uri, mime_type)
                     return CloudFileContent(
                         type=MessageContentType.google_cloud_file_uri,
                         cloud_file_uri=file_metadata.id,

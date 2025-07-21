@@ -1,13 +1,15 @@
 import os
+import json
+import time
 import traceback
 import base64
 import tempfile
-import json
+import mimetypes
 from pathlib import Path
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import asyncio
@@ -53,6 +55,84 @@ To fix it, install FFmpeg:
 The warning doesn't affect functionality as pydub falls back gracefully.
 """
 
+# Utility functions for handling structured responses
+def load_image_as_base64(image_path: str) -> Optional[str]:
+    """
+    Load an image file and convert it to base64 data URI.
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        Base64 data URI string or None if file doesn't exist/error
+    """
+    try:
+        if not os.path.exists(image_path):
+            print(f"Image file not found: {image_path}")
+            return None
+            
+        # Get mime type
+        mime_type, _ = mimetypes.guess_type(image_path)
+        if not mime_type or not mime_type.startswith('image/'):
+            print(f"File is not an image: {image_path}")
+            return None
+            
+        # Read and encode the image
+        with open(image_path, "rb") as image_file:
+            image_data = image_file.read()
+            base64_data = base64.b64encode(image_data).decode('utf-8')
+            return f"data:{mime_type};base64,{base64_data}"
+            
+    except Exception as e:
+        print(f"Error loading image {image_path}: {str(e)}")
+        return None
+
+def process_structured_content(content_parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Process structured content parts, loading images as base64 data URIs.
+    
+    Args:
+        content_parts: List of content dictionaries
+        
+    Returns:
+        Processed content parts with images loaded as base64
+    """
+    processed_parts = []
+    
+    for part in content_parts:
+        if not isinstance(part, dict):
+            continue
+            
+        processed_part = part.copy()
+        
+        # Handle image content
+        if 'image' in part and part['image']:
+            image_path = part['image']
+            base64_image = load_image_as_base64(image_path)
+            if base64_image:
+                processed_part['image_data'] = base64_image
+                processed_part['image_path'] = image_path  # Keep original path for reference
+            else:
+                # Remove invalid image reference
+                processed_part.pop('image', None)
+        
+        # Handle file content (for now, just keep the path - could be enhanced later)
+        if 'file' in part and part['file']:
+            file_path = part['file']
+            if os.path.exists(file_path):
+                processed_part['file_path'] = file_path
+                # Get file info
+                file_stat = os.stat(file_path)
+                processed_part['file_size'] = file_stat.st_size
+                processed_part['file_mime_type'], _ = mimetypes.guess_type(file_path)
+            else:
+                # Remove invalid file reference
+                processed_part.pop('file', None)
+        
+        processed_parts.append(processed_part)
+    
+    return processed_parts
+
 app = FastAPI(title="Mirix Agent API", version="0.1.0")
 
 # Add CORS middleware
@@ -70,12 +150,16 @@ agent = None
 class MessageRequest(BaseModel):
     message: Optional[str] = None
     image_uris: Optional[List[str]] = None
+    image_uri: Optional[str] = None  # Single image URI for video frames
     voice_files: Optional[List[str]] = None  # Base64 encoded voice files
+    file_paths: Optional[List[str]] = None 
     memorizing: bool = False
+    force_absorb_content: bool = False
 
 class MessageResponse(BaseModel):
     response: str
     status: str = "success"
+    content_parts: Optional[List[Dict[str, Any]]] = None  # For structured responses with images/files
 
 class PersonaDetailsResponse(BaseModel):
     personas: Dict[str, str]
@@ -242,11 +326,33 @@ class ReflexionResponse(BaseModel):
     message: str
     processing_time: Optional[float] = None
 
+class SaveUploadedFileRequest(BaseModel):
+    file_name: str
+    file_data: str  # Base64 encoded file data
+    original_name: str
+    file_type: str
+
+class SaveUploadedFileResponse(BaseModel):
+    success: bool
+    file_path: str
+    message: str
+
+class SaveVideoFrameRequest(BaseModel):
+    frame_data: str  # Base64 encoded JPEG data
+    filename: str
+    video_name: str
+    frame_number: int
+
+class SaveVideoFrameResponse(BaseModel):
+    success: bool
+    image_uri: str
+    message: str
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the agent when the server starts"""
     global agent
-    agent = AgentWrapper('configs/mirix_monitor.yaml')
+    agent = AgentWrapper('configs/mirix_index_anything.yaml')
     print("Agent initialized successfully")
 
 @app.get("/health")
@@ -257,6 +363,116 @@ async def health_check():
         "agent_initialized": agent is not None,
         "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/files/{file_path:path}")
+async def serve_file(file_path: str):
+    """Serve files (images, documents, etc.) to the frontend"""
+    try:
+        # Security check - ensure the file path is safe
+        # Only allow files from specific directories
+        safe_dirs = [
+            os.path.expanduser("~/.mirix/files"),
+            os.path.expanduser("~/.mirix/tmp/images"),
+            "/tmp",
+            tempfile.gettempdir()
+        ]
+        
+        # Convert relative path to absolute
+        absolute_path = os.path.abspath(file_path)
+        
+        # Check if the file is in an allowed directory
+        is_safe = False
+        for safe_dir in safe_dirs:
+            safe_dir = os.path.abspath(safe_dir)
+            if absolute_path.startswith(safe_dir):
+                is_safe = True
+                break
+        
+        if not is_safe:
+            raise HTTPException(status_code=403, detail="Access to this file is not allowed")
+        
+        # Check if file exists
+        if not os.path.exists(absolute_path):
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Determine media type
+        media_type, _ = mimetypes.guess_type(absolute_path)
+        if media_type is None:
+            media_type = 'application/octet-stream'
+        
+        return FileResponse(
+            path=absolute_path,
+            media_type=media_type,
+            filename=os.path.basename(absolute_path)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error serving file {file_path}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving file: {str(e)}")
+
+@app.post("/save_uploaded_file", response_model=SaveUploadedFileResponse)
+async def save_uploaded_file(request: SaveUploadedFileRequest):
+    """Save an uploaded file to ~/.mirix/files directory"""
+    try:
+        # Create ~/.mirix/files directory if it doesn't exist
+        mirix_dir = os.path.expanduser("~/.mirix/files")
+        os.makedirs(mirix_dir, exist_ok=True)
+        
+        # Create the full file path
+        file_path = os.path.join(mirix_dir, request.file_name)
+        
+        # Decode base64 and save the file
+        try:
+            file_data = base64.b64decode(request.file_data)
+            with open(file_path, "wb") as f:
+                f.write(file_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to decode or save file: {str(e)}")
+        
+        print(f"File saved: {request.original_name} -> {file_path}")
+        
+        return SaveUploadedFileResponse(
+            success=True,
+            file_path=file_path,
+            message=f"File '{request.original_name}' saved successfully to {file_path}"
+        )
+        
+    except Exception as e:
+        print(f"Error saving uploaded file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
+
+@app.post("/save_video_frame", response_model=SaveVideoFrameResponse)
+async def save_video_frame(request: SaveVideoFrameRequest):
+    """Save a video frame to ~/.mirix/tmp/images directory"""
+    try:
+        # Create ~/.mirix/tmp/images directory if it doesn't exist
+        tmp_images_dir = os.path.expanduser("~/.mirix/tmp/images")
+        os.makedirs(tmp_images_dir, exist_ok=True)
+        
+        # Create the full file path
+        file_path = os.path.join(tmp_images_dir, request.filename)
+        
+        # Decode base64 and save the frame as JPEG
+        try:
+            frame_data = base64.b64decode(request.frame_data)
+            with open(file_path, "wb") as f:
+                f.write(frame_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to decode or save video frame: {str(e)}")
+        
+        print(f"Video frame saved: {request.video_name} frame {request.frame_number} -> {file_path}")
+        
+        return SaveVideoFrameResponse(
+            success=True,
+            image_uri=file_path,
+            message=f"Video frame {request.frame_number} from '{request.video_name}' saved successfully"
+        )
+        
+    except Exception as e:
+        print(f"Error saving video frame: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error saving video frame: {str(e)}")
 
 @app.post("/send_message")
 async def send_message_endpoint(request: MessageRequest):
@@ -279,14 +495,20 @@ async def send_message_endpoint(request: MessageRequest):
     try:
         print(f"Starting agent.send_message (non-streaming) with: message='{request.message}', memorizing={request.memorizing}")
         
+        # Combine image_uri with image_uris if provided
+        combined_image_uris = request.image_uris or []
+        if request.image_uri:
+            combined_image_uris = combined_image_uris + [request.image_uri]
+        
         # Run the blocking agent.send_message() in a background thread to avoid blocking other requests
         loop = asyncio.get_event_loop()
         response = await loop.run_in_executor(
             None,  # Use default ThreadPoolExecutor
             lambda: agent.send_message(
                 message=request.message,
-                image_uris=request.image_uris,
+                image_uris=combined_image_uris if combined_image_uris else None,
                 voice_files=request.voice_files,  # Pass voice files to agent
+                file_paths=request.file_paths,  # Pass file paths to agent
                 memorizing=request.memorizing
             )
         )
@@ -304,20 +526,62 @@ async def send_message_endpoint(request: MessageRequest):
             else:
                 # When memorizing=False, None response is an error
                 response = "I received your message but couldn't generate a response. Please try again."
-        
-        return MessageResponse(response=response)
+
+        # Check if response is already structured content
+        if isinstance(response, list) and all(isinstance(item, dict) for item in response):
+            # Process structured content (load images as base64)
+            processed_content = process_structured_content(response)
+            
+            # Extract text parts for the main response
+            text_parts = []
+            for part in processed_content:
+                if 'text' in part:
+                    text_parts.append(part['text'])
+            
+            combined_text = ' '.join(text_parts) if text_parts else ""
+            
+            return MessageResponse(
+                response=combined_text,
+                content_parts=processed_content
+            )
+        else:
+            # Regular text response
+            return MessageResponse(response=response)
     
     except Exception as e:
         print(f"Error in send_message_endpoint: {str(e)}")
         print(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
+# global_count = 0
 @app.post("/send_streaming_message")
 async def send_streaming_message_endpoint(request: MessageRequest):
     """Send a message to the agent and stream intermediate messages and final response"""
     if agent is None:
         raise HTTPException(status_code=500, detail="Agent not initialized")
     
+    # global global_count
+    # global_count += 1
+    # if global_count % 20 == 0:
+    #     import time
+    #     time.sleep(1)
+
+    # time.sleep(20)
+
+    # # Return a successful debug message for testing the streaming endpoint
+    # async def debug_success_response():
+    #     yield f"data: {json.dumps({'type': 'final', 'response': 'Streaming endpoint is working correctly! This is a debug success message.'})}\n\n"
+    
+    # return StreamingResponse(
+    #     debug_success_response(),
+    #     media_type="text/plain",
+    #     headers={
+    #         "Cache-Control": "no-cache",
+    #         "Connection": "keep-alive",
+    #         "Content-Type": "text/event-stream",
+    #     }
+    # )
+
     # Check for missing API keys
     api_key_check = check_missing_api_keys(agent)
     if "error" in api_key_check:
@@ -358,15 +622,22 @@ async def send_streaming_message_endpoint(request: MessageRequest):
             async def run_agent():
                 try:
                     
+                    # Combine image_uri with image_uris if provided
+                    combined_image_uris = request.image_uris or []
+                    if request.image_uri:
+                        combined_image_uris = combined_image_uris + [request.image_uri]
+                    
                     # Run agent.send_message in a background thread to avoid blocking
                     loop = asyncio.get_event_loop()
                     response = await loop.run_in_executor(
                         None,  # Use default ThreadPoolExecutor
                         lambda: agent.send_message(
                             message=request.message,
-                            image_uris=request.image_uris,
+                            image_uris=combined_image_uris if combined_image_uris else None,
                             voice_files=request.voice_files,  # Pass raw voice files
+                            file_paths=request.file_paths,  # Pass file paths to agent
                             memorizing=request.memorizing,
+                            force_absorb_content=request.force_absorb_content,
                             display_intermediate_message=display_intermediate_message
                         )
                     )
@@ -417,7 +688,24 @@ async def send_streaming_message_endpoint(request: MessageRequest):
                     if final_result["type"] == "error":
                         yield f"data: {json.dumps({'type': 'error', 'error': final_result['error']})}\n\n"
                     else:
-                        yield f"data: {json.dumps({'type': 'final', 'response': final_result['response']})}\n\n"
+                        # Check if response is already structured content
+                        response_text = final_result['response']
+                        
+                        if isinstance(response_text, list) and all(isinstance(item, dict) for item in response_text):
+                            # Process structured content
+                            processed_content = process_structured_content(response_text)
+                            
+                            # Extract text parts for the main response
+                            text_parts = []
+                            for part in processed_content:
+                                if 'text' in part:
+                                    text_parts.append(part['text'])
+                            
+                            combined_text = ' '.join(text_parts) if text_parts else ""
+                            
+                            yield f"data: {json.dumps({'type': 'final', 'response': combined_text, 'content_parts': processed_content})}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'type': 'final', 'response': response_text})}\n\n"
                     final_result_sent = True
                     break
                 except queue.Empty:

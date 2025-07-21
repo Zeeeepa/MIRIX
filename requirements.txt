@@ -4,6 +4,7 @@ pandas
 openpyxl
 Markdown
 Pillow
+PyMuPDF
 scikit-image
 openai
 tiktoken

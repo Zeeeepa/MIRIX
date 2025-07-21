@@ -1073,7 +1073,7 @@ def test_greeting_with_images():
     agent.client.server.cloud_file_mapping_manager.add_mapping(file_ref.uri, "img_1.jpg", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
     message = [
         {'type': 'text', 'text': 'Show me what is in this image'},
-        {'type': 'google_cloud_file_uri', 'google_cloud_file_uri': file_ref.uri}
+        {'type': 'google_cloud_file_uri', 'google_cloud_file_uri': file_ref.uri, 'mime_type': file_ref.mime_type},
     ]
 
     # Gemini first

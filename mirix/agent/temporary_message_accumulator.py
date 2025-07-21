@@ -4,12 +4,15 @@ import uuid
 import threading
 import copy
 import logging
+import re
+import shutil
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from mirix.agent.app_constants import TEMPORARY_MESSAGE_LIMIT, GEMINI_MODELS, SKIP_META_MEMORY_MANAGER
 from mirix.constants import CHAINING_FOR_MEMORY_UPDATE
 from mirix.voice_utils import process_voice_files, convert_base64_to_audio_segment
+from mirix.schemas.file import FileMetadata as PydanticFileMetadata
 
 class TemporaryMessageAccumulator:
     """
@@ -47,10 +50,19 @@ class TemporaryMessageAccumulator:
         # Upload tracking for cleanup
         self.upload_start_times = {}  # Track when uploads started for cleanup purposes
     
-    def add_message(self, full_message, timestamp, delete_after_upload=True, async_upload=True):
+    def add_message(self, full_message, timestamp, delete_after_upload=True, async_upload=True, attach_image_to_memory=False):
         """Add a message to temporary storage."""
         if self.needs_upload and self.upload_manager is not None:
             if 'image_uris' in full_message and full_message['image_uris']:
+                if attach_image_to_memory:
+                    # we need to save the images to the local storage
+                    storage_dir = os.path.expanduser('~/.mirix/storage')
+                    if not os.path.exists(storage_dir):
+                        os.makedirs(storage_dir)
+                    for image_uri in full_message['image_uris']:
+                        # TODO: use gemini to analyze the image and generate a descriptive filename
+                        shutil.copy(image_uri, os.path.join(storage_dir, os.path.basename(image_uri)))
+
                 if async_upload:
                     image_file_ref_placeholders = [self.upload_manager.upload_file_async(image_uri, timestamp) for image_uri in full_message['image_uris']]
                 else:
@@ -63,6 +75,81 @@ class TemporaryMessageAccumulator:
                         self.upload_start_times[placeholder_id] = current_time
             else:
                 image_file_ref_placeholders = None
+            
+            # Handle file uploads (PDFs, documents, etc.) - always synchronous
+            if 'file_paths' in full_message and full_message['file_paths']:
+
+                if not self.needs_upload:
+                    raise NotImplementedError("Not implemented")
+
+                file_refs = []
+
+                if attach_image_to_memory:
+                    
+                    storage_dir = "./mirix/storage"
+                    if not os.path.exists(storage_dir):
+                        os.makedirs(storage_dir, exist_ok=True)
+
+                    for file_path in full_message['file_paths']:
+
+                        # Extract images from PDF if it's a PDF file
+                        if self._is_pdf_file(file_path):
+                            extracted_images = self._extract_images_from_pdf(file_path, storage_dir)
+                            if extracted_images:
+                                self.logger.info(f"📄 Extracted {len(extracted_images)} images from PDF: {os.path.basename(file_path)}")
+                            
+                            # TODO: send the images along with the pdf file so that we can attach the images to the memory.
+                            # TODO: save the images to local storage
+
+                        file_ref = self.upload_manager.upload_file(file_path, timestamp)
+
+                        # Call Gemini-2.5-Flash to analyze the file and generate a descriptive filename
+                        analyzed_filename = self._analyze_file_with_gemini(file_ref)
+
+                        # Get the original file extension from file_path
+                        original_extension = os.path.splitext(file_path)[1].lower()
+                        
+                        if analyzed_filename:
+                            # Remove any extension that Gemini might have suggested
+                            filename_without_ext = os.path.splitext(analyzed_filename)[0]
+                            # Always use the original extension
+                            final_filename = filename_without_ext + original_extension
+                            safe_filename = self._sanitize_filename(final_filename)
+                            self.logger.info(f"🤖 Gemini suggested filename: {safe_filename}")
+                        else:
+                            # Fallback if analysis fails - use original filename
+                            original_filename = os.path.basename(file_path)
+                            safe_filename = self._sanitize_filename(original_filename)
+                            self.logger.info(f"📁 Using original filename: {safe_filename}")
+
+                        # copy file_path to storage_dir
+                        shutil.copy(file_path, f'{storage_dir}/{safe_filename}')
+                        
+                        # Store the file metadata in our database for reference
+                        # The actual file content remains in Google Cloud
+                        file_metadata = self.client.file_manager.create_file_metadata(
+                            PydanticFileMetadata(
+                                organization_id=self.client.org_id,
+                                file_name=safe_filename,
+                                file_path=f'{storage_dir}/{safe_filename}',
+                                source_url=None,
+                                google_cloud_url=file_ref.uri,  # Store Google Cloud URI
+                                file_type=file_ref.mime_type,
+                                file_size=None,  # Size not available from Google API
+                                file_creation_date=None,
+                                file_last_modified_date=None,
+                            )
+                        )
+                        
+                        self.logger.info(f"📁 Saved file reference for {safe_filename} to storage metadata")
+
+                        file_refs.append(file_metadata)
+                        
+                else:
+                    file_refs = [self.upload_manager.upload_file(file_path, timestamp) for file_path in full_message['file_paths']]
+
+            else:
+                file_refs = None
                 
             if 'voice_files' in full_message and full_message['voice_files']:
                 audio_segment = []
@@ -85,7 +172,8 @@ class TemporaryMessageAccumulator:
                 self.temporary_messages.append(
                     (timestamp, {'image_uris': image_file_ref_placeholders,
                                  'audio_segments': audio_segment,
-                                 'message': full_message['message']})
+                                 'message': full_message['message'],
+                                 'file_paths': file_refs})
                 )
                 
                 # Print accumulation statistics
@@ -97,6 +185,13 @@ class TemporaryMessageAccumulator:
                 threading.Thread(
                     target=self._cleanup_file_after_upload, 
                     args=(full_message['image_uris'], image_file_ref_placeholders), 
+                    daemon=True
+                ).start()
+                
+            if delete_after_upload and full_message.get('file_paths'):
+                threading.Thread(
+                    target=self._cleanup_file_after_upload, 
+                    args=(full_message['file_paths'], file_refs), 
                     daemon=True
                 ).start()
 
@@ -116,7 +211,8 @@ class TemporaryMessageAccumulator:
                     (timestamp, {
                         'image_uris': full_message.get('image_uris', []),
                         'audio_segments': full_message.get('voice_files', []),
-                        'message': full_message['message']
+                        'message': full_message['message'],
+                        'file_paths': full_message.get('file_paths')
                     })
                 )
                 
@@ -187,9 +283,14 @@ class TemporaryMessageAccumulator:
                         else:
                             # Update the copy with resolved image URIs
                             item_copy['image_uris'] = processed_image_uris
-                            ready_messages.append((timestamp, item_copy))
+                    
+                    # Files are uploaded synchronously, so they're always ready
+                    
+                    # Only add to ready messages if no pending uploads
+                    if not has_pending_uploads:
+                        ready_messages.append((timestamp, item_copy))
                     else:
-                        # No images or already processed, add to ready list
+                        # No images, files are already uploaded synchronously, add to ready list
                         ready_messages.append((timestamp, item_copy))
 
                 # Check if we have enough ready messages to process
@@ -278,7 +379,7 @@ class TemporaryMessageAccumulator:
             
             return most_recent_images
     
-    def absorb_content_into_memory(self, agent_states, ready_messages=None):
+    def absorb_content_into_memory(self, agent_states, ready_messages=None, attach_image_to_memory=False):
         """Process accumulated content and send to memory agents."""
 
         if ready_messages is not None:
@@ -357,11 +458,16 @@ class TemporaryMessageAccumulator:
                             # Keep for next cycle if any uploads are still pending
                             pending_items.append((timestamp, item))
                         else:
-                            # All uploads completed, update the item
+                            # All image uploads completed, update the item
                             item_copy['image_uris'] = processed_image_uris
-                            ready_to_process.append((timestamp, item_copy))
+                    
+                    # Files are uploaded synchronously, so they're always ready
+                    
+                    # Only add to ready_to_process if no pending uploads
+                    if not has_pending_uploads:
+                        ready_to_process.append((timestamp, item_copy))
                     else:
-                        # No images or already processed, add to ready list
+                        # No images, files are already uploaded synchronously, add to ready list
                         ready_to_process.append((timestamp, item_copy))
 
                 # Keep only items that are still pending (for GEMINI models) or clear all (for non-GEMINI models)
@@ -412,7 +518,7 @@ class TemporaryMessageAccumulator:
                 self.logger.error(f"Failed to create voice content folder {voice_folder}: {e}")
 
         # Process content and build message
-        message = self._build_memory_message(ready_to_process, voice_content)
+        message = self._build_memory_message(ready_to_process, voice_content, attach_image_to_memory)
         
         # Handle user conversation if exists
         message, user_message_added = self._add_user_conversation_to_message(message)
@@ -464,12 +570,13 @@ class TemporaryMessageAccumulator:
         # Clean up processed content
         self._cleanup_processed_content(ready_to_process, user_message_added)
     
-    def _build_memory_message(self, ready_to_process, voice_content):
+    def _build_memory_message(self, ready_to_process, voice_content, attach_image_to_memory):
         """Build the message content for memory agents."""
         # Collect all content from ready items
         images_content = []
         text_content = []
         audio_content = []
+        file_paths_content = []
         
         for timestamp, item in ready_to_process:
             # Handle images
@@ -483,6 +590,10 @@ class TemporaryMessageAccumulator:
             # Handle audio segments
             if 'audio_segments' in item and item['audio_segments']:
                 audio_content.extend(item['audio_segments'])
+            
+            # Handle file paths
+            if 'file_paths' in item and item['file_paths']:
+                file_paths_content.append((timestamp, item['file_paths']))
 
         # Process voice files from both sources (voice_content and audio_segments)
         all_voice_content = voice_content.copy() if voice_content else []
@@ -497,6 +608,7 @@ class TemporaryMessageAccumulator:
         # Build the structured message for memory agents
         message_parts = []
         
+
         # Add screenshots if any
         if images_content:
             # Add introductory text
@@ -516,7 +628,8 @@ class TemporaryMessageAccumulator:
                 for file_ref in file_refs:
                     message_parts.append({
                         'type': 'google_cloud_file_uri',
-                        'google_cloud_file_uri': file_ref.uri
+                        'google_cloud_file_uri': file_ref.uri,
+                        'mime_type': file_ref.mime_type
                     })
         
         # Add voice transcription if any
@@ -526,6 +639,53 @@ class TemporaryMessageAccumulator:
                 'text': f'The following are the voice recordings and their transcriptions:\n{voice_transcription}'
             })
         
+        # Add file paths if any
+        if file_paths_content:
+
+            message_parts.append({
+                'type': 'text',
+                'text': 'The following are files provided by the user:'
+            })
+            
+
+            for idx, (timestamp, file_refs) in enumerate(file_paths_content):
+
+                if file_refs:
+                    
+                    # Add each file
+                    for file_ref in file_refs:
+
+                        if not attach_image_to_memory:
+
+                            if not self.needs_upload:
+                                raise NotImplementedError("Not implemented")
+
+                            else:
+                                # For uploaded files (GEMINI models), use google_cloud_file_uri
+                                message_parts.append({
+                                    'type': 'file_uri',
+                                    'file_uri': file_ref.uri,
+                                    'mime_type': file_ref.mime_type
+                                })
+                        
+                        else:
+
+                            # Add timestamp info
+                            message_parts.append({
+                                'type': 'text',
+                                'text': f"Timestamp: {timestamp} File Name {file_ref.file_name}:"
+                            })
+
+                            if not self.needs_upload:
+                                raise NotImplementedError("Not implemented")
+
+                            else:
+                                # For uploaded files (GEMINI models), use google_cloud_file_uri
+                                message_parts.append({
+                                    'type': 'database_google_cloud_file_uri',
+                                    'cloud_file_uri': file_ref.id,
+                                })
+
         # Add text content if any
         if text_content:
             message_parts.append({
@@ -638,8 +798,18 @@ class TemporaryMessageAccumulator:
         # Mark processed files as processed in database and cleanup upload results (only for GEMINI models)
         if self.needs_upload and self.upload_manager is not None:
             for timestamp, item in ready_to_process:
+                # Handle image files
                 if 'image_uris' in item and item['image_uris']:
                     for file_ref in item['image_uris']:
+                        if hasattr(file_ref, 'name'):
+                            try:
+                                self.client.server.cloud_file_mapping_manager.set_processed(cloud_file_id=file_ref.name)
+                            except Exception as e:
+                                pass
+                
+                # Handle other file types
+                if 'file_paths' in item and item['file_paths']:
+                    for file_ref in item['file_paths']:
                         if hasattr(file_ref, 'name'):
                             try:
                                 self.client.server.cloud_file_mapping_manager.set_processed(cloud_file_id=file_ref.name)
@@ -723,3 +893,226 @@ class TemporaryMessageAccumulator:
             summary['upload_manager_status'] = self.upload_manager.get_upload_status_summary()
         
         return summary 
+    
+    def _analyze_file_with_gemini(self, file_ref):
+        """
+        Use Gemini-2.5-Flash to analyze the file content and generate a descriptive filename.
+        """
+        import json
+        import requests
+        from mirix.settings import model_settings
+        from mirix.services.provider_manager import ProviderManager
+        
+        # Get API key
+        override_key = ProviderManager().get_gemini_override_key()
+        api_key = str(override_key) if override_key else (str(model_settings.gemini_api_key) if model_settings.gemini_api_key else os.getenv("GEMINI_API_KEY"))
+        
+        if not api_key:
+            self.logger.warning("No Gemini API key available for file analysis")
+            return None
+        
+        # Prepare the API request
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+        headers = {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': api_key
+        }
+        
+        # Create the request payload
+        prompt = """Analyze this file and suggest a descriptive filename based on its content. 
+The filename should be:
+- Descriptive of the main content/topic  
+- Safe for filesystem use (no special characters)
+- DO NOT include any file extension (like .pdf, .docx, etc.)
+- Maximum 50 characters
+- Professional and clear
+
+Respond with ONLY the suggested filename WITHOUT any extension, nothing else."""
+
+        request_data = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": prompt
+                        },
+                        {
+                            "file_data": {
+                                "mime_type": file_ref.mime_type,
+                                "file_uri": file_ref.uri
+                            }
+                        }
+                    ]
+                }
+            ],
+            "generation_config": {
+                "temperature": 0.1,
+                'thinkingConfig': {'thinkingBudget': 1024},
+                "max_output_tokens": 1124
+            }
+        }
+
+        # Make the API call
+        self.logger.info(f"🤖 Analyzing file with Gemini: {file_ref.uri}")
+        response = requests.post(url, headers=headers, json=request_data, timeout=30)
+        response.raise_for_status()
+        
+        result = response.json()
+        
+        # Extract the generated filename
+        if 'candidates' in result and len(result['candidates']) > 0:
+            candidate = result['candidates'][0]
+            if 'content' in candidate and 'parts' in candidate['content']:
+                for part in candidate['content']['parts']:
+                    if 'text' in part:
+                        suggested_filename = part['text'].strip()
+                        self.logger.info(f"🎯 Gemini analysis complete: {suggested_filename}")
+                        return suggested_filename
+        
+        self.logger.warning("No valid response from Gemini file analysis")
+        return None
+        
+    
+    def _sanitize_filename(self, filename):
+        """
+        Sanitize filename to be safe for filesystem use.
+        """
+        if not filename:
+            return "unnamed_file"
+        
+        # Remove or replace problematic characters
+        # Keep alphanumeric, dots, hyphens, underscores, and spaces
+        sanitized = re.sub(r'[<>:"/\\|?*]', '', filename)
+        sanitized = re.sub(r'[^\w\s\-_\.]', '', sanitized)
+        sanitized = re.sub(r'\s+', '_', sanitized)  # Replace spaces with underscores
+        sanitized = sanitized.strip('._')  # Remove leading/trailing dots and underscores
+        
+        # Ensure it's not empty and not too long
+        if not sanitized:
+            sanitized = "unnamed_file"
+        
+        # Limit length to 50 characters (keeping extension if present)
+        if len(sanitized) > 50:
+            name_part, ext_part = os.path.splitext(sanitized)
+            if ext_part:
+                max_name_length = 50 - len(ext_part)
+                sanitized = name_part[:max_name_length] + ext_part
+            else:
+                sanitized = sanitized[:50]
+        
+        return sanitized
+    
+    def _get_extension_from_mime_type(self, mime_type):
+        """
+        Get file extension from MIME type.
+        """
+        mime_to_ext = {
+            'application/pdf': '.pdf',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'application/vnd.ms-excel': '.xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/vnd.ms-powerpoint': '.ppt',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+            'text/plain': '.txt',
+            'text/csv': '.csv',
+            'application/json': '.json',
+            'application/xml': '.xml',
+            'text/html': '.html',
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'image/svg+xml': '.svg',
+            'audio/mpeg': '.mp3',
+            'audio/wav': '.wav',
+            'video/mp4': '.mp4',
+            'video/avi': '.avi',
+            'application/zip': '.zip',
+            'application/x-rar-compressed': '.rar'
+        }
+        
+        return mime_to_ext.get(mime_type, '')
+
+    def _is_pdf_file(self, file_path):
+        """
+        Check if the file is a PDF based on its extension.
+        """
+        return file_path.lower().endswith('.pdf')
+    
+    def _extract_images_from_pdf(self, pdf_path, storage_dir):
+        """
+        Extract all images from a PDF file and save them to the storage directory.
+        Returns a list of extracted image file paths.
+        """
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            self.logger.error("PyMuPDF (fitz) is required for PDF image extraction. Install with: pip install PyMuPDF")
+            return []
+        
+        extracted_images = []
+        
+        try:
+            # Open the PDF
+            pdf_document = fitz.open(pdf_path)
+            pdf_basename = os.path.splitext(os.path.basename(pdf_path))[0]
+            
+            # Iterate through each page
+            for page_num in range(len(pdf_document)):
+                page = pdf_document.load_page(page_num)
+                
+                # Get list of images on this page
+                image_list = page.get_images(full=True)
+                
+                # Extract each image
+                for img_index, img in enumerate(image_list):
+                    try:
+                        # Get the XREF of the image
+                        xref = img[0]
+                        
+                        # Extract the image data
+                        pix = fitz.Pixmap(pdf_document, xref)
+                        
+                        # Convert CMYK to RGB if necessary
+                        if pix.n - pix.alpha < 4:  # GRAY or RGB
+                            image_data = pix.tobytes("png")
+                            image_ext = "png"
+                        else:  # CMYK: convert to RGB first
+                            pix1 = fitz.Pixmap(fitz.csRGB, pix)
+                            image_data = pix1.tobytes("png")
+                            image_ext = "png"
+                            pix1 = None
+                        
+                        # Generate a descriptive filename
+                        image_filename = f"{pdf_basename}_page{page_num + 1}_img{img_index + 1}.{image_ext}"
+                        image_path = os.path.join(storage_dir, image_filename)
+                        
+                        # Save the image
+                        with open(image_path, "wb") as img_file:
+                            img_file.write(image_data)
+                        
+                        extracted_images.append(image_path)
+                        self.logger.info(f"🖼️  Extracted image: {image_filename}")
+                        
+                        # Clean up
+                        pix = None
+                        
+                    except Exception as e:
+                        self.logger.error(f"❌ Failed to extract image {img_index + 1} from page {page_num + 1}: {e}")
+                        continue
+            
+            # Close the PDF
+            pdf_document.close()
+            
+            if extracted_images:
+                self.logger.info(f"✅ Successfully extracted {len(extracted_images)} images from {os.path.basename(pdf_path)}")
+            else:
+                self.logger.info(f"ℹ️  No images found in {os.path.basename(pdf_path)}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Failed to process PDF {pdf_path}: {e}")
+            return []
+        
+        return extracted_images 

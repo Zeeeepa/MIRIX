@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from typing import List, Optional, Tuple
 
@@ -31,9 +32,9 @@ class GoogleAIClient(LLMClientBase):
         """
         # print("[google_ai request]", json.dumps(request_data, indent=2))
 
-        # Check for database-stored API key first, fall back to model_settings
+        # Check for database-stored API key first, fall back to model_settings, then environment
         override_key = ProviderManager().get_gemini_override_key()
-        api_key = str(override_key) if override_key else str(model_settings.gemini_api_key)
+        api_key = str(override_key) if override_key else (str(model_settings.gemini_api_key) if model_settings.gemini_api_key else os.getenv("GEMINI_API_KEY"))
 
         url, headers = get_gemini_endpoint_and_headers(
             base_url=str(self.llm_config.model_endpoint),
@@ -42,6 +43,7 @@ class GoogleAIClient(LLMClientBase):
             key_in_header=True,
             generate_content=True,
         )
+
         return make_post_request(url, headers, request_data)
 
     def build_request_data(
@@ -176,6 +178,8 @@ class GoogleAIClient(LLMClientBase):
                                 "file_uri": file.google_cloud_url,
                             }
                         })
+                elif 'file_id' in part:
+                    import ipdb; ipdb.set_trace()
                 else:
                     raise ValueError(f"Unknown part type in message: {part}")
             message['parts'] = message_parts
@@ -467,6 +471,43 @@ class GoogleAIClient(LLMClientBase):
                 messages_with_padding.append(dummy_yield_message)
 
         return messages_with_padding
+
+    def _upload_file_to_gemini_api(self, file_path: str, mime_type: str) -> str:
+        """
+        Uploads a file to Gemini's Files API using multipart upload.
+        Returns the file URI for use in generateContent calls.
+        """
+        # Check for database-stored API key first, fall back to model_settings, then environment
+        override_key = ProviderManager().get_gemini_override_key()
+        api_key = str(override_key) if override_key else (str(model_settings.gemini_api_key) if model_settings.gemini_api_key else os.getenv("GEMINI_API_KEY"))
+        
+        # Prepare the upload URL and headers
+        url = f"{self.llm_config.model_endpoint}/upload/v1beta/files?uploadType=multipart"
+        
+        # Create metadata
+        metadata = {
+            "file": {
+                "displayName": os.path.basename(file_path)
+            }
+        }
+        
+        # Prepare multipart form data
+        with open(file_path, "rb") as file_content:
+            files = {
+                'metadata': (None, json.dumps(metadata), 'application/json'),
+                'file': (os.path.basename(file_path), file_content, mime_type)
+            }
+            
+            headers = {
+                'x-goog-api-key': api_key
+            }
+            
+            response = requests.post(url, headers=headers, files=files)
+            response.raise_for_status()
+            
+            result = response.json()
+            # Return the URI from the response
+            return result["file"]["uri"]
 
 
 def get_gemini_endpoint_and_headers(

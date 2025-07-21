@@ -1,0 +1,4 @@
+agent_name: mirix
+model_name: gemini-2.5-flash
+is_indexing_anything: true
+attach_image_to_memory: true
