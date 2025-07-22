@@ -511,7 +511,6 @@ class TemporaryMessageAccumulator:
                     'type': 'text',
                     'text': f"Timestamp: {timestamp} Image Index {idx}:"
                 })
-                
                 # Add each image
                 for file_ref in file_refs:
                     message_parts.append({

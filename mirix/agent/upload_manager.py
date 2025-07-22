@@ -34,6 +34,13 @@ class UploadManager:
         """Compress image to reduce upload time while maintaining reasonable quality"""
         try:
             with Image.open(image_path) as img:
+                # Check if image is already small enough and in good format
+                if (img.size[0] <= max_size[0] and 
+                    img.size[1] <= max_size[1] and 
+                    img.mode == 'RGB' and 
+                    image_path.lower().endswith('.jpg')):
+                    return None  # No compression needed
+                
                 # Convert to RGB if necessary
                 if img.mode in ('RGBA', 'LA', 'P'):
                     img = img.convert('RGB')

@@ -7,8 +7,8 @@ from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
-from composio.client import Composio
-from composio.client.collections import ActionModel, AppModel
+# from composio.client import Composio
+# from composio.client.collections import ActionModel, AppModel
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -421,16 +421,16 @@ class SyncServer(Server):
             # self.block_manager.add_default_blocks(actor=self.default_user)
             self.tool_manager.upsert_base_tools(actor=self.default_user)
 
-            # Add composio keys to the tool sandbox env vars of the org
-            if tool_settings.composio_api_key:
-                manager = SandboxConfigManager(tool_settings)
-                sandbox_config = manager.get_or_create_default_sandbox_config(sandbox_type=SandboxType.LOCAL, actor=self.default_user)
+            # # Add composio keys to the tool sandbox env vars of the org
+            # if tool_settings.composio_api_key:
+            #     manager = SandboxConfigManager(tool_settings)
+            #     sandbox_config = manager.get_or_create_default_sandbox_config(sandbox_type=SandboxType.LOCAL, actor=self.default_user)
 
-                manager.create_sandbox_env_var(
-                    SandboxEnvironmentVariableCreate(key="COMPOSIO_API_KEY", value=tool_settings.composio_api_key),
-                    sandbox_config_id=sandbox_config.id,
-                    actor=self.default_user,
-                )
+            #     manager.create_sandbox_env_var(
+            #         SandboxEnvironmentVariableCreate(key="COMPOSIO_API_KEY", value=tool_settings.composio_api_key),
+            #         sandbox_config_id=sandbox_config.id,
+            #         actor=self.default_user,
+            #     )
 
         # collect providers (always has Mirix as a default)
         self._enabled_providers: List[Provider] = [MirixProvider()]
@@ -1139,28 +1139,28 @@ class SyncServer(Server):
             )
 
     # Composio wrappers
-    def get_composio_client(self, api_key: Optional[str] = None):
-        if api_key:
-            return Composio(api_key=api_key)
-        elif tool_settings.composio_api_key:
-            return Composio(api_key=tool_settings.composio_api_key)
-        else:
-            return Composio()
+    # def get_composio_client(self, api_key: Optional[str] = None):
+    #     if api_key:
+    #         return Composio(api_key=api_key)
+    #     elif tool_settings.composio_api_key:
+    #         return Composio(api_key=tool_settings.composio_api_key)
+    #     else:
+    #         return Composio()
 
-    def get_composio_apps(self, api_key: Optional[str] = None) -> List["AppModel"]:
-        """Get a list of all Composio apps with actions"""
-        apps = self.get_composio_client(api_key=api_key).apps.get()
-        apps_with_actions = []
-        for app in apps:
-            # A bit of hacky logic until composio patches this
-            if app.meta["actionsCount"] > 0 and not app.name.lower().endswith("_beta"):
-                apps_with_actions.append(app)
+    # def get_composio_apps(self, api_key: Optional[str] = None) -> List["AppModel"]:
+    #     """Get a list of all Composio apps with actions"""
+    #     apps = self.get_composio_client(api_key=api_key).apps.get()
+    #     apps_with_actions = []
+    #     for app in apps:
+    #         # A bit of hacky logic until composio patches this
+    #         if app.meta["actionsCount"] > 0 and not app.name.lower().endswith("_beta"):
+    #             apps_with_actions.append(app)
 
-        return apps_with_actions
+    #     return apps_with_actions
 
-    def get_composio_actions_from_app_name(self, composio_app_name: str, api_key: Optional[str] = None) -> List["ActionModel"]:
-        actions = self.get_composio_client(api_key=api_key).actions.get(apps=[composio_app_name])
-        return actions
+    # def get_composio_actions_from_app_name(self, composio_app_name: str, api_key: Optional[str] = None) -> List["ActionModel"]:
+    #     actions = self.get_composio_client(api_key=api_key).actions.get(apps=[composio_app_name])
+    #     return actions
 
     async def send_message_to_agent(
         self,
