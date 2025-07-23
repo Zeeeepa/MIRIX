@@ -79,6 +79,41 @@
   box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.1);
 }
 
+.model-select-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: 300px;
+}
+
+.model-select-container .setting-select {
+  flex: 1;
+  max-width: none;
+}
+
+.add-model-button {
+  background-color: #007acc;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.add-model-button:hover:not(:disabled) {
+  background-color: #0056a3;
+}
+
+.add-model-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .setting-description {
   display: block;
   margin-top: 4px;

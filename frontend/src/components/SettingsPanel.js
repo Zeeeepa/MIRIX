@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './SettingsPanel.css';
 import queuedFetch from '../utils/requestQueue';
+import LocalModelModal from './LocalModelModal';
 
 const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible }) => {
   const [personaDetails, setPersonaDetails] = useState({});
@@ -18,6 +19,8 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
   const [apiKeyMessage, setApiKeyMessage] = useState('');
   const [isEditingPersona, setIsEditingPersona] = useState(false);
   const [selectedTemplateInEdit, setSelectedTemplateInEdit] = useState('');
+  const [showLocalModelModal, setShowLocalModelModal] = useState(false);
+  const [customModels, setCustomModels] = useState([]);
 
   // Debug logging for settings
   useEffect(() => {
@@ -132,6 +135,24 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
     }
   }, [settings.serverUrl, settings.timezone, onSettingsChange]);
 
+  const fetchCustomModels = useCallback(async () => {
+    if (!settings.serverUrl) {
+      console.log('fetchCustomModels: serverUrl not available yet');
+      return;
+    }
+    try {
+      const response = await queuedFetch(`${settings.serverUrl}/models/custom/list`);
+      if (response.ok) {
+        const data = await response.json();
+        setCustomModels(data.models || []);
+      } else {
+        console.error('Failed to fetch custom models');
+      }
+    } catch (error) {
+      console.error('Error fetching custom models:', error);
+    }
+  }, [settings.serverUrl]);
+
   const applyPersonaTemplate = useCallback(async (personaName) => {
     if (!settings.serverUrl) {
       console.log('applyPersonaTemplate: serverUrl not available yet');
@@ -169,8 +190,9 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
       fetchCurrentModel();
       fetchCurrentMemoryModel();
       fetchCurrentTimezone();
+      fetchCustomModels();
     }
-  }, [settings.serverUrl, fetchPersonaDetails, fetchCoreMemoryPersona, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone]);
+  }, [settings.serverUrl, fetchPersonaDetails, fetchCoreMemoryPersona, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone, fetchCustomModels]);
 
   // Fetch current models and timezone whenever settings panel becomes visible
   useEffect(() => {
@@ -179,8 +201,9 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
       fetchCurrentModel();
       fetchCurrentMemoryModel();
       fetchCurrentTimezone();
+      fetchCustomModels();
     }
-  }, [isVisible, settings.serverUrl, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone]);
+  }, [isVisible, settings.serverUrl, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone, fetchCustomModels]);
 
   // Refresh all backend data when backend reconnects
   useEffect(() => {
@@ -191,8 +214,9 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
       fetchCurrentModel();
       fetchCurrentMemoryModel();
       fetchCurrentTimezone();
+      fetchCustomModels();
     }
-  }, [settings.lastBackendRefresh, settings.serverUrl, fetchPersonaDetails, fetchCoreMemoryPersona, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone]);
+  }, [settings.lastBackendRefresh, settings.serverUrl, fetchPersonaDetails, fetchCoreMemoryPersona, fetchCurrentModel, fetchCurrentMemoryModel, fetchCurrentTimezone, fetchCustomModels]);
 
   const handlePersonaChange = async (newPersona) => {
     console.log('handlePersonaChange called with:', newPersona);
@@ -521,7 +545,7 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
     }
   };
 
-  const models = [
+  const baseModels = [
     'gpt-4o-mini',
     'gpt-4o',
     'gpt-4.1-mini',
@@ -534,12 +558,18 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
     'gemini-2.0-flash-lite'
   ];
 
-  // Memory models are restricted to specific Gemini models only
-  const memoryModels = [
+  // Combine base models with custom models
+  const models = [...baseModels, ...customModels];
+
+  // Memory models are restricted to specific Gemini models only, but also include custom models
+  const baseMemoryModels = [
     'gemini-2.0-flash',
     'gemini-2.5-flash',
     'gemini-2.5-flash-preview-04-17'
   ];
+
+  // Combine base memory models with custom models
+  const memoryModels = [...baseMemoryModels, ...customModels];
 
   // Convert personaDetails object to array format for dropdown
   const personas = Object.keys(personaDetails).map(key => ({
@@ -599,19 +629,29 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
           
           <div className="setting-item">
             <label htmlFor="model-select">Chat Agent Model</label>
-            <select
-              id="model-select"
-              value={settings.model}
-              onChange={(e) => handleModelChange(e.target.value)}
-              className="setting-select"
-              disabled={isChangingModel}
-            >
-              {models.map(model => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
+            <div className="model-select-container">
+              <select
+                id="model-select"
+                value={settings.model}
+                onChange={(e) => handleModelChange(e.target.value)}
+                className="setting-select"
+                disabled={isChangingModel}
+              >
+                {models.map(model => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="add-model-button"
+                onClick={() => setShowLocalModelModal(true)}
+                title="Add your own deployed model"
+                disabled={isChangingModel}
+              >
+                Add
+              </button>
+            </div>
             <span className="setting-description">
               {isChangingModel ? 'Changing chat agent model...' : 'Choose the AI model for chat responses'}
             </span>
@@ -624,19 +664,29 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
 
           <div className="setting-item">
             <label htmlFor="memory-model-select">Memory Manager Model</label>
-            <select
-              id="memory-model-select"
-              value={settings.memoryModel || settings.model}
-              onChange={(e) => handleMemoryModelChange(e.target.value)}
-              className="setting-select"
-              disabled={isChangingMemoryModel}
-            >
-              {memoryModels.map(model => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
+            <div className="model-select-container">
+              <select
+                id="memory-model-select"
+                value={settings.memoryModel || settings.model}
+                onChange={(e) => handleMemoryModelChange(e.target.value)}
+                className="setting-select"
+                disabled={isChangingMemoryModel}
+              >
+                {memoryModels.map(model => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="add-model-button"
+                onClick={() => setShowLocalModelModal(true)}
+                title="Add your own deployed model"
+                disabled={isChangingMemoryModel}
+              >
+                Add
+              </button>
+            </div>
             <span className="setting-description">
               {isChangingMemoryModel ? 'Changing memory manager model...' : 'Choose the AI model for memory management operations'}
             </span>
@@ -822,6 +872,18 @@ const SettingsPanel = ({ settings, onSettingsChange, onApiKeyCheck, isVisible })
           </div>
         </div>
       </div>
+
+      {/* Local Model Modal */}
+      <LocalModelModal
+        isOpen={showLocalModelModal}
+        onClose={() => setShowLocalModelModal(false)}
+        serverUrl={settings.serverUrl}
+        onSuccess={(modelName) => {
+          // Refresh custom models list and optionally switch to the new model
+          fetchCustomModels();
+          console.log(`Custom model '${modelName}' added successfully`);
+        }}
+      />
     </div>
   );
 };

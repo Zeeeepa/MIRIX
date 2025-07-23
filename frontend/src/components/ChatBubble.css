@@ -18,11 +18,33 @@
   margin-left: auto;
 }
 
+/* Text selection styling for user messages */
+.chat-bubble.user ::selection {
+  background-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
+.chat-bubble.user ::-moz-selection {
+  background-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+
 .chat-bubble.assistant {
   align-self: flex-start;
   background-color: #f8f9fa;
   color: #333;
   border: 1px solid #e9ecef;
+}
+
+/* Text selection styling for assistant messages */
+.chat-bubble.assistant ::selection {
+  background-color: #007acc;
+  color: white;
+}
+
+.chat-bubble.assistant ::-moz-selection {
+  background-color: #007acc;
+  color: white;
 }
 
 .chat-bubble.error {

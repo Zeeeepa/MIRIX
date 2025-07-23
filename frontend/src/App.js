@@ -21,6 +21,9 @@ function App() {
   // Lift chat messages state to App level to persist across tab switches
   const [chatMessages, setChatMessages] = useState([]);
 
+  // Screen monitoring state to share between ChatWindow and ScreenshotMonitor
+  const [isScreenMonitoring, setIsScreenMonitoring] = useState(false);
+
   // API Key modal state
   const [apiKeyModal, setApiKeyModal] = useState({
     isOpen: false,
@@ -361,6 +364,7 @@ function App() {
             settings={settings}
             messages={chatMessages}
             setMessages={setChatMessages}
+            isScreenMonitoring={isScreenMonitoring}
             onApiKeyRequired={(missingKeys, modelType) => {
               setApiKeyModal({
                 isOpen: true,
@@ -372,7 +376,10 @@ function App() {
         </div>
         {/* Keep ScreenshotMonitor always mounted to maintain monitoring state */}
         <div style={{ display: activeTab === 'screenshots' ? 'block' : 'none' }}>
-          <ScreenshotMonitor settings={settings} />
+          <ScreenshotMonitor 
+            settings={settings} 
+            onMonitoringStatusChange={setIsScreenMonitoring}
+          />
         </div>
         {activeTab === 'memory' && (
           <ExistingMemory settings={settings} />

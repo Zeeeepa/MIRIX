@@ -6,7 +6,7 @@ import ClearChatModal from './ClearChatModal';
 import queuedFetch from '../utils/requestQueue';
 import './ChatWindow.css';
 
-const ChatWindow = ({ settings, messages, setMessages }) => {
+const ChatWindow = ({ settings, messages, setMessages, isScreenMonitoring }) => {
   const [includeScreenshots, setIncludeScreenshots] = useState(true);
   const [currentModel, setCurrentModel] = useState(settings.model); // Track actual current model
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -61,6 +61,8 @@ const ChatWindow = ({ settings, messages, setMessages }) => {
     loadScreenshotSetting();
   }, [settings.serverUrl]);
 
+
+
   // Load current model
   useEffect(() => {
     const loadCurrentModel = async () => {
@@ -96,6 +98,8 @@ const ChatWindow = ({ settings, messages, setMessages }) => {
         } catch (error) {
           console.error('Error reloading screenshot setting:', error);
         }
+        
+
         
         // Reload current model
         try {
@@ -354,7 +358,8 @@ const ChatWindow = ({ settings, messages, setMessages }) => {
       const requestData = {
         message: messageText || null,
         image_uris: imageUris,
-        memorizing: false
+        memorizing: false,
+        is_screen_monitoring: isScreenMonitoring
       };
 
       const result = await queuedFetch(`${settings.serverUrl}/send_streaming_message`, {
@@ -499,15 +504,6 @@ const ChatWindow = ({ settings, messages, setMessages }) => {
       });
       abortControllersRef.current.clear();
       setActiveStreamingRequests(new Map());
-
-      // Show success message briefly
-      const successMessage = {
-        id: Date.now(),
-        type: 'assistant',
-        content: `✅ ${result.message}`,
-        timestamp: new Date().toISOString()
-      };
-      setMessages([successMessage]);
 
       setShowClearModal(false);
     } catch (error) {

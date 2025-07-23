@@ -3,7 +3,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import './ScreenshotMonitor.css';
 import queuedFetch from '../utils/requestQueue';
 
-const ScreenshotMonitor = ({ settings }) => {
+const ScreenshotMonitor = ({ settings, onMonitoringStatusChange }) => {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [screenshotCount, setScreenshotCount] = useState(0);
   const [lastProcessedTime, setLastProcessedTime] = useState(null);
@@ -192,7 +192,8 @@ const ScreenshotMonitor = ({ settings }) => {
         // message: message,
         image_uris: [screenshotFile.path],
         // voice_files: voiceFiles.length > 0 ? voiceFiles : null, // COMMENTED OUT
-        memorizing: true // This is the key difference from chat
+        memorizing: true, // This is the key difference from chat
+        is_screen_monitoring: true // Indicate this request is from screen monitoring
       };
 
       // Use a fresh abort controller for this request
@@ -395,13 +396,18 @@ const ScreenshotMonitor = ({ settings }) => {
     setError(null);
     setScreenshotCount(0);
     lastImageDataRef.current = null;
+    
+    // Notify parent component about monitoring status change
+    if (onMonitoringStatusChange) {
+      onMonitoringStatusChange(true);
+    }
 
     // Start the interval
     intervalRef.current = setInterval(processScreenshot, INTERVAL);
 
     // Take first screenshot immediately
     processScreenshot();
-  }, [isMonitoring, processScreenshot, checkScreenPermissions]);
+  }, [isMonitoring, processScreenshot, checkScreenPermissions, onMonitoringStatusChange]);
 
   // Stop monitoring
   const stopMonitoring = useCallback(() => {
@@ -428,7 +434,12 @@ const ScreenshotMonitor = ({ settings }) => {
     // Reset request and processing state
     setIsRequestInProgress(false);
     setIsProcessingScreenshot(false);
-  }, [isMonitoring]);
+    
+    // Notify parent component about monitoring status change
+    if (onMonitoringStatusChange) {
+      onMonitoringStatusChange(false);
+    }
+  }, [isMonitoring, onMonitoringStatusChange]);
 
   // Check permissions on mount
   React.useEffect(() => {

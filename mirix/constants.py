@@ -51,7 +51,7 @@ DEFAULT_PRESET = "memgpt_chat"
 # Note that we don't include "conversation_search_date" for now
 BASE_TOOLS = ["send_message", "send_intermediate_message", "conversation_search", 'search_in_memory', 'list_memory_within_timerange']
 # Base memory tools CAN be edited, and are added by default by the server
-CORE_MEMORY_TOOLS = ["core_memory_append", "core_memory_replace", "core_memory_rewrite"]
+CORE_MEMORY_TOOLS = ["core_memory_append", "core_memory_rewrite"]
 EPISODIC_MEMORY_TOOLS = ['episodic_memory_insert', 'episodic_memory_merge', 'episodic_memory_replace', 'check_episodic_memory']
 PROCEDURAL_MEMORY_TOOLS = ['procedural_memory_insert', 'procedural_memory_update']
 RESOURCE_MEMORY_TOOLS = ['resource_memory_insert', 'resource_memory_update']

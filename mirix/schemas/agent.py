@@ -222,7 +222,7 @@ class UpdateAgent(BaseModel):
 
 class AgentStepResponse(BaseModel):
     messages: List[Message] = Field(..., description="The messages generated during the agent's step.")
-    continue_chaining: bool = Field(..., description="Whether the agent requested a heartbeat (i.e. follow-up execution).")
+    continue_chaining: bool = Field(..., description="Whether the agent requested a contine_chaining (i.e. follow-up execution).")
     function_failed: bool = Field(..., description="Whether the agent step ended because a function call failed.")
     in_context_memory_warning: bool = Field(
         ..., description="Whether the agent step ended because the in-context memory is near its limit."

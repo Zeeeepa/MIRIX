@@ -39,7 +39,20 @@ const MessageInput = ({ onSendMessage, disabled, onScreenshotTaken }) => {
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyDown = (e) => {
+    // Handle Ctrl+A / Cmd+A explicitly
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+      console.log('Select all triggered');
+      // Explicitly select all text in the textarea
+      e.preventDefault();
+      if (textareaRef.current) {
+        textareaRef.current.select();
+        textareaRef.current.setSelectionRange(0, textareaRef.current.value.length);
+      }
+      return;
+    }
+    
+    // Handle Enter key
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -163,11 +176,14 @@ const MessageInput = ({ onSendMessage, disabled, onScreenshotTaken }) => {
             ref={textareaRef}
             value={message}
             onChange={handleTextareaChange}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             placeholder="Type your message... (Shift+Enter for new line)"
             disabled={disabled}
             className="message-textarea"
             rows={1}
+            tabIndex={0}
+            autoComplete="off"
+            spellCheck="true"
           />
           
           <button

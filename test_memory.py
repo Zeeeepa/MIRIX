@@ -913,7 +913,7 @@ def test_all_indirect_memory_operations(agent):
 
         test_core_memory_update_using_chat_agent(agent)
         # test_core_memory_update_using_meta_memory_manager(agent)
-        test_core_memory_replace(agent)
+        # test_core_memory_replace(agent)
         
         test_tracker.pass_test("All indirect memory operations completed successfully")
     
@@ -1774,72 +1774,72 @@ def test_core_memory_update_using_meta_memory_manager(agent):
     
     print("Episodic memory update using meta memory manager tests completed.\n")
 
-def test_core_memory_replace(agent):
-    """Test core memory replace functionality by adding and deleting items"""
-    print("=== Core Memory Replace Tests ===")
+# def test_core_memory_replace(agent):
+#     """Test core memory replace functionality by adding and deleting items"""
+#     print("=== Core Memory Replace Tests ===")
     
-    # Test 1: Add something to core memory
-    print("\n--- Test 1: Add to Core Memory ---")
-    add_message = "Please add to core memory that the user's favorite programming language is Python"
+#     # Test 1: Add something to core memory
+#     print("\n--- Test 1: Add to Core Memory ---")
+#     add_message = "Please add to core memory that the user's favorite programming language is Python"
     
-    response, agent_type = agent.message_queue.send_message_in_queue(
-        agent.client,
-        agent.agent_states.core_memory_agent_state.id,
-        kwargs={
-            'message': add_message,
-        },
-        agent_type='core_memory'
-    )
-    print(f"Response from core memory agent (add): {response}")
-    print(f"Agent type: {agent_type}")
+#     response, agent_type = agent.message_queue.send_message_in_queue(
+#         agent.client,
+#         agent.agent_states.core_memory_agent_state.id,
+#         kwargs={
+#             'message': add_message,
+#         },
+#         agent_type='core_memory'
+#     )
+#     print(f"Response from core memory agent (add): {response}")
+#     print(f"Agent type: {agent_type}")
     
-    # Test 2: Add another item to core memory
-    print("\n--- Test 2: Add another item to Core Memory ---")
-    add_message2 = "Please add to core memory that the user's favorite IDE is VSCode"
+#     # Test 2: Add another item to core memory
+#     print("\n--- Test 2: Add another item to Core Memory ---")
+#     add_message2 = "Please add to core memory that the user's favorite IDE is VSCode"
     
-    response2, agent_type2 = agent.message_queue.send_message_in_queue(
-        agent.client,
-        agent.agent_states.core_memory_agent_state.id,
-        kwargs={
-            'message': add_message2,
-        },
-        agent_type='core_memory'
-    )
-    print(f"Response from core memory agent (add 2): {response2}")
-    print(f"Agent type: {agent_type2}")
+#     response2, agent_type2 = agent.message_queue.send_message_in_queue(
+#         agent.client,
+#         agent.agent_states.core_memory_agent_state.id,
+#         kwargs={
+#             'message': add_message2,
+#         },
+#         agent_type='core_memory'
+#     )
+#     print(f"Response from core memory agent (add 2): {response2}")
+#     print(f"Agent type: {agent_type2}")
     
-    # Test 3: Delete something from core memory
-    print("\n--- Test 3: Delete from Core Memory ---")
-    delete_message = "Please remove from core memory any information about the user's favorite programming language"
+#     # Test 3: Delete something from core memory
+#     print("\n--- Test 3: Delete from Core Memory ---")
+#     delete_message = "Please remove from core memory any information about the user's favorite programming language"
     
-    response3, agent_type3 = agent.message_queue.send_message_in_queue(
-        agent.client,
-        agent.agent_states.core_memory_agent_state.id,
-        kwargs={
-            'message': delete_message,
-        },
-        agent_type='core_memory'
-    )
-    print(f"Response from core memory agent (delete): {response3}")
-    print(f"Agent type: {agent_type3}")
+#     response3, agent_type3 = agent.message_queue.send_message_in_queue(
+#         agent.client,
+#         agent.agent_states.core_memory_agent_state.id,
+#         kwargs={
+#             'message': delete_message,
+#         },
+#         agent_type='core_memory'
+#     )
+#     print(f"Response from core memory agent (delete): {response3}")
+#     print(f"Agent type: {agent_type3}")
     
-    # Test 4: Replace core memory item
-    print("\n--- Test 4: Replace Core Memory Item ---")
-    replace_message = "Please replace the user's favorite IDE in core memory from VSCode to IntelliJ IDEA"
+#     # Test 4: Replace core memory item
+#     print("\n--- Test 4: Replace Core Memory Item ---")
+#     replace_message = "Please replace the user's favorite IDE in core memory from VSCode to IntelliJ IDEA"
     
-    response4, agent_type4 = agent.message_queue.send_message_in_queue(
-        agent.client,
-        agent.agent_states.core_memory_agent_state.id,
-        kwargs={
-            'message': replace_message,
-        },
-        agent_type='core_memory'
-    )
-    print(f"Response from core memory agent (replace): {response4}")
-    print(f"Agent type: {agent_type4}")
+#     response4, agent_type4 = agent.message_queue.send_message_in_queue(
+#         agent.client,
+#         agent.agent_states.core_memory_agent_state.id,
+#         kwargs={
+#             'message': replace_message,
+#         },
+#         agent_type='core_memory'
+#     )
+#     print(f"Response from core memory agent (replace): {response4}")
+#     print(f"Agent type: {agent_type4}")
     
-    print("Core memory replace tests completed.\n")
-    import ipdb; ipdb.set_trace()
+#     print("Core memory replace tests completed.\n")
+#     import ipdb; ipdb.set_trace()
 
 def test_episodic_memory_indirect(agent):
     """Test episodic memory through message-based interactions"""

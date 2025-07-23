@@ -37,6 +37,7 @@ from mirix.agent.upload_manager import UploadManager
 from mirix.agent.agent_states import AgentStates
 from mirix.agent.agent_configs import AGENT_CONFIGS
 from mirix.agent.app_constants import TEMPORARY_MESSAGE_LIMIT, MAXIMUM_NUM_IMAGES_IN_CLOUD, GEMINI_MODELS, OPENAI_MODELS, WITH_REFLEXION_AGENT, WITH_BACKGROUND_AGENT
+from mirix.schemas.mirix_message import MessageType
 
 from mirix import create_client
 from mirix import LLMConfig, EmbeddingConfig
@@ -44,6 +45,8 @@ from mirix.schemas.agent import AgentType
 from mirix.prompts import gpt_system
 from mirix.schemas.memory import ChatMemory
 from mirix.settings import model_settings
+
+logging.basicConfig(level=logging.INFO, format='[%(name)s] %(levelname)s: %(message)s')
 
 def encode_image(image_path):
     with open(image_path, "rb") as img_file:
@@ -105,6 +108,7 @@ class AgentWrapper():
         self.agent_name = agent_config['agent_name']
         self.model_name = agent_config['model_name']
         self.is_screen_monitor = agent_config.get('is_screen_monitor', False)
+        self.chat_agent_standalone = True
 
         # Initialize logger early
         self.logger = logging.getLogger(f"Mirix.AgentWrapper.{self.agent_name}")
@@ -146,7 +150,7 @@ class AgentWrapper():
                 elif agent_state.name == 'background_agent':
                     self.agent_states.background_agent_state = agent_state
 
-                system_prompt = gpt_system.get_system_text(agent_state.name) if not self.is_screen_monitor else gpt_system.get_system_text(agent_state.name + '_screen_monitor')
+                system_prompt = gpt_system.get_system_text(agent_state.name) if not self.is_screen_monitor else gpt_system.get_system_text('screen_monitor/' + agent_state.name)
 
                 self.client.server.agent_manager.update_agent_tools_and_system_prompts(
                     agent_id=agent_state.id,
@@ -186,7 +190,7 @@ class AgentWrapper():
                     agent_state = self.client.create_agent(
                         name=config['name'],
                         memory=core_memory,
-                        system=gpt_system.get_system_text(config['name']),
+                        system = gpt_system.get_system_text('screen_monitor/' + config['name']) if self.is_screen_monitor else gpt_system.get_system_text(config['name'])
                     )
                 else:
                     # All other agents follow the same pattern
@@ -194,7 +198,7 @@ class AgentWrapper():
                         name=config['name'],
                         agent_type=config['agent_type'],
                         memory=core_memory,
-                        system=gpt_system.get_system_text(config['name']) if not self.is_screen_monitor else gpt_system.get_system_text(config['name']) + gpt_system.get_system_text(config['name'] + '_screen_monitor'),
+                        system = gpt_system.get_system_text('screen_monitor/' + config['name']) if self.is_screen_monitor else gpt_system.get_system_text(config['name']),
                         include_base_tools=config['include_base_tools'],
                     )
                 
@@ -251,6 +255,31 @@ class AgentWrapper():
         # For GEMINI models, extract all unprocessed images and fill temporary_messages
         if self.model_name in GEMINI_MODELS and self.google_client is not None:
             self._process_existing_uploaded_files()
+
+    def update_chat_agent_system_prompt(self, is_screen_monitoring: bool):
+        '''
+        Update chat agent system prompt based on screen monitoring status
+        '''
+
+        print(f"🔄 Updating chat agent system prompt: {is_screen_monitoring}")
+
+        if self.chat_agent_standalone == is_screen_monitoring:
+
+            if self.is_screen_monitor:
+                file_name = 'screen_monitor/chat_agent'
+            else:
+                file_name = 'chat_agent'
+            
+            if is_screen_monitoring:
+                file_name = file_name + '_monitor_on'
+                self.chat_agent_standalone = False
+            else:
+                self.chat_agent_standalone = True
+                
+            self.client.server.agent_manager.update_system_prompt(
+                agent_id=self.agent_states.agent_state.id, 
+                system_prompt=gpt_system.get_system_text(file_name), 
+                actor=self.client.user)
 
     def _restore_database_before_init(self, folder_path: str):
         """
@@ -512,7 +541,7 @@ class AgentWrapper():
         
         self.active_persona_name = persona_name
 
-    def set_model(self, model_name: str) -> dict:
+    def set_model(self, model_name: str, custom_agent_config: dict = None) -> dict:
         """
         Set the model for the agent.
         Returns a dictionary with success status and any missing API keys.
@@ -548,6 +577,17 @@ class AgentWrapper():
                     model_wrapper=None,
                     context_window=128000,
                 )
+
+            elif custom_agent_config is not None:
+                assert 'model_endpoint' in custom_agent_config, "model_endpoint is required for custom models"
+                llm_config = LLMConfig(
+                    model=model_name,
+                    model_endpoint_type="openai",
+                    model_endpoint=custom_agent_config['model_endpoint'],
+                    model_wrapper=None,
+                    **custom_agent_config['generation_config']
+                )
+
             else:
                 assert 'model_endpoint' in self.agent_config, "model_endpoint is required for custom models"
                 llm_config = LLMConfig(
@@ -555,11 +595,8 @@ class AgentWrapper():
                     model_endpoint_type="openai",
                     model_endpoint=self.agent_config['model_endpoint'],
                     model_wrapper=None,
-                    context_window=128000,
                     **self.agent_config['generation_config']
                 )
-                # Fallback to default_config for unsupported models
-                llm_config = LLMConfig.default_config(model_name)
             
             # Update LLM config for the client
             self.client.set_default_llm_config(llm_config)
@@ -599,7 +636,7 @@ class AgentWrapper():
                 'model_requirements': {}
             }
 
-    def set_memory_model(self, new_model):
+    def set_memory_model(self, new_model, custom_agent_config: dict = None):
         """Set the model specifically for memory management operations"""
         
         # Define allowed memory models
@@ -618,6 +655,18 @@ class AgentWrapper():
                     model_wrapper=None,
                     context_window=128000,
                 )
+            
+            elif custom_agent_config is not None:
+                assert 'model_endpoint' in custom_agent_config, "model_endpoint is required for custom models"
+
+                llm_config = LLMConfig(
+                    model=new_model,
+                    model_endpoint_type="openai",
+                    model_endpoint=custom_agent_config['model_endpoint'],
+                    model_wrapper=None,
+                    **custom_agent_config['generation_config']
+                )
+            
             else:
                 assert 'model_endpoint' in self.agent_config, "model_endpoint is required for custom models"
 
@@ -626,7 +675,6 @@ class AgentWrapper():
                     model_endpoint_type="openai",
                     model_endpoint=self.agent_config['model_endpoint'],
                     model_wrapper=None,
-                    context_window=128000,
                     **self.agent_config['generation_config']
                 )
         
@@ -820,7 +868,7 @@ class AgentWrapper():
                       display_intermediate_message=None,
                       force_absorb_content=False,
                       async_upload=True):
-        
+
         # Check if Gemini features are required but not available
         if self.model_name in GEMINI_MODELS and not self.is_gemini_client_initialized():
             if images is not None or image_uris is not None or voice_files is not None:
@@ -942,29 +990,38 @@ class AgentWrapper():
 
             # Check if response is an error string
             if response == "ERROR":
-                return "ERROR"
+                return "ERROR_RESPONSE_FAILED"
             
             # Check if response has the expected structure
             if not hasattr(response, 'messages') or len(response.messages) < 2:
-                return "ERROR"
+                return "ERROR_INVALID_RESPONSE_STRUCTURE"
             
             try:
 
+                # find how many tools are called
+                num_tools_called = 0
+                for message in response.messages[::-1]:
+                    if message.message_type == MessageType.tool_return_message:
+                        num_tools_called += 1
+                    else:
+                        break
+
                 # Check if the message has tool_call attribute
-                if not hasattr(response.messages[-3], 'tool_call'):
-                    return "ERROR"
+                # 1->3; 2->5
+                if not hasattr(response.messages[-(num_tools_called * 2 + 1)], 'tool_call'):
+                    return "ERROR_NO_TOOL_CALL"
                 
-                tool_call = response.messages[-3].tool_call
+                tool_call = response.messages[-(num_tools_called * 2 + 1)].tool_call
                 
                 parsed_args = parse_json(tool_call.arguments)
                 
                 if 'message' not in parsed_args:
-                    return "ERROR"
+                    return "ERROR_NO_MESSAGE_IN_ARGS"
                     
                 response_text = parsed_args['message']
                 
             except (AttributeError, KeyError, IndexError, json.JSONDecodeError) as e:
-                return "ERROR"
+                return "ERROR_PARSING_EXCEPTION"
             
             # Add conversation to accumulator
             self.temp_message_accumulator.add_user_conversation(message, response_text)

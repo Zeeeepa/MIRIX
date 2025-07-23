@@ -250,7 +250,6 @@ class OpenAIClient(LLMClientBase):
         Performs underlying synchronous request to OpenAI API and returns raw response dict.
         """
         client = OpenAI(**self._prepare_client_kwargs())
-
         response: ChatCompletion = client.chat.completions.create(**request_data)
         return response.model_dump()
 

@@ -70,7 +70,7 @@ from mirix.services.user_manager import UserManager
 from mirix.services.tool_execution_sandbox import ToolExecutionSandbox
 from mirix.settings import summarizer_settings
 from mirix.embeddings import embedding_model
-from mirix.system import get_heartbeat, get_token_limit_warning, package_function_response, package_summarize_message, package_user_message
+from mirix.system import get_contine_chaining, get_token_limit_warning, package_function_response, package_summarize_message, package_user_message
 from mirix.tracing import log_event, trace_method
 from mirix.llm_api.llm_client import LLMClient
 from mirix.utils import (
@@ -168,7 +168,7 @@ class Agent(BaseAgent):
         self.resource_memory_manager = ResourceMemoryManager()
         self.semantic_memory_manager = SemanticMemoryManager()
 
-        # State needed for heartbeat pausing
+        # State needed for contine_chaining pausing
 
         self.first_message_verify_mono = first_message_verify_mono
 
@@ -292,14 +292,14 @@ class Agent(BaseAgent):
             
             elif target_mirix_tool.tool_type == ToolType.MIRIX_MEMORY_CORE:
                 callable_func = get_function_from_module(MIRIX_MEMORY_TOOL_MODULE_NAME, function_name)
-                if function_name in ['core_memory_append', 'core_memory_replace', 'core_memory_rewrite']:
+                if function_name in ['core_memory_append', 'core_memory_rewrite']:
                     agent_state_copy = self.agent_state.__deepcopy__()
                     function_args["agent_state"] = agent_state_copy  # need to attach self to arg since it's dynamically linked
                 if function_name in ['check_episodic_memory', 'check_semantic_memory']:
                     function_args['timezone_str'] = self.user_manager.get_user_by_id(self.user.id).timezone
                 function_args["self"] = self
                 function_response = callable_func(**function_args)
-                if function_name in ['core_memory_append', 'core_memory_replace', 'core_memory_rewrite']:
+                if function_name in ['core_memory_append', 'core_memory_rewrite']:
                     self.update_memory_if_changed(agent_state_copy.memory)
 
             else:
@@ -367,6 +367,7 @@ class Agent(BaseAgent):
         for attempt in range(1, empty_response_retry_limit + 1):
             try:
                 log_telemetry(self.logger, "_get_ai_reply create start")
+
                 # New LLM client flow
                 llm_client = LLMClient.create(
                     llm_config=self.agent_state.llm_config,
@@ -407,6 +408,10 @@ class Agent(BaseAgent):
                 # These bottom two are retryable
                 if len(response.choices) == 0 or response.choices[0] is None:
                     raise ValueError(f"API call returned an empty message: {response}")
+
+                for choice in response.choices:
+                    if choice.message.content == '' and len(choice.message.tool_calls) == 0:
+                        raise ValueError(f"API call returned an empty message: {response}")
 
                 if response.choices[0].finish_reason not in ["stop", "function_call", "tool_calls"]:
                     if response.choices[0].finish_reason == "length":
@@ -655,7 +660,7 @@ class Agent(BaseAgent):
                     function_response = self.execute_tool_and_persist_state(function_name, function_args, 
                                                                             target_mirix_tool, 
                                                                             display_intermediate_message=display_intermediate_message)
-
+                    
                     if function_name == 'send_message' or function_name == 'finish_memory_update':
                         assert tool_call_idx == len(response_message.tool_calls) - 1, f"{function_name} must be the last tool call"
 
@@ -922,7 +927,7 @@ class Agent(BaseAgent):
 
         # Update ToolRulesSolver state with last called function
         self.tool_rules_solver.update_tool_usage(function_name)
-        # Update heartbeat request according to provided tool rules
+        # Update contine_chaining request according to provided tool rules
         if self.tool_rules_solver.has_children_tools(function_name):
             continue_chaining = True
         elif self.tool_rules_solver.is_terminal_tool(function_name):
@@ -938,7 +943,7 @@ class Agent(BaseAgent):
         extra_messages: Optional[List[dict]] = None,
         **kwargs,
     ) -> MirixUsageStatistics:
-        """Run Agent.step in a loop, handling chaining via heartbeat requests and function failures"""
+        """Run Agent.step in a loop, handling chaining via contine_chaining requests and function failures"""
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
@@ -1108,7 +1113,7 @@ class Agent(BaseAgent):
                     model=self.model,
                     openai_message_dict={
                         "role": "user",  # TODO: change to system?
-                        "content": get_heartbeat(FUNC_FAILED_HEARTBEAT_MESSAGE),
+                        "content": get_contine_chaining(FUNC_FAILED_HEARTBEAT_MESSAGE),
                     },
                 )
                 continue  # always chain
@@ -1119,7 +1124,7 @@ class Agent(BaseAgent):
                     model=self.model,
                     openai_message_dict={
                         "role": "user",  # TODO: change to system?
-                        "content": get_heartbeat(REQ_HEARTBEAT_MESSAGE),
+                        "content": get_contine_chaining(REQ_HEARTBEAT_MESSAGE),
                     },
                 )
                 continue  # always chain
