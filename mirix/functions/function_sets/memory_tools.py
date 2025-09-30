@@ -44,44 +44,6 @@ def core_memory_rewrite(self: "Agent", agent_state: "AgentState", label: str, co
         agent_state.memory.update_block_value(label=label, value=new_value)
     return None
 
-def core_memory_replace(self: "Agent", agent_state: "AgentState", label: str, old_line_numbers: str, new_content: str) -> Optional[str]:  # type: ignore
-    """
-    Replace the contents of core memory. `old_line_numbers` can be a single line number or a range. For instance, it should be "Line 5" to update line 5, or "Line 5-8" to update/delete lines 5 through 8 in the memory. To delete memories, use an empty string for `new_content`. Otherwise, the content will be replaced with the new content. When replacing a range of lines, the new_content will replace all the specified lines.
-     
-    Args:
-        label (str): Section of the memory to be edited (persona or human).
-        old_line_numbers (str): The line number(s) of the content to be updated. Can be "Line 5" for single line or "Line 5-8" for a range.
-        new_content (str): Content to write to the memory. All unicode (including emojis) are supported. Can contain newlines to create multiple lines.
-
-    Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
-    """
-    current_value = str(agent_state.memory.get_block(label).value)
-    current_value = current_value.split("\n")
-    
-    # Parse line numbers
-    line_part = old_line_numbers.split(" ")[-1]  # Extract the number part after "Line "
-    
-    if "-" in line_part:
-        # Range of lines
-        start_line, end_line = line_part.split("-")
-        start_idx = int(start_line) - 1  # Convert to 0-based index
-        end_idx = int(end_line) - 1      # Convert to 0-based index
-    else:
-        # Single line
-        start_idx = end_idx = int(line_part) - 1
-    
-    if new_content != "":
-        # Replace the range with new content
-        new_lines = new_content.split("\n")
-        current_value = current_value[:start_idx] + new_lines + current_value[end_idx + 1:]
-    else:
-        # Delete the lines
-        current_value = current_value[:start_idx] + current_value[end_idx + 1:]
-    
-    agent_state.memory.update_block_value(label=label, value="\n".join(current_value))
-    return None
-
 def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
     """
     The tool to update episodic memory. The item being inserted into the episodic memory is an event either happened on the user or the assistant.
@@ -580,8 +542,10 @@ def trigger_memory_update(self: "Agent", user_message: object, memory_types: Lis
             if matching_agent is None:
                 raise ValueError(f"No agent found with type '{agent_type}'")
             
-            client.send_message(agent_id=matching_agent.id, 
+            client.send_message(
                 role='user', 
+                user_id=self.user.id,
+                agent_id=matching_agent.id, 
                 message=user_message['message'], 
                 existing_file_uris=user_message['existing_file_uris'],
                 retrieved_memories=user_message.get('retrieved_memories', None)

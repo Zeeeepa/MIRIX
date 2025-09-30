@@ -240,10 +240,12 @@ class Agent(BaseAgent):
                     block = self.block_manager.update_block(
                         block_id=block_id, block_update=BlockUpdate(value=updated_value), actor=self.user
                     )
+                    assert block.user_id == self.user.id
+                    self.logger.info(f"Updated block {label} with value {updated_value} and user {self.user.id}")
 
             # refresh memory from DB (using block ids)
             self.agent_state.memory = Memory(
-                blocks=[self.block_manager.get_block_by_id(block.id, actor=self.user) for block in self.agent_state.memory.get_blocks()]
+                blocks=[self.block_manager.get_block_by_id(block.id, actor=self.user) for block in self.block_manager.get_blocks(actor=self.user)]
             )
 
             # NOTE: don't do this since re-buildin the memory is handled at the start of the step
@@ -318,8 +320,10 @@ class Agent(BaseAgent):
         Execute tool modifications and persist the state of the agent.
         Note: only some agent state modifications will be persisted, such as data in the AgentState ORM and block data
         """
-        # TODO: add agent manager here
-        orig_memory_str = self.agent_state.memory.compile()
+        
+        self.agent_state.memory = Memory(
+            blocks=[self.block_manager.get_block_by_id(block.id, actor=self.user) for block in self.block_manager.get_blocks(actor=self.user)]
+        )
 
         # TODO: need to have an AgentState object that actually has full access to the block data
         # this is because the sandbox tools need to be able to access block.value to edit this data
@@ -1044,6 +1048,9 @@ class Agent(BaseAgent):
 
         if user_id:
             self.user = self.user_manager.get_user_by_id(user_id)
+            self.agent_state.memory = Memory(
+                blocks=[self.block_manager.get_block_by_id(block.id, actor=self.user) for block in self.block_manager.get_blocks(actor=self.user)]
+            )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
@@ -1073,72 +1080,9 @@ class Agent(BaseAgent):
 
             if self.agent_state.name in ['meta_memory_agent', 'chat_agent'] and step_count == 0:
                 # When the agent first gets the screenshots, we need to extract the topic to search the query.
-
                 try:
-                    topics = None
-
-                    temporary_messages = copy.deepcopy(next_input_message)
-
-                    temporary_messages.append(prepare_input_message_create(MessageCreate(
-                        role=MessageRole.user,
-                        content="The above are the inputs from the user, please look at these content and extract the topic (brief description of what the user is focusing on) from these content. If there are multiple focuses in these content, then extract them all and put them into one string separated by ';'. Call the function `update_topic` to update the topic with the extracted topics.",
-                    ), self.agent_state.id, wrap_user_message=False, wrap_system_message=True))
-
-                    temporary_messages = [
-                        prepare_input_message_create(MessageCreate(
-                            role=MessageRole.system,
-                            content="You are a helpful assistant that extracts the topic from the user's input.",
-                        ), self.agent_state.id, wrap_user_message=False, wrap_system_message=True),
-                    ] + temporary_messages
+                    topics = self._extract_topics_from_messages(next_input_message)
                     
-                    # Define the function for topic extraction
-                    functions = [{
-                        'name': 'update_topic',
-                        'description': "Update the topic of the conversation/content. The topic will be used for retrieving relevant information from the database",
-                        'parameters': {
-                            'type': 'object',
-                            'properties': {
-                                'topic': {
-                                    'type': 'string', 
-                                    'description': 'The topic of the current conversation/content. If there are multiple topics then separate them with ";".'}
-                            },
-                            'required': ['topic']
-                        },
-                    }]
-                    
-                    # Use LLMClient to extract topics
-                    llm_client = LLMClient.create(
-                        llm_config=self.agent_state.llm_config,
-                        put_inner_thoughts_first=True,
-                    )
-                    
-                    if llm_client:
-                        response = llm_client.send_llm_request(
-                            messages=temporary_messages,
-                            tools=functions,
-                            stream=False,
-                            force_tool_call='update_topic',
-                        )
-                    else:
-                        # Fallback to existing create function
-                        response = create(
-                            llm_config=self.agent_state.llm_config,
-                            messages=temporary_messages,
-                            functions=functions,
-                            force_tool_call='update_topic',
-                        )
-
-                    # Extract topics from the response
-                    for choice in response.choices:
-                        if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls is not None and len(choice.message.tool_calls) > 0:
-                            try:
-                                function_args = json.loads(choice.message.tool_calls[0].function.arguments)
-                                topics = function_args.get('topic')
-                                break
-                            except (json.JSONDecodeError, KeyError) as parse_error:
-                                self.logger.warning(f"Failed to parse topic extraction response: {parse_error}")
-                                continue
-        
                     if topics is not None:
                         kwargs['topics'] = topics
                         self.update_topic_if_changed(topics)
@@ -1460,19 +1404,57 @@ These keywords have been used to retrieve relevant memories from the database.
 
         return system_prompt
 
-    def construct_system_message(self, message: str) -> str:
+
+    def extract_memory_for_system_prompt(self, message: str) -> str:
+        """
+        Extract topics from the message and build the memory system prompt without raw_system.
+        This is similar to construct_system_message but returns only the memory portion.
         
-        # Step 1: extract topic from "message"
-        topics = None
+        Args:
+            message (str): The message to extract topics from
+            
+        Returns:
+            str: The memory system prompt (without raw_system prefix)
+        """
+        # Step 1: extract topics from message
+        topics = self._extract_topics_from_message(message)
         
+        # Step 2: build memory system prompt with extracted topics
+        memory_system_prompt = self.build_system_prompt(self._retrieve_memories_for_topics(topics))
+        
+        return memory_system_prompt
+
+    def _extract_topics_from_message(self, message: str) -> Optional[str]:
+        """
+        Extract topics from a message using LLM.
+        
+        Args:
+            message (str): The message to extract topics from
+            
+        Returns:
+            Optional[str]: Extracted topics or None if extraction fails
+        """
+        # Convert string message to Message list format
+        temporary_messages = [prepare_input_message_create(MessageCreate(
+            role=MessageRole.user,
+            content=message,
+        ), self.agent_state.id, wrap_user_message=False, wrap_system_message=True)]
+        
+        return self._extract_topics_from_messages(temporary_messages)
+
+    def _extract_topics_from_messages(self, messages: List[Message]) -> Optional[str]:
+        """
+        Extract topics from a list of messages using LLM.
+        
+        Args:
+            messages (List[Message]): The messages to extract topics from
+            
+        Returns:
+            Optional[str]: Extracted topics or None if extraction fails
+        """
         try:
-
-            # Create temporary messages for topic extraction
-            temporary_messages = [prepare_input_message_create(MessageCreate(
-                role=MessageRole.user,
-                content=message,
-            ), self.agent_state.id, wrap_user_message=False, wrap_system_message=True)]
-
+            # Add instruction message for topic extraction
+            temporary_messages = copy.deepcopy(messages)
             temporary_messages.append(prepare_input_message_create(MessageCreate(
                 role=MessageRole.user,
                 content="The above are the inputs from the user, please look at these content and extract the topic (brief description of what the user is focusing on) from these content. If there are multiple focuses in these content, then extract them all and put them into one string separated by ';'. Call the function `update_topic` to update the topic with the extracted topics.",
@@ -1529,14 +1511,49 @@ These keywords have been used to retrieve relevant memories from the database.
                         function_args = json.loads(choice.message.tool_calls[0].function.arguments)
                         topics = function_args.get('topic')
                         self.logger.info(f"Extracted topics: {topics}")
-                        break
+                        return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
                         self.logger.warning(f"Failed to parse topic extraction response: {parse_error}")
                         continue
 
         except Exception as e:
-            self.logger.info(f"Error in extracting the topic from the message: {e}")
-            topics = None
+            self.logger.info(f"Error in extracting the topic from the messages: {e}")
+        
+        return None
+
+    def _retrieve_memories_for_topics(self, topics: Optional[str]) -> dict:
+        """
+        Retrieve memories based on topics. This is extracted from build_system_prompt_with_memories
+        to avoid code duplication.
+        
+        Args:
+            topics (Optional[str]): Topics to use for memory retrieval
+            
+        Returns:
+            dict: Retrieved memories dictionary
+        """
+        # Use the existing memory retrieval logic from build_system_prompt_with_memories
+        # but without the raw_system combination
+        _, retrieved_memories = self.build_system_prompt_with_memories(
+            raw_system="",  # Empty since we only want memories
+            topics=topics
+        )
+        return retrieved_memories
+
+
+    def construct_system_message(self, message: str) -> str:
+        """
+        Construct a complete system message by extracting topics from the message and 
+        combining with the raw system prompt and memories.
+        
+        Args:
+            message (str): The message to extract topics from
+            
+        Returns:
+            str: The complete system prompt including raw system and memories
+        """
+        # Step 1: extract topics from message
+        topics = self._extract_topics_from_message(message)
         
         # Step 2: build system prompt with topic
         # Get the raw system prompt

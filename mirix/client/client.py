@@ -1065,6 +1065,12 @@ class LocalClient(AbstractClient):
         """
         return self.server.construct_system_message(agent_id=agent_id, message=message, actor=self.server.user_manager.get_user_by_id(user_id))
 
+    def extract_memory_for_system_prompt(self, agent_id: str, message: str, user_id: str) -> str:
+        """
+        Extract memory for system prompt from a message.
+        """
+        return self.server.extract_memory_for_system_prompt(agent_id=agent_id, message=message, actor=self.server.user_manager.get_user_by_id(user_id))
+
     def send_messages(
         self,
         agent_id: str,

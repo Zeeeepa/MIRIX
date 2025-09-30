@@ -133,7 +133,7 @@ class Settings(BaseSettings):
     pg_password: Optional[str] = None
     pg_host: Optional[str] = None
     pg_port: Optional[int] = None
-    pg_uri: Optional[str] = default_pg_uri  # option to specify full uri
+    pg_uri: Optional[str] = Field(default_pg_uri, env="MIRIX_PG_URI")  # option to specify full uri
     pg_pool_size: int = 80  # Concurrent connections
     pg_max_overflow: int = 30  # Overflow limit
     pg_pool_timeout: int = 30  # Seconds to wait for a connection

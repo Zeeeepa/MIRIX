@@ -169,6 +169,13 @@ class Mirix:
         """
         return self._agent.construct_system_message(message, user_id)
 
+
+    def extract_memory_for_system_prompt(self, message: str, user_id: str) -> str:
+        """
+        Extract memory for system prompt from a message.
+        """
+        return self._agent.extract_memory_for_system_prompt(message, user_id)
+
     def get_user_by_name(self, user_name: str):
         """
         Get a user by their name.
@@ -810,108 +817,65 @@ class Mirix:
                 'error': str(e)
             }
 
-    def edit_memories(self, user_id: Optional[str] = None, memory_type: str = "all", action: str = "clear") -> Dict[str, Any]:
+    def update_core_memory(self, label: str, text: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Edit memories for a specific user.
+        Update a specific core memory block with new text.
+        
+        Core memory blocks are persistent memory aspects that help the agent
+        understand and remember key information about users, preferences, and context.
         
         Args:
-            user_id: User ID to edit memories for. If None, uses current active user.
-            memory_type: Type of memory to edit ("episodic", "semantic", "procedural", "resources", "core", "credentials", "conversation", "all")
-            action: Action to perform ("clear", "export")
+            label: The label/name of the core memory block to update (e.g., "persona", "user_preferences")
+            text: The new text content for the memory block
+            user_id: User ID to update core memory for. If None, uses the current active user.
             
         Returns:
-            Dict containing success status and results
+            Dict containing success status and message
             
         Example:
-            # Clear conversation history for specific user
-            result = memory_agent.edit_memories(user_id="user_123", memory_type="conversation", action="clear")
+            # Update core memory for current user
+            result = memory_agent.update_core_memory(
+                label="user_preferences", 
+                text="User prefers concise responses and technical details"
+            )
             
-            # Export all memories for user
-            result = memory_agent.edit_memories(user_id="user_123", action="export")
+            # Update core memory for specific user
+            result = memory_agent.update_core_memory(
+                label="user_preferences", 
+                text="Alice prefers detailed explanations",
+                user_id="user_123"
+            )
+            
+            if result['success']:
+                print("Core memory updated successfully")
+            else:
+                print(f"Update failed: {result['message']}")
         """
         try:
-            # Find the target user
+            # If user_id is provided, get the specific user
             if user_id:
                 target_user = self._agent.client.server.user_manager.get_user_by_id(user_id)
                 if not target_user:
                     return {
                         'success': False,
-                        'error': f"User with ID '{user_id}' not found"
+                        'message': f"User with ID '{user_id}' not found"
                     }
+                # Update core memory for the specific user
+                self._agent.update_core_memory(text=text, label=label, user=target_user)
             else:
-                # Find the current active user
-                users = self._agent.client.server.user_manager.list_users()
-                active_user = next((user for user in users if user.status == 'active'), None)
-                target_user = active_user if active_user else (users[0] if users else None)
-                
-            if not target_user:
-                return {
-                    'success': False,
-                    'error': 'No user found'
-                }
+                # Update core memory for current user (default behavior)
+                self._agent.update_core_memory(text=text, label=label)
             
-            if action == "clear":
-                if memory_type == "conversation":
-                    # Clear conversation history for the user
-                    current_messages = self._agent.client.server.agent_manager.get_in_context_messages(
-                        agent_id=self._agent.agent_states.agent_state.id,
-                        actor=target_user
-                    )
-                    # Count messages belonging to this user (excluding system messages)
-                    user_messages_count = len([msg for msg in current_messages if msg.role != 'system' and msg.user_id == target_user.id])
-                    
-                    # Clear conversation history
-                    self._agent.client.server.agent_manager.reset_messages(
-                        agent_id=self._agent.agent_states.agent_state.id,
-                        actor=target_user,
-                        add_default_initial_messages=True
-                    )
-                    
-                    return {
-                        'success': True,
-                        'message': f"Successfully cleared conversation history for {target_user.name}",
-                        'messages_deleted': user_messages_count
-                    }
-                else:
-                    return {
-                        'success': False,
-                        'error': 'Clear action currently only supports "conversation" memory type'
-                    }
-                    
-            elif action == "export":
-                # Export memories to Excel file
-                from datetime import datetime
-                from pathlib import Path
-                
-                # Generate filename with timestamp
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = f"mirix_memories_{target_user.name}_{timestamp}.xlsx"
-                
-                # Use home directory for export
-                file_path = str(Path.home() / filename)
-                
-                # Determine memory types to export
-                if memory_type == "all":
-                    memory_types = ["episodic", "semantic", "procedural", "resources", "core", "credentials"]
-                else:
-                    memory_types = [memory_type]
-                
-                result = self._agent.export_memories_to_excel(
-                    actor=target_user,
-                    file_path=file_path,
-                    memory_types=memory_types,
-                    include_embeddings=False
-                )
-                
-                return result
-            else:
-                return {
-                    'success': False,
-                    'error': f'Unsupported action: {action}. Supported actions are "clear" and "export"'
-                }
-                
+            return {
+                'success': True,
+                'message': f"Core memory block '{label}' updated successfully" + 
+                          (f" for user {user_id}" if user_id else "")
+            }
         except Exception as e:
             return {
                 'success': False,
-                'error': str(e)
+                'message': f"Error updating core memory: {str(e)}"
             }
+
+
+    

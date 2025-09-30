@@ -274,6 +274,14 @@ class AgentWrapper():
                                                     message=message,
                                                     user_id=user_id)
 
+    def extract_memory_for_system_prompt(self, message: str, user_id: str) -> str:
+        """
+        Extract memory for system prompt from a message.
+        """
+        return self.client.extract_memory_for_system_prompt(agent_id=self.agent_states.agent_state.id, 
+                                                    message=message,
+                                                    user_id=user_id)
+
     def update_chat_agent_system_prompt(self, is_screen_monitoring: bool):
         '''
         Update chat agent system prompt based on screen monitoring status
@@ -989,15 +997,34 @@ class AgentWrapper():
             value=text
         )
     
-    def update_core_memory(self, text: str, label: str):
+    def update_core_memory(self, text: str, label: str, user=None):
         """
         Update the core memory with the given text and label
+        
+        Args:
+            text: The new text content for the memory block
+            label: The label of the memory block to update
+            user: The user to update memory for. If None, uses the client's current user.
         """
-        self.client.update_agent_memory_block(
-            agent_id=self.agent_states.agent_state.id,
-            label=label,
-            value=text
-        )
+        if user is None:
+            # Use the default client method (uses client's current user)
+            self.client.update_agent_memory_block(
+                agent_id=self.agent_states.agent_state.id,
+                label=label,
+                value=text
+            )
+        else:
+
+            blocks = self.client.server.block_manager.get_blocks(actor=user)
+            block = [block for block in blocks if block.label == label][0]
+            
+            # Update memory for specific user by directly calling the server methods
+            from mirix.schemas.block import BlockUpdate
+            self.client.server.block_manager.update_block(
+                block.id, 
+                actor=user, 
+                block_update=BlockUpdate(value=text)
+            )
 
     def apply_persona_template(self, persona_name: str):
         """

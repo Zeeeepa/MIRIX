@@ -3,9 +3,9 @@ requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mirix"
+name = "mirix-samples"
 version = "0.1.4"
-description = "Multi-Agent Personal Assistant with an Advanced Memory System"
+description = "A sample directory for MIRIX quick start"
 readme = "README.md"
 license = {text = "Apache License 2.0"}
 authors = [
@@ -79,6 +79,10 @@ dependencies = [
     "google-auth-oauthlib",  # Google OAuth library
     "google-auth-httplib2",  # Google HTTP library
     "google-api-python-client",  # Google API client library
+    "mirix @  {root:uri}/../../",
+    "langgraph (>=0.6.7,<0.7.0)",
+    "langchain-openai (>=0.3.33,<0.4.0)",
+    "langchain-google-genai (>=2.1.12,<3.0.0)",
 ]
 
 [project.optional-dependencies]
@@ -107,6 +111,11 @@ Issues = "https://github.com/Mirix-AI/MIRIX/issues"
 [project.scripts]
 mirix = "mirix.__main__:main"
 
+[tool.poetry]
+package-mode = false
+
+[tool.poetry.dependencies]
+mirix = {develop = true}
 [tool.setuptools.packages.find]
 exclude = ["tests*", "scripts*", "frontend*", "public_evaluations*", "mirix_env*"]
 

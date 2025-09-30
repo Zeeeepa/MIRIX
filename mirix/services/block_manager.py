@@ -25,7 +25,7 @@ class BlockManager:
         db_block = self.get_block_by_id(block.id, actor)
         if db_block:
             update_data = BlockUpdate(**block.model_dump(exclude_none=True))
-            self.update_block(block.id, update_data, actor)
+            return self.update_block(block.id, update_data, actor)
         else:
             with self.session_maker() as session:
                 data = block.model_dump(exclude_none=True)
