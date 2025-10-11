@@ -45,7 +45,6 @@ class SummarizerSettings(BaseSettings):
 
 
 class ModelSettings(BaseSettings):
-
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # env_prefix='my_prefix_'
@@ -123,7 +122,9 @@ class Settings(BaseSettings):
     mirix_dir: Optional[Path] = Field(Path.home() / ".mirix", env="MIRIX_DIR")
     # Directory where uploaded/processed images are stored
     # Can be overridden with MIRIX_IMAGES_DIR environment variable
-    images_dir: Optional[Path] = Field(Path.home() / ".mirix" / "images", env="MIRIX_IMAGES_DIR")
+    images_dir: Optional[Path] = Field(
+        Path.home() / ".mirix" / "images", env="MIRIX_IMAGES_DIR"
+    )
     debug: Optional[bool] = False
     cors_origins: Optional[list] = cors_origins
 
@@ -133,7 +134,9 @@ class Settings(BaseSettings):
     pg_password: Optional[str] = None
     pg_host: Optional[str] = None
     pg_port: Optional[int] = None
-    pg_uri: Optional[str] = Field(default_pg_uri, env="MIRIX_PG_URI")  # option to specify full uri
+    pg_uri: Optional[str] = Field(
+        default_pg_uri, env="MIRIX_PG_URI"
+    )  # option to specify full uri
     pg_pool_size: int = 80  # Concurrent connections
     pg_max_overflow: int = 30  # Overflow limit
     pg_pool_timeout: int = 30  # Seconds to wait for a connection
@@ -147,7 +150,9 @@ class Settings(BaseSettings):
 
     # telemetry logging
     verbose_telemetry_logging: bool = False
-    otel_exporter_otlp_endpoint: Optional[str] = None  # otel default: "http://localhost:4317"
+    otel_exporter_otlp_endpoint: Optional[str] = (
+        None  # otel default: "http://localhost:4317"
+    )
     disable_tracing: bool = False
 
     # uvicorn settings
@@ -179,10 +184,16 @@ class Settings(BaseSettings):
     def mirix_pg_uri(self) -> str:
         if self.pg_uri:
             return self.pg_uri
-        elif self.pg_db and self.pg_user and self.pg_password and self.pg_host and self.pg_port:
+        elif (
+            self.pg_db
+            and self.pg_user
+            and self.pg_password
+            and self.pg_host
+            and self.pg_port
+        ):
             return f"postgresql+pg8000://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_db}"
         else:
-            return f"postgresql+pg8000://mirix:mirix@localhost:5432/mirix"
+            return "postgresql+pg8000://mirix:mirix@localhost:5432/mirix"
 
     # add this property to avoid being returned the default
     # reference: https://github.com/mirix-ai/mirix/issues/1362
@@ -190,7 +201,13 @@ class Settings(BaseSettings):
     def mirix_pg_uri_no_default(self) -> str:
         if self.pg_uri:
             return self.pg_uri
-        elif self.pg_db and self.pg_user and self.pg_password and self.pg_host and self.pg_port:
+        elif (
+            self.pg_db
+            and self.pg_user
+            and self.pg_password
+            and self.pg_host
+            and self.pg_port
+        ):
             return f"postgresql+pg8000://{self.pg_user}:{self.pg_password}@{self.pg_host}:{self.pg_port}/{self.pg_db}"
         else:
             return None
@@ -200,7 +217,9 @@ class TestSettings(Settings):
     model_config = SettingsConfigDict(env_prefix="mirix_test_", extra="ignore")
 
     mirix_dir: Optional[Path] = Field(Path.home() / ".mirix/test", env="MIRIX_TEST_DIR")
-    images_dir: Optional[Path] = Field(Path.home() / ".mirix/test" / "images", env="MIRIX_TEST_IMAGES_DIR")
+    images_dir: Optional[Path] = Field(
+        Path.home() / ".mirix/test" / "images", env="MIRIX_TEST_IMAGES_DIR"
+    )
 
 
 # singleton

@@ -19,15 +19,27 @@ class SandboxType(str, Enum):
 class SandboxRunResult(BaseModel):
     func_return: Optional[Any] = Field(None, description="The function return object")
     agent_state: Optional[AgentState] = Field(None, description="The agent state")
-    stdout: Optional[List[str]] = Field(None, description="Captured stdout (e.g. prints, logs) from the function invocation")
-    stderr: Optional[List[str]] = Field(None, description="Captured stderr from the function invocation")
-    status: Literal["success", "error"] = Field(..., description="The status of the tool execution and return object")
-    sandbox_config_fingerprint: str = Field(None, description="The fingerprint of the config for the sandbox")
+    stdout: Optional[List[str]] = Field(
+        None,
+        description="Captured stdout (e.g. prints, logs) from the function invocation",
+    )
+    stderr: Optional[List[str]] = Field(
+        None, description="Captured stderr from the function invocation"
+    )
+    status: Literal["success", "error"] = Field(
+        ..., description="The status of the tool execution and return object"
+    )
+    sandbox_config_fingerprint: str = Field(
+        None, description="The fingerprint of the config for the sandbox"
+    )
 
 
 class LocalSandboxConfig(BaseModel):
     sandbox_dir: str = Field(..., description="Directory for the sandbox environment.")
-    use_venv: bool = Field(False, description="Whether or not to use the venv, or run directly in the same run loop.")
+    use_venv: bool = Field(
+        False,
+        description="Whether or not to use the venv, or run directly in the same run loop.",
+    )
     venv_name: str = Field(
         "venv",
         description="The name for the venv in the sandbox directory. We first search for an existing venv with this name, otherwise, we make it from the requirements.txt.",
@@ -40,8 +52,12 @@ class LocalSandboxConfig(BaseModel):
 
 class E2BSandboxConfig(BaseModel):
     timeout: int = Field(5 * 60, description="Time limit for the sandbox (in seconds).")
-    template: Optional[str] = Field(None, description="The E2B template id (docker image).")
-    pip_requirements: Optional[List[str]] = Field(None, description="A list of pip packages to install on the E2B Sandbox")
+    template: Optional[str] = Field(
+        None, description="The E2B template id (docker image)."
+    )
+    pip_requirements: Optional[List[str]] = Field(
+        None, description="A list of pip packages to install on the E2B Sandbox"
+    )
 
     @property
     def type(self) -> "SandboxType":
@@ -65,8 +81,13 @@ class SandboxConfigBase(OrmMetadataBase):
 class SandboxConfig(SandboxConfigBase):
     id: str = SandboxConfigBase.generate_id_field()
     type: SandboxType = Field(None, description="The type of sandbox.")
-    organization_id: Optional[str] = Field(None, description="The unique identifier of the organization associated with the sandbox.")
-    config: Dict = Field(default_factory=lambda: {}, description="The JSON sandbox settings data.")
+    organization_id: Optional[str] = Field(
+        None,
+        description="The unique identifier of the organization associated with the sandbox.",
+    )
+    config: Dict = Field(
+        default_factory=lambda: {}, description="The JSON sandbox settings data."
+    )
 
     def get_e2b_config(self) -> E2BSandboxConfig:
         return E2BSandboxConfig(**self.config)
@@ -95,10 +116,14 @@ class SandboxConfig(SandboxConfigBase):
 
 
 class SandboxConfigCreate(MirixBase):
-    config: Union[LocalSandboxConfig, E2BSandboxConfig] = Field(..., description="The configuration for the sandbox.")
+    config: Union[LocalSandboxConfig, E2BSandboxConfig] = Field(
+        ..., description="The configuration for the sandbox."
+    )
 
 
 class SandboxConfigUpdate(MirixBase):
     """Pydantic model for updating SandboxConfig fields."""
 
-    config: Union[LocalSandboxConfig, E2BSandboxConfig] = Field(None, description="The JSON configuration data for the sandbox.")
+    config: Union[LocalSandboxConfig, E2BSandboxConfig] = Field(
+        None, description="The JSON configuration data for the sandbox."
+    )

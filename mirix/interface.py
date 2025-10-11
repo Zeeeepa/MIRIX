@@ -1,14 +1,18 @@
+import asyncio
+import queue
 import re
 from abc import ABC, abstractmethod
-from typing import List, Optional, Union, Literal
+from typing import List, Literal, Optional, Union
 
 from colorama import Fore, Style, init
-import queue
-import asyncio
 
-from mirix.constants import CLI_WARNING_PREFIX, ASSISTANT_MESSAGE_CLI_SYMBOL, INNER_THOUGHTS_CLI_SYMBOL
+from mirix.constants import (
+    ASSISTANT_MESSAGE_CLI_SYMBOL,
+    CLI_WARNING_PREFIX,
+    INNER_THOUGHTS_CLI_SYMBOL,
+)
 from mirix.schemas.message import Message
-from mirix.utils import json_loads, printd, is_utc_datetime
+from mirix.utils import is_utc_datetime, json_loads, printd
 
 init(autoreset=True)
 
@@ -44,6 +48,7 @@ class AgentInterface(ABC):
         """Mirix calls a function"""
         raise NotImplementedError
 
+
 class CLIInterface(AgentInterface):
     """Basic interface for dumping agent events to the command-line"""
 
@@ -65,7 +70,7 @@ class CLIInterface(AgentInterface):
     @staticmethod
     def internal_monologue(msg: str, msg_obj: Optional[Message] = None):
         # ANSI escape code for italic is '\x1B[3m'
-        fstr = f"\x1B[3m{Fore.LIGHTBLACK_EX}{INNER_THOUGHTS_CLI_SYMBOL} {{msg}}{Style.RESET_ALL}"
+        fstr = f"\x1b[3m{Fore.LIGHTBLACK_EX}{INNER_THOUGHTS_CLI_SYMBOL} {{msg}}{Style.RESET_ALL}"
         if STRIP_UI:
             fstr = "{msg}"
         print(fstr.format(msg=msg))
@@ -92,12 +97,20 @@ class CLIInterface(AgentInterface):
         print(fstr.format(msg=msg))
 
     @staticmethod
-    def user_message(msg: str, msg_obj: Optional[Message] = None, raw: bool = False, dump: bool = False, debug: bool = DEBUG):
+    def user_message(
+        msg: str,
+        msg_obj: Optional[Message] = None,
+        raw: bool = False,
+        dump: bool = False,
+        debug: bool = DEBUG,
+    ):
         def print_user_message(icon, msg, printf=print):
             if STRIP_UI:
                 printf(f"{icon} {msg}")
             else:
-                printf(f"{Fore.GREEN}{Style.BRIGHT}{icon} {Fore.GREEN}{msg}{Style.RESET_ALL}")
+                printf(
+                    f"{Fore.GREEN}{Style.BRIGHT}{icon} {Fore.GREEN}{msg}{Style.RESET_ALL}"
+                )
 
         def printd_user_message(icon, msg):
             return print_user_message(icon, msg)
@@ -114,7 +127,9 @@ class CLIInterface(AgentInterface):
                 try:
                     msg_json = json_loads(msg)
                 except:
-                    printd(f"{CLI_WARNING_PREFIX}failed to parse user message into json")
+                    printd(
+                        f"{CLI_WARNING_PREFIX}failed to parse user message into json"
+                    )
                     printd_user_message("🧑", msg)
                     return
         if msg_json["type"] == "user_message":
@@ -138,15 +153,21 @@ class CLIInterface(AgentInterface):
             printd_user_message("🧑", msg_json)
 
     @staticmethod
-    def function_message(msg: str, msg_obj: Optional[Message] = None, debug: bool = DEBUG):
+    def function_message(
+        msg: str, msg_obj: Optional[Message] = None, debug: bool = DEBUG
+    ):
         def print_function_message(icon, msg, color=Fore.RED, printf=print):
             if STRIP_UI:
                 printf(f"⚡{icon} [function] {msg}")
             else:
-                printf(f"{color}{Style.BRIGHT}⚡{icon} [function] {color}{msg}{Style.RESET_ALL}")
+                printf(
+                    f"{color}{Style.BRIGHT}⚡{icon} [function] {color}{msg}{Style.RESET_ALL}"
+                )
 
         def printd_function_message(icon, msg, color=Fore.RED):
-            return print_function_message(icon, msg, color, printf=(print if debug else printd))
+            return print_function_message(
+                icon, msg, color, printf=(print if debug else printd)
+            )
 
         if isinstance(msg, dict):
             printd_function_message("", msg)
@@ -167,40 +188,60 @@ class CLIInterface(AgentInterface):
                 if match:
                     function_name = match.group(1)
                     function_args = match.group(2)
-                    if function_name in ["archival_memory_insert", "archival_memory_search", "core_memory_append"]:
-                        if function_name in ["archival_memory_insert", "core_memory_append"]:
-                            print_function_message("🧠", f"updating memory with {function_name}")
+                    if function_name in [
+                        "archival_memory_insert",
+                        "archival_memory_search",
+                        "core_memory_append",
+                    ]:
+                        if function_name in [
+                            "archival_memory_insert",
+                            "core_memory_append",
+                        ]:
+                            print_function_message(
+                                "🧠", f"updating memory with {function_name}"
+                            )
                         elif function_name == "archival_memory_search":
-                            print_function_message("🧠", f"searching memory with {function_name}")
+                            print_function_message(
+                                "🧠", f"searching memory with {function_name}"
+                            )
                         try:
                             msg_dict = eval(function_args)
                             if function_name == "archival_memory_search":
-                                output = f'\tquery: {msg_dict["query"]}, page: {msg_dict["page"]}'
+                                output = f"\tquery: {msg_dict['query']}, page: {msg_dict['page']}"
                                 if STRIP_UI:
                                     print(output)
                                 else:
                                     print(f"{Fore.RED}{output}{Style.RESET_ALL}")
                             elif function_name == "archival_memory_insert":
-                                output = f'\t→ {msg_dict["content"]}'
+                                output = f"\t→ {msg_dict['content']}"
                                 if STRIP_UI:
                                     print(output)
                                 else:
-                                    print(f"{Style.BRIGHT}{Fore.RED}{output}{Style.RESET_ALL}")
+                                    print(
+                                        f"{Style.BRIGHT}{Fore.RED}{output}{Style.RESET_ALL}"
+                                    )
                             else:
                                 if STRIP_UI:
-                                    print(f'\t {msg_dict["old_content"]}\n\t→ {msg_dict["new_content"]}')
+                                    print(
+                                        f"\t {msg_dict['old_content']}\n\t→ {msg_dict['new_content']}"
+                                    )
                                 else:
                                     print(
-                                        f'{Style.BRIGHT}\t{Fore.RED} {msg_dict["old_content"]}\n\t{Fore.GREEN}→ {msg_dict["new_content"]}{Style.RESET_ALL}'
+                                        f"{Style.BRIGHT}\t{Fore.RED} {msg_dict['old_content']}\n\t{Fore.GREEN}→ {msg_dict['new_content']}{Style.RESET_ALL}"
                                     )
                         except Exception as e:
                             printd(str(e))
                             printd(msg_dict)
-                    elif function_name in ["conversation_search", "conversation_search_date"]:
-                        print_function_message("🧠", f"searching memory with {function_name}")
+                    elif function_name in [
+                        "conversation_search",
+                        "conversation_search_date",
+                    ]:
+                        print_function_message(
+                            "🧠", f"searching memory with {function_name}"
+                        )
                         try:
                             msg_dict = eval(function_args)
-                            output = f'\tquery: {msg_dict["query"]}, page: {msg_dict["page"]}'
+                            output = f"\tquery: {msg_dict['query']}, page: {msg_dict['page']}"
                             if STRIP_UI:
                                 print(output)
                             else:
@@ -219,7 +260,9 @@ class CLIInterface(AgentInterface):
                 else:
                     printd_function_message("", str(msg), color=Fore.RED)
             except Exception:
-                print(f"{CLI_WARNING_PREFIX}did not recognize function message {type(msg)} {msg}")
+                print(
+                    f"{CLI_WARNING_PREFIX}did not recognize function message {type(msg)} {msg}"
+                )
                 printd_function_message("", msg)
 
     @staticmethod
@@ -307,7 +350,9 @@ class QueuingInterface(AgentInterface):
         self.buffer = queue.Queue()
         self.debug = debug
 
-    def _queue_push(self, message_api: Union[str, dict], message_obj: Union[Message, None]):
+    def _queue_push(
+        self, message_api: Union[str, dict], message_obj: Union[Message, None]
+    ):
         """Wrapper around self.buffer.queue.put() that ensures the types are safe
 
         Data will be in the format: {
@@ -427,7 +472,9 @@ class QueuingInterface(AgentInterface):
 
     def user_message(self, msg: str, msg_obj: Optional[Message] = None):
         """Handle reception of a user message"""
-        assert msg_obj is not None, "QueuingInterface requires msg_obj references for metadata"
+        assert msg_obj is not None, (
+            "QueuingInterface requires msg_obj references for metadata"
+        )
         if self.debug:
             print(msg)
             print(vars(msg_obj))
@@ -435,7 +482,9 @@ class QueuingInterface(AgentInterface):
 
     def internal_monologue(self, msg: str, msg_obj: Optional[Message] = None) -> None:
         """Handle the agent's internal monologue"""
-        assert msg_obj is not None, "QueuingInterface requires msg_obj references for metadata"
+        assert msg_obj is not None, (
+            "QueuingInterface requires msg_obj references for metadata"
+        )
         if self.debug:
             print(msg)
             print(vars(msg_obj))
@@ -477,10 +526,17 @@ class QueuingInterface(AgentInterface):
 
         self._queue_push(message_api=new_message, message_obj=msg_obj)
 
-    def function_message(self, msg: str, msg_obj: Optional[Message] = None, include_ran_messages: bool = False) -> None:
+    def function_message(
+        self,
+        msg: str,
+        msg_obj: Optional[Message] = None,
+        include_ran_messages: bool = False,
+    ) -> None:
         """Handle the agent calling a function"""
         # TODO handle 'function' messages that indicate the start of a function call
-        assert msg_obj is not None, "QueuingInterface requires msg_obj references for metadata"
+        assert msg_obj is not None, (
+            "QueuingInterface requires msg_obj references for metadata"
+        )
 
         if self.debug:
             print(msg)
@@ -516,4 +572,3 @@ class QueuingInterface(AgentInterface):
             new_message["date"] = msg_obj.created_at.isoformat()
 
         self._queue_push(message_api=new_message, message_obj=msg_obj)
-

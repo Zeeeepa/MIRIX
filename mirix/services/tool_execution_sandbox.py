@@ -31,14 +31,25 @@ class ToolExecutionSandbox:
 
     # For generating long, random marker hashes
     NAMESPACE = uuid.NAMESPACE_DNS
-    LOCAL_SANDBOX_RESULT_START_MARKER = str(uuid.uuid5(NAMESPACE, "local-sandbox-result-start-marker"))
-    LOCAL_SANDBOX_RESULT_END_MARKER = str(uuid.uuid5(NAMESPACE, "local-sandbox-result-end-marker"))
+    LOCAL_SANDBOX_RESULT_START_MARKER = str(
+        uuid.uuid5(NAMESPACE, "local-sandbox-result-start-marker")
+    )
+    LOCAL_SANDBOX_RESULT_END_MARKER = str(
+        uuid.uuid5(NAMESPACE, "local-sandbox-result-end-marker")
+    )
 
     # This is the variable name in the auto-generated code that contains the function results
     # We make this a long random string to avoid collisions with any variables in the user's code
     LOCAL_SANDBOX_RESULT_VAR_NAME = "result_ZQqiequkcFwRwwGQMqkt"
 
-    def __init__(self, tool_name: str, args: dict, user: User, force_recreate=True, tool_object: Optional[Tool] = None):
+    def __init__(
+        self,
+        tool_name: str,
+        args: dict,
+        user: User,
+        force_recreate=True,
+        tool_object: Optional[Tool] = None,
+    ):
         self.tool_name = tool_name
         self.args = args
         self.user = user
@@ -50,7 +61,9 @@ class ToolExecutionSandbox:
             # Get the tool via name
             # TODO: So in theory, it's possible this retrieves a tool not provisioned to the agent
             # TODO: That would probably imply that agent_state is incorrectly configured
-            self.tool = ToolManager().get_tool_by_name(tool_name=tool_name, actor=self.user)
+            self.tool = ToolManager().get_tool_by_name(
+                tool_name=tool_name, actor=self.user
+            )
             if not self.tool:
                 raise ValueError(
                     f"Agent attempted to invoke tool {self.tool_name} that does not exist for organization {self.user.organization_id}"
@@ -59,7 +72,11 @@ class ToolExecutionSandbox:
         self.sandbox_config_manager = SandboxConfigManager(tool_settings)
         self.force_recreate = force_recreate
 
-    def run(self, agent_state: Optional[AgentState] = None, additional_env_vars: Optional[Dict] = None) -> SandboxRunResult:
+    def run(
+        self,
+        agent_state: Optional[AgentState] = None,
+        additional_env_vars: Optional[Dict] = None,
+    ) -> SandboxRunResult:
         """
         Run the tool in a sandbox environment.
 
@@ -72,16 +89,22 @@ class ToolExecutionSandbox:
         """
         if tool_settings.e2b_api_key:
             logger.debug(f"Using e2b sandbox to execute {self.tool_name}")
-            result = self.run_e2b_sandbox(agent_state=agent_state, additional_env_vars=additional_env_vars)
+            result = self.run_e2b_sandbox(
+                agent_state=agent_state, additional_env_vars=additional_env_vars
+            )
         else:
             logger.debug(f"Using local sandbox to execute {self.tool_name}")
-            result = self.run_local_dir_sandbox(agent_state=agent_state, additional_env_vars=additional_env_vars)
+            result = self.run_local_dir_sandbox(
+                agent_state=agent_state, additional_env_vars=additional_env_vars
+            )
 
         # Log out any stdout/stderr from the tool run
-        logger.debug(f"Executed tool '{self.tool_name}', logging output from tool run: \n")
+        logger.debug(
+            f"Executed tool '{self.tool_name}', logging output from tool run: \n"
+        )
         for log_line in (result.stdout or []) + (result.stderr or []):
             logger.debug(f"{log_line}")
-        logger.debug(f"Ending output log from tool run.")
+        logger.debug("Ending output log from tool run.")
 
         # Return result
         return result
@@ -100,14 +123,20 @@ class ToolExecutionSandbox:
             os.environ.update(original_env)  # Restore original environment variables
 
     def run_local_dir_sandbox(
-        self, agent_state: Optional[AgentState] = None, additional_env_vars: Optional[Dict] = None
+        self,
+        agent_state: Optional[AgentState] = None,
+        additional_env_vars: Optional[Dict] = None,
     ) -> SandboxRunResult:
-        sbx_config = self.sandbox_config_manager.get_or_create_default_sandbox_config(sandbox_type=SandboxType.LOCAL, actor=self.user)
+        sbx_config = self.sandbox_config_manager.get_or_create_default_sandbox_config(
+            sandbox_type=SandboxType.LOCAL, actor=self.user
+        )
         local_configs = sbx_config.get_local_config()
 
         # Get environment variables for the sandbox
         env = os.environ.copy()
-        env_vars = self.sandbox_config_manager.get_sandbox_env_vars_as_dict(sandbox_config_id=sbx_config.id, actor=self.user, limit=100)
+        env_vars = self.sandbox_config_manager.get_sandbox_env_vars_as_dict(
+            sandbox_config_id=sbx_config.id, actor=self.user, limit=100
+        )
         env.update(env_vars)
 
         # Get environment variables for this agent specifically
@@ -119,15 +148,23 @@ class ToolExecutionSandbox:
             env.update(additional_env_vars)
 
         # Safety checks
-        if not os.path.exists(local_configs.sandbox_dir) or not os.path.isdir(local_configs.sandbox_dir):
-            logger.warning(f"Sandbox directory does not exist, creating: {local_configs.sandbox_dir}")
+        if not os.path.exists(local_configs.sandbox_dir) or not os.path.isdir(
+            local_configs.sandbox_dir
+        ):
+            logger.warning(
+                f"Sandbox directory does not exist, creating: {local_configs.sandbox_dir}"
+            )
             os.makedirs(local_configs.sandbox_dir)
 
         # Write the code to a temp file in the sandbox_dir
-        with tempfile.NamedTemporaryFile(mode="w", dir=local_configs.sandbox_dir, suffix=".py", delete=False) as temp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", dir=local_configs.sandbox_dir, suffix=".py", delete=False
+        ) as temp_file:
             if local_configs.use_venv:
                 # If using venv, we need to wrap with special string markers to separate out the output and the stdout (since it is all in stdout)
-                code = self.generate_execution_script(agent_state=agent_state, wrap_print_with_markers=True)
+                code = self.generate_execution_script(
+                    agent_state=agent_state, wrap_print_with_markers=True
+                )
             else:
                 code = self.generate_execution_script(agent_state=agent_state)
 
@@ -141,26 +178,38 @@ class ToolExecutionSandbox:
             else:
                 return self.run_local_dir_sandbox_runpy(sbx_config, env, temp_file_path)
         except Exception as e:
-            logger.error(f"Executing tool {self.tool_name} has an unexpected error: {e}")
-            logger.error(f"Logging out tool {self.tool_name} auto-generated code for debugging: \n\n{code}")
+            logger.error(
+                f"Executing tool {self.tool_name} has an unexpected error: {e}"
+            )
+            logger.error(
+                f"Logging out tool {self.tool_name} auto-generated code for debugging: \n\n{code}"
+            )
             raise e
         finally:
             # Clean up the temp file
             os.remove(temp_file_path)
 
-    def run_local_dir_sandbox_venv(self, sbx_config: SandboxConfig, env: Dict[str, str], temp_file_path: str) -> SandboxRunResult:
+    def run_local_dir_sandbox_venv(
+        self, sbx_config: SandboxConfig, env: Dict[str, str], temp_file_path: str
+    ) -> SandboxRunResult:
         local_configs = sbx_config.get_local_config()
         venv_path = os.path.join(local_configs.sandbox_dir, local_configs.venv_name)
 
         # Safety checks for the venv: verify that the venv path exists and is a directory
         if not os.path.isdir(venv_path):
-            logger.warning(f"Virtual environment directory does not exist at: {venv_path}, creating one now...")
-            self.create_venv_for_local_sandbox(sandbox_dir_path=local_configs.sandbox_dir, venv_path=venv_path, env=env)
+            logger.warning(
+                f"Virtual environment directory does not exist at: {venv_path}, creating one now..."
+            )
+            self.create_venv_for_local_sandbox(
+                sandbox_dir_path=local_configs.sandbox_dir, venv_path=venv_path, env=env
+            )
 
         # Ensure the python interpreter exists in the virtual environment
         python_executable = os.path.join(venv_path, "bin", "python3")
         if not os.path.isfile(python_executable):
-            raise FileNotFoundError(f"Python executable not found in virtual environment: {python_executable}")
+            raise FileNotFoundError(
+                f"Python executable not found in virtual environment: {python_executable}"
+            )
 
         # Set up env for venv
         env["VIRTUAL_ENV"] = venv_path
@@ -209,10 +258,14 @@ class ToolExecutionSandbox:
             raise TimeoutError(f"Executing tool {self.tool_name} has timed out.")
 
         except Exception as e:
-            logger.error(f"Executing tool {self.tool_name} has an unexpected error: {e}")
+            logger.error(
+                f"Executing tool {self.tool_name} has an unexpected error: {e}"
+            )
             raise e
 
-    def run_local_dir_sandbox_runpy(self, sbx_config: SandboxConfig, env: Dict[str, str], temp_file_path: str) -> SandboxRunResult:
+    def run_local_dir_sandbox_runpy(
+        self, sbx_config: SandboxConfig, env: Dict[str, str], temp_file_path: str
+    ) -> SandboxRunResult:
         status = "success"
         agent_state, stderr = None, None
 
@@ -233,15 +286,23 @@ class ToolExecutionSandbox:
             func_return, agent_state = self.parse_best_effort(func_result)
 
         except Exception as e:
-            func_return = get_friendly_error_msg(function_name=self.tool_name, exception_name=type(e).__name__, exception_message=str(e))
+            func_return = get_friendly_error_msg(
+                function_name=self.tool_name,
+                exception_name=type(e).__name__,
+                exception_message=str(e),
+            )
             traceback.print_exc(file=sys.stderr)
             status = "error"
 
         # Restore stdout and stderr and collect captured output
         sys.stdout = old_stdout
         sys.stderr = old_stderr
-        stdout_output = [captured_stdout.getvalue()] if captured_stdout.getvalue() else []
-        stderr_output = [captured_stderr.getvalue()] if captured_stderr.getvalue() else []
+        stdout_output = (
+            [captured_stdout.getvalue()] if captured_stdout.getvalue() else []
+        )
+        stderr_output = (
+            [captured_stderr.getvalue()] if captured_stderr.getvalue() else []
+        )
 
         return SandboxRunResult(
             func_return=func_return,
@@ -258,9 +319,13 @@ class ToolExecutionSandbox:
         marker_len = len(self.LOCAL_SANDBOX_RESULT_START_MARKER)
         start_index = text.index(self.LOCAL_SANDBOX_RESULT_START_MARKER) + marker_len
         end_index = text.index(self.LOCAL_SANDBOX_RESULT_END_MARKER)
-        return text[start_index:end_index], text[: start_index - marker_len] + text[end_index + +marker_len :]
+        return text[start_index:end_index], text[: start_index - marker_len] + text[
+            end_index + +marker_len :
+        ]
 
-    def create_venv_for_local_sandbox(self, sandbox_dir_path: str, venv_path: str, env: Dict[str, str]):
+    def create_venv_for_local_sandbox(
+        self, sandbox_dir_path: str, venv_path: str, env: Dict[str, str]
+    ):
         # Step 1: Create the virtual environment
         venv.create(venv_path, with_pip=True)
 
@@ -268,16 +333,28 @@ class ToolExecutionSandbox:
         try:
             # Step 2: Upgrade pip
             logger.info("Upgrading pip in the virtual environment...")
-            subprocess.run([pip_path, "install", "--upgrade", "pip"], env=env, check=True)
+            subprocess.run(
+                [pip_path, "install", "--upgrade", "pip"], env=env, check=True
+            )
 
             # Step 3: Install packages from requirements.txt if provided
-            requirements_txt_path = os.path.join(sandbox_dir_path, self.REQUIREMENT_TXT_NAME)
+            requirements_txt_path = os.path.join(
+                sandbox_dir_path, self.REQUIREMENT_TXT_NAME
+            )
             if os.path.isfile(requirements_txt_path):
-                logger.info(f"Installing packages from requirements file: {requirements_txt_path}")
-                subprocess.run([pip_path, "install", "-r", requirements_txt_path], env=env, check=True)
+                logger.info(
+                    f"Installing packages from requirements file: {requirements_txt_path}"
+                )
+                subprocess.run(
+                    [pip_path, "install", "-r", requirements_txt_path],
+                    env=env,
+                    check=True,
+                )
                 logger.info("Successfully installed packages from requirements.txt")
             else:
-                logger.warning("No requirements.txt file provided or the file does not exist. Skipping package installation.")
+                logger.warning(
+                    "No requirements.txt file provided or the file does not exist. Skipping package installation."
+                )
 
         except subprocess.CalledProcessError as e:
             logger.error(f"Error while setting up the virtual environment: {e}")
@@ -285,12 +362,20 @@ class ToolExecutionSandbox:
 
     # e2b sandbox specific functions
 
-    def run_e2b_sandbox(self, agent_state: Optional[AgentState] = None, additional_env_vars: Optional[Dict] = None) -> SandboxRunResult:
-        sbx_config = self.sandbox_config_manager.get_or_create_default_sandbox_config(sandbox_type=SandboxType.E2B, actor=self.user)
+    def run_e2b_sandbox(
+        self,
+        agent_state: Optional[AgentState] = None,
+        additional_env_vars: Optional[Dict] = None,
+    ) -> SandboxRunResult:
+        sbx_config = self.sandbox_config_manager.get_or_create_default_sandbox_config(
+            sandbox_type=SandboxType.E2B, actor=self.user
+        )
         sbx = self.get_running_e2b_sandbox_with_same_state(sbx_config)
         if not sbx or self.force_recreate:
             if not sbx:
-                logger.info(f"No running e2b sandbox found with the same state: {sbx_config}")
+                logger.info(
+                    f"No running e2b sandbox found with the same state: {sbx_config}"
+                )
             else:
                 logger.info(f"Force recreated e2b sandbox with state: {sbx_config}")
             sbx = self.create_e2b_sandbox_with_metadata_hash(sandbox_config=sbx_config)
@@ -303,7 +388,9 @@ class ToolExecutionSandbox:
 
         # Get environment variables for the sandbox
         # TODO: We set limit to 100 here, but maybe we want it uncapped? Realistically this should be fine.
-        env_vars = self.sandbox_config_manager.get_sandbox_env_vars_as_dict(sandbox_config_id=sbx_config.id, actor=self.user, limit=100)
+        env_vars = self.sandbox_config_manager.get_sandbox_env_vars_as_dict(
+            sandbox_config_id=sbx_config.id, actor=self.user, limit=100
+        )
         # Get environment variables for this agent specifically
         if agent_state:
             env_vars.update(agent_state.get_agent_env_vars_as_dict())
@@ -317,10 +404,14 @@ class ToolExecutionSandbox:
         if execution.results:
             func_return, agent_state = self.parse_best_effort(execution.results[0].text)
         elif execution.error:
-            logger.error(f"Executing tool {self.tool_name} raised a {execution.error.name} with message: \n{execution.error.value}")
+            logger.error(
+                f"Executing tool {self.tool_name} raised a {execution.error.name} with message: \n{execution.error.value}"
+            )
             logger.error(f"Traceback from e2b sandbox: \n{execution.error.traceback}")
             func_return = get_friendly_error_msg(
-                function_name=self.tool_name, exception_name=execution.error.name, exception_message=execution.error.value
+                function_name=self.tool_name,
+                exception_name=execution.error.name,
+                exception_message=execution.error.value,
             )
             execution.logs.stderr.append(execution.error.traceback)
         else:
@@ -335,13 +426,19 @@ class ToolExecutionSandbox:
             sandbox_config_fingerprint=sbx_config.fingerprint(),
         )
 
-    def parse_exception_from_e2b_execution(self, e2b_execution: "Execution") -> Exception:
-        builtins_dict = __builtins__ if isinstance(__builtins__, dict) else vars(__builtins__)
+    def parse_exception_from_e2b_execution(
+        self, e2b_execution: "Execution"
+    ) -> Exception:
+        builtins_dict = (
+            __builtins__ if isinstance(__builtins__, dict) else vars(__builtins__)
+        )
         # Dynamically fetch the exception class from builtins, defaulting to Exception if not found
         exception_class = builtins_dict.get(e2b_execution.error.name, Exception)
         return exception_class(e2b_execution.error.value)
 
-    def get_running_e2b_sandbox_with_same_state(self, sandbox_config: SandboxConfig) -> Optional["Sandbox"]:
+    def get_running_e2b_sandbox_with_same_state(
+        self, sandbox_config: SandboxConfig
+    ) -> Optional["Sandbox"]:
         from e2b_code_interpreter import Sandbox
 
         # List running sandboxes and access metadata.
@@ -350,21 +447,32 @@ class ToolExecutionSandbox:
         # Hash the config to check the state
         state_hash = sandbox_config.fingerprint()
         for sandbox in running_sandboxes:
-            if self.METADATA_CONFIG_STATE_KEY in sandbox.metadata and sandbox.metadata[self.METADATA_CONFIG_STATE_KEY] == state_hash:
+            if (
+                self.METADATA_CONFIG_STATE_KEY in sandbox.metadata
+                and sandbox.metadata[self.METADATA_CONFIG_STATE_KEY] == state_hash
+            ):
                 return Sandbox.connect(sandbox.sandbox_id)
 
         return None
 
-    def create_e2b_sandbox_with_metadata_hash(self, sandbox_config: SandboxConfig) -> "Sandbox":
+    def create_e2b_sandbox_with_metadata_hash(
+        self, sandbox_config: SandboxConfig
+    ) -> "Sandbox":
         from e2b_code_interpreter import Sandbox
 
         state_hash = sandbox_config.fingerprint()
         e2b_config = sandbox_config.get_e2b_config()
         if e2b_config.template:
-            sbx = Sandbox(sandbox_config.get_e2b_config().template, metadata={self.METADATA_CONFIG_STATE_KEY: state_hash})
+            sbx = Sandbox(
+                sandbox_config.get_e2b_config().template,
+                metadata={self.METADATA_CONFIG_STATE_KEY: state_hash},
+            )
         else:
             # no template
-            sbx = Sandbox(metadata={self.METADATA_CONFIG_STATE_KEY: state_hash}, **e2b_config.model_dump(exclude={"pip_requirements"}))
+            sbx = Sandbox(
+                metadata={self.METADATA_CONFIG_STATE_KEY: state_hash},
+                **e2b_config.model_dump(exclude={"pip_requirements"}),
+            )
 
         # install pip requirements
         if e2b_config.pip_requirements:
@@ -385,7 +493,7 @@ class ToolExecutionSandbox:
             return None, None
         result = pickle.loads(base64.b64decode(text))
         agent_state = None
-        if not result["agent_state"] is None:
+        if result["agent_state"] is not None:
             agent_state = result["agent_state"]
         return result["results"], agent_state
 
@@ -399,7 +507,9 @@ class ToolExecutionSandbox:
                     args.append(arg.arg)
         return args
 
-    def generate_execution_script(self, agent_state: AgentState, wrap_print_with_markers: bool = False) -> str:
+    def generate_execution_script(
+        self, agent_state: AgentState, wrap_print_with_markers: bool = False
+    ) -> str:
         """
         Generate code to run inside of execution sandbox.
         Passes into a serialized agent state into the code, to be accessed by the tool.
@@ -432,7 +542,9 @@ class ToolExecutionSandbox:
         for param in self.args:
             code += self.initialize_param(param, self.args[param])
 
-        if "agent_state" in self.parse_function_arguments(self.tool.source_code, self.tool.name):
+        if "agent_state" in self.parse_function_arguments(
+            self.tool.source_code, self.tool.name
+        ):
             inject_agent_state = True
         else:
             inject_agent_state = False
@@ -447,9 +559,7 @@ class ToolExecutionSandbox:
             + self.invoke_function_call(inject_agent_state=inject_agent_state)
             + ', "agent_state": agent_state}\n'
         )
-        code += (
-            f"{self.LOCAL_SANDBOX_RESULT_VAR_NAME} = base64.b64encode(pickle.dumps({self.LOCAL_SANDBOX_RESULT_VAR_NAME})).decode('utf-8')\n"
-        )
+        code += f"{self.LOCAL_SANDBOX_RESULT_VAR_NAME} = base64.b64encode(pickle.dumps({self.LOCAL_SANDBOX_RESULT_VAR_NAME})).decode('utf-8')\n"
 
         if wrap_print_with_markers:
             code += f"sys.stdout.write('{self.LOCAL_SANDBOX_RESULT_START_MARKER}')\n"
@@ -461,11 +571,12 @@ class ToolExecutionSandbox:
         return code
 
     def _convert_param_to_value(self, param_type: str, raw_value: str) -> str:
-
         if param_type == "string":
             value = "pickle.loads(" + str(pickle.dumps(raw_value)) + ")"
 
-        elif param_type == "integer" or param_type == "boolean" or param_type == "number":
+        elif (
+            param_type == "integer" or param_type == "boolean" or param_type == "number"
+        ):
             value = raw_value
 
         elif param_type == "array":

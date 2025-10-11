@@ -4,7 +4,11 @@ from typing import Any, List, Optional
 import numpy as np
 import tiktoken
 
-from mirix.constants import EMBEDDING_TO_TOKENIZER_DEFAULT, EMBEDDING_TO_TOKENIZER_MAP, MAX_EMBEDDING_DIM
+from mirix.constants import (
+    EMBEDDING_TO_TOKENIZER_DEFAULT,
+    EMBEDDING_TO_TOKENIZER_MAP,
+    MAX_EMBEDDING_DIM,
+)
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.utils import is_valid_url, printd
 
@@ -31,7 +35,9 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
     if embedding_model in EMBEDDING_TO_TOKENIZER_MAP:
         encoding = tiktoken.get_encoding(EMBEDDING_TO_TOKENIZER_MAP[embedding_model])
     else:
-        print(f"Warning: couldn't find tokenizer for model {embedding_model}, using default tokenizer {EMBEDDING_TO_TOKENIZER_DEFAULT}")
+        print(
+            f"Warning: couldn't find tokenizer for model {embedding_model}, using default tokenizer {EMBEDDING_TO_TOKENIZER_DEFAULT}"
+        )
         encoding = tiktoken.get_encoding(EMBEDDING_TO_TOKENIZER_DEFAULT)
 
     num_tokens = len(encoding.encode(text))
@@ -42,12 +48,16 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
         max_length = encoding.max_length
     else:
         # TODO: figure out the real number
-        printd(f"Warning: couldn't find max_length for tokenizer {embedding_model}, using default max_length 8191")
+        printd(
+            f"Warning: couldn't find max_length for tokenizer {embedding_model}, using default max_length 8191"
+        )
         max_length = 8191
 
     # truncate text if too long
     if num_tokens > max_length:
-        print(f"Warning: text is too long ({num_tokens} tokens), truncating to {max_length} tokens.")
+        print(
+            f"Warning: text is too long ({num_tokens} tokens), truncating to {max_length} tokens."
+        )
         # First, apply any necessary formatting
         formatted_text = format_text(text, embedding_model)
         # Then truncate
@@ -113,10 +123,14 @@ class EmbeddingEndpoint:
             try:
                 embedding = response_json["data"][0]["embedding"]
             except (KeyError, IndexError):
-                raise TypeError(f"Got back an unexpected payload from text embedding function, response=\n{response_json}")
+                raise TypeError(
+                    f"Got back an unexpected payload from text embedding function, response=\n{response_json}"
+                )
         else:
             # unknown response, can't parse
-            raise TypeError(f"Got back an unexpected payload from text embedding function, response=\n{response_json}")
+            raise TypeError(
+                f"Got back an unexpected payload from text embedding function, response=\n{response_json}"
+            )
 
         return embedding
 
@@ -128,16 +142,21 @@ class AzureOpenAIEmbedding:
     def __init__(self, api_endpoint: str, api_key: str, api_version: str, model: str):
         from openai import AzureOpenAI
 
-        self.client = AzureOpenAI(api_key=api_key, api_version=api_version, azure_endpoint=api_endpoint)
+        self.client = AzureOpenAI(
+            api_key=api_key, api_version=api_version, azure_endpoint=api_endpoint
+        )
         self.model = model
 
     def get_text_embedding(self, text: str):
-        embeddings = self.client.embeddings.create(input=[text], model=self.model).data[0].embedding
+        embeddings = (
+            self.client.embeddings.create(input=[text], model=self.model)
+            .data[0]
+            .embedding
+        )
         return embeddings
 
 
 class OllamaEmbeddings:
-
     # Format:
     # curl http://localhost:11434/api/embeddings -d '{
     #   "model": "mxbai-embed-large",
@@ -171,7 +190,9 @@ def query_embedding(embedding_model, query_text: str):
     """Generate padded embedding for querying database"""
     query_vec = embedding_model.get_text_embedding(query_text)
     query_vec = np.array(query_vec)
-    query_vec = np.pad(query_vec, (0, MAX_EMBEDDING_DIM - query_vec.shape[0]), mode="constant").tolist()
+    query_vec = np.pad(
+        query_vec, (0, MAX_EMBEDDING_DIM - query_vec.shape[0]), mode="constant"
+    ).tolist()
     return query_vec
 
 
@@ -185,6 +206,7 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
 
     if endpoint_type == "openai":
         from llama_index.embeddings.openai import OpenAIEmbedding
+
         from mirix.services.provider_manager import ProviderManager
 
         # Check for database-stored API key first, fall back to model_settings
@@ -202,12 +224,13 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
     elif endpoint_type == "google_ai":
         # Use Google AI (Gemini) for embeddings
         from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
+
         from mirix.services.provider_manager import ProviderManager
-        
+
         # Check for database-stored API key first, fall back to model_settings
         override_key = ProviderManager().get_gemini_override_key()
         api_key = override_key if override_key else model_settings.gemini_api_key
-        
+
         model = GoogleGenAIEmbedding(
             model_name=config.embedding_model,
             api_key=api_key,
@@ -250,7 +273,6 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
             user=user_id,
         )
     elif endpoint_type == "ollama":
-
         model = OllamaEmbeddings(
             model=config.embedding_model,
             base_url=config.embedding_endpoint,

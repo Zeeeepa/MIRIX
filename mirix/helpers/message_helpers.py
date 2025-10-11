@@ -1,15 +1,20 @@
 from mirix import system
 from mirix.schemas.enums import MessageRole
-from mirix.schemas.mirix_message_content import TextContent, ImageContent, FileContent, CloudFileContent
 from mirix.schemas.message import Message, MessageCreate
+from mirix.schemas.mirix_message_content import (
+    CloudFileContent,
+    FileContent,
+    ImageContent,
+    TextContent,
+)
 
 
 def extract_and_wrap_message_content(
-                                     role: MessageRole,
-                                     content: str | TextContent | ImageContent | FileContent | CloudFileContent,
-                                     wrap_user_message: bool = False,
-                                     wrap_system_message: bool = True,):
-    
+    role: MessageRole,
+    content: str | TextContent | ImageContent | FileContent | CloudFileContent,
+    wrap_user_message: bool = False,
+    wrap_system_message: bool = True,
+):
     # Extract message content
     if isinstance(content, str):
         message_content = content
@@ -35,19 +40,25 @@ def extract_and_wrap_message_content(
         raise ValueError(f"Invalid message role: {role}")
     return TextContent(text=message_content)
 
+
 def prepare_input_message_create(
-    message: MessageCreate,
-    agent_id: str,
-    **kwargs
+    message: MessageCreate, agent_id: str, **kwargs
 ) -> Message:
     """Converts a MessageCreate object into a Message object, applying wrapping if needed."""
     # TODO: This seems like extra boilerplate with little benefit
     assert isinstance(message, MessageCreate)
 
     if isinstance(message.content, list):
-        content = [extract_and_wrap_message_content(role=message.role, content=c, **kwargs) for c in message.content]
+        content = [
+            extract_and_wrap_message_content(role=message.role, content=c, **kwargs)
+            for c in message.content
+        ]
     else:
-        content = [extract_and_wrap_message_content(role=message.role, content=message.content, **kwargs)]
+        content = [
+            extract_and_wrap_message_content(
+                role=message.role, content=message.content, **kwargs
+            )
+        ]
 
     return Message(
         agent_id=agent_id,

@@ -4,7 +4,13 @@ from typing import List, Optional, Union
 from pydantic import BaseModel, Field
 
 from mirix.schemas.enums import ToolRuleType
-from mirix.schemas.tool_rule import BaseToolRule, ChildToolRule, ConditionalToolRule, InitToolRule, TerminalToolRule
+from mirix.schemas.tool_rule import (
+    BaseToolRule,
+    ChildToolRule,
+    ConditionalToolRule,
+    InitToolRule,
+    TerminalToolRule,
+)
 
 
 class ToolRuleValidationError(Exception):
@@ -16,15 +22,20 @@ class ToolRuleValidationError(Exception):
 
 class ToolRulesSolver(BaseModel):
     init_tool_rules: List[InitToolRule] = Field(
-        default_factory=list, description="Initial tool rules to be used at the start of tool execution."
+        default_factory=list,
+        description="Initial tool rules to be used at the start of tool execution.",
     )
     tool_rules: List[Union[ChildToolRule, ConditionalToolRule]] = Field(
-        default_factory=list, description="Standard tool rules for controlling execution sequence and allowed transitions."
+        default_factory=list,
+        description="Standard tool rules for controlling execution sequence and allowed transitions.",
     )
     terminal_tool_rules: List[TerminalToolRule] = Field(
-        default_factory=list, description="Terminal tool rules that end the agent loop if called."
+        default_factory=list,
+        description="Terminal tool rules that end the agent loop if called.",
     )
-    last_tool_name: Optional[str] = Field(None, description="The most recent tool used, updated with each tool call.")
+    last_tool_name: Optional[str] = Field(
+        None, description="The most recent tool used, updated with each tool call."
+    )
 
     def __init__(self, tool_rules: List[BaseToolRule], **kwargs):
         super().__init__(**kwargs)
@@ -48,14 +59,23 @@ class ToolRulesSolver(BaseModel):
         """Update the internal state to track the last tool called."""
         self.last_tool_name = tool_name
 
-    def get_allowed_tool_names(self, error_on_empty: bool = False, last_function_response: Optional[str] = None) -> List[str]:
+    def get_allowed_tool_names(
+        self, error_on_empty: bool = False, last_function_response: Optional[str] = None
+    ) -> List[str]:
         """Get a list of tool names allowed based on the last tool called."""
         if self.last_tool_name is None:
             # Use initial tool rules if no tool has been called yet
             return [rule.tool_name for rule in self.init_tool_rules]
         else:
             # Find a matching ToolRule for the last tool used
-            current_rule = next((rule for rule in self.tool_rules if rule.tool_name == self.last_tool_name), None)
+            current_rule = next(
+                (
+                    rule
+                    for rule in self.tool_rules
+                    if rule.tool_name == self.last_tool_name
+                ),
+                None,
+            )
 
             if current_rule is None:
                 if error_on_empty:
@@ -66,8 +86,12 @@ class ToolRulesSolver(BaseModel):
             # determine which child tool to use
             if isinstance(current_rule, ConditionalToolRule):
                 if not last_function_response:
-                    raise ValueError("Conditional tool rule requires an LLM response to determine which child tool to use")
-                next_tool = self.evaluate_conditional_tool(current_rule, last_function_response)
+                    raise ValueError(
+                        "Conditional tool rule requires an LLM response to determine which child tool to use"
+                    )
+                next_tool = self.evaluate_conditional_tool(
+                    current_rule, last_function_response
+                )
                 return [next_tool] if next_tool else []
 
             return current_rule.children if current_rule.children else []
@@ -91,10 +115,14 @@ class ToolRulesSolver(BaseModel):
             ToolRuleValidationError: If the rule is invalid
         """
         if len(rule.child_output_mapping) == 0:
-            raise ToolRuleValidationError("Conditional tool rule must have at least one child tool.")
+            raise ToolRuleValidationError(
+                "Conditional tool rule must have at least one child tool."
+            )
         return True
 
-    def evaluate_conditional_tool(self, tool: ConditionalToolRule, last_function_response: str) -> str:
+    def evaluate_conditional_tool(
+        self, tool: ConditionalToolRule, last_function_response: str
+    ) -> str:
         """
         Parse function response to determine which child tool to use based on the mapping
 
@@ -110,7 +138,6 @@ class ToolRulesSolver(BaseModel):
 
         # Try to match the function output with a mapping key
         for key in tool.child_output_mapping:
-
             # Convert function output to match key type for comparison
             if isinstance(key, bool):
                 typed_output = function_output.lower() == "true"

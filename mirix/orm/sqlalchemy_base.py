@@ -1,17 +1,22 @@
+import random
+import time
 from datetime import datetime
 from enum import Enum
 from functools import wraps
-import time
-import random
 from typing import TYPE_CHECKING, List, Literal, Optional, Tuple, Union
 
 from sqlalchemy import String, and_, desc, func, or_, select
-from sqlalchemy.exc import DBAPIError, IntegrityError, TimeoutError, OperationalError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError, TimeoutError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from mirix.log import get_logger
 from mirix.orm.base import Base, CommonSqlalchemyMetaMixins
-from mirix.orm.errors import DatabaseTimeoutError, ForeignKeyConstraintViolationError, NoResultFound, UniqueConstraintViolationError
+from mirix.orm.errors import (
+    DatabaseTimeoutError,
+    ForeignKeyConstraintViolationError,
+    NoResultFound,
+    UniqueConstraintViolationError,
+)
 from mirix.orm.sqlite_functions import adapt_array
 
 if TYPE_CHECKING:
@@ -30,53 +35,70 @@ def handle_db_timeout(func):
         try:
             return func(*args, **kwargs)
         except TimeoutError as e:
-            logger.error(f"Timeout while executing {func.__name__} with args {args} and kwargs {kwargs}: {e}")
-            raise DatabaseTimeoutError(message=f"Timeout occurred in {func.__name__}.", original_exception=e)
+            logger.error(
+                f"Timeout while executing {func.__name__} with args {args} and kwargs {kwargs}: {e}"
+            )
+            raise DatabaseTimeoutError(
+                message=f"Timeout occurred in {func.__name__}.", original_exception=e
+            )
 
     return wrapper
 
 
-def retry_db_operation(max_retries: int = 3, base_delay: float = 0.1, max_delay: float = 5.0, backoff_factor: float = 2.0):
+def retry_db_operation(
+    max_retries: int = 3,
+    base_delay: float = 0.1,
+    max_delay: float = 5.0,
+    backoff_factor: float = 2.0,
+):
     """
     Decorator to retry database operations with exponential backoff when encountering database locked errors.
-    
+
     Args:
         max_retries: Maximum number of retry attempts
         base_delay: Base delay in seconds for first retry
         max_delay: Maximum delay in seconds between retries
         backoff_factor: Multiplier for exponential backoff
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            
+
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
                 except (OperationalError, DBAPIError) as e:
                     last_exception = e
                     error_msg = str(e).lower()
-                    
+
                     # Check if this is a database locked error
-                    if any(msg in error_msg for msg in [
-                        'database is locked',
-                        'database locked',
-                        'sqlite3.operationalerror: database is locked',
-                        'could not obtain lock',
-                        'busy',
-                        'locked'
-                    ]):
+                    if any(
+                        msg in error_msg
+                        for msg in [
+                            "database is locked",
+                            "database locked",
+                            "sqlite3.operationalerror: database is locked",
+                            "could not obtain lock",
+                            "busy",
+                            "locked",
+                        ]
+                    ):
                         if attempt == max_retries:
-                            logger.error(f"Database locked error in {func.__name__} after {max_retries} retries: {e}")
+                            logger.error(
+                                f"Database locked error in {func.__name__} after {max_retries} retries: {e}"
+                            )
                             raise e
-                        
+
                         # Calculate delay with exponential backoff and jitter
-                        delay = min(base_delay * (backoff_factor ** attempt), max_delay)
+                        delay = min(base_delay * (backoff_factor**attempt), max_delay)
                         jitter = random.uniform(0, delay * 0.1)  # Add up to 10% jitter
                         total_delay = delay + jitter
-                        
-                        logger.warning(f"Database locked in {func.__name__} (attempt {attempt + 1}/{max_retries + 1}), retrying in {total_delay:.2f}s: {e}")
+
+                        logger.warning(
+                            f"Database locked in {func.__name__} (attempt {attempt + 1}/{max_retries + 1}), retrying in {total_delay:.2f}s: {e}"
+                        )
                         time.sleep(total_delay)
                         continue
                     else:
@@ -85,59 +107,71 @@ def retry_db_operation(max_retries: int = 3, base_delay: float = 0.1, max_delay:
                 except Exception as e:
                     # Other exceptions should be re-raised immediately
                     raise e
-            
+
             # If we get here, all retries failed
             raise last_exception
+
         return wrapper
+
     return decorator
 
 
-def transaction_retry(max_retries: int = 3, base_delay: float = 0.1, max_delay: float = 2.0):
+def transaction_retry(
+    max_retries: int = 3, base_delay: float = 0.1, max_delay: float = 2.0
+):
     """
     Decorator for database operations that need proper transaction handling with rollback on failures.
-    
+
     This decorator ensures that:
     1. Transactions are properly committed on success
     2. Transactions are properly rolled back on failure
     3. Database locked errors are retried with exponential backoff
     4. All other exceptions are properly handled
-    
+
     Args:
         max_retries: Maximum number of retry attempts
         base_delay: Base delay in seconds for first retry
         max_delay: Maximum delay in seconds between retries
     """
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            
+
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
                 except (OperationalError, DBAPIError) as e:
                     last_exception = e
                     error_msg = str(e).lower()
-                    
+
                     # Check if this is a database locked error
-                    if any(msg in error_msg for msg in [
-                        'database is locked',
-                        'database locked',
-                        'sqlite3.operationalerror: database is locked',
-                        'could not obtain lock',
-                        'busy',
-                        'locked'
-                    ]):
+                    if any(
+                        msg in error_msg
+                        for msg in [
+                            "database is locked",
+                            "database locked",
+                            "sqlite3.operationalerror: database is locked",
+                            "could not obtain lock",
+                            "busy",
+                            "locked",
+                        ]
+                    ):
                         if attempt == max_retries:
-                            logger.error(f"Database locked error in {func.__name__} after {max_retries} retries: {e}")
+                            logger.error(
+                                f"Database locked error in {func.__name__} after {max_retries} retries: {e}"
+                            )
                             raise e
-                        
+
                         # Calculate delay with exponential backoff and jitter
-                        delay = min(base_delay * (2.0 ** attempt), max_delay)
+                        delay = min(base_delay * (2.0**attempt), max_delay)
                         jitter = random.uniform(0, delay * 0.1)
                         total_delay = delay + jitter
-                        
-                        logger.warning(f"Database locked in {func.__name__} (attempt {attempt + 1}/{max_retries + 1}), retrying in {total_delay:.2f}s: {e}")
+
+                        logger.warning(
+                            f"Database locked in {func.__name__} (attempt {attempt + 1}/{max_retries + 1}), retrying in {total_delay:.2f}s: {e}"
+                        )
                         time.sleep(total_delay)
                         continue
                     else:
@@ -146,10 +180,12 @@ def transaction_retry(max_retries: int = 3, base_delay: float = 0.1, max_delay: 
                 except Exception as e:
                     # Other exceptions should be re-raised immediately
                     raise e
-            
+
             # If we get here, all retries failed
             raise last_exception
+
         return wrapper
+
     return decorator
 
 
@@ -242,7 +278,9 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 else:
                     # Match ANY tag - use join and filter
                     query = (
-                        query.join(cls.tags).filter(cls.tags.property.mapper.class_.tag.in_(tags)).group_by(cls.id)  # Deduplicate results
+                        query.join(cls.tags)
+                        .filter(cls.tags.property.mapper.class_.tag.in_(tags))
+                        .group_by(cls.id)  # Deduplicate results
                     )
 
                 # Group by primary key and all necessary columns to avoid JSON comparison
@@ -274,37 +312,55 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             if cursor_obj:
                 if ascending:
                     query = query.where(cls.created_at >= cursor_obj.created_at).where(
-                        or_(cls.created_at > cursor_obj.created_at, cls.id > cursor_obj.id)
+                        or_(
+                            cls.created_at > cursor_obj.created_at,
+                            cls.id > cursor_obj.id,
+                        )
                     )
                 else:
                     query = query.where(cls.created_at <= cursor_obj.created_at).where(
-                        or_(cls.created_at < cursor_obj.created_at, cls.id < cursor_obj.id)
+                        or_(
+                            cls.created_at < cursor_obj.created_at,
+                            cls.id < cursor_obj.id,
+                        )
                     )
 
             # Text search
             if query_text:
                 if hasattr(cls, "text"):
-                    query = query.filter(func.lower(cls.text).contains(func.lower(query_text)))
+                    query = query.filter(
+                        func.lower(cls.text).contains(func.lower(query_text))
+                    )
                 elif hasattr(cls, "name"):
                     # Special case for Agent model - search across name
-                    query = query.filter(func.lower(cls.name).contains(func.lower(query_text)))
+                    query = query.filter(
+                        func.lower(cls.name).contains(func.lower(query_text))
+                    )
 
             # Embedding search (for Passages)
             is_ordered = False
             if query_embedding:
                 if not hasattr(cls, "embedding"):
-                    raise ValueError(f"Class {cls.__name__} does not have an embedding column")
+                    raise ValueError(
+                        f"Class {cls.__name__} does not have an embedding column"
+                    )
 
                 from mirix.settings import settings
 
                 if settings.mirix_pg_uri_no_default:
                     # PostgreSQL with pgvector
-                    query = query.order_by(cls.embedding.cosine_distance(query_embedding).asc())
+                    query = query.order_by(
+                        cls.embedding.cosine_distance(query_embedding).asc()
+                    )
                 else:
                     # SQLite with custom vector type
                     query_embedding_binary = adapt_array(query_embedding)
                     query = query.order_by(
-                        func.cosine_distance(cls.embedding, query_embedding_binary).asc(), cls.created_at.asc(), cls.id.asc()
+                        func.cosine_distance(
+                            cls.embedding, query_embedding_binary
+                        ).asc(),
+                        cls.created_at.asc(),
+                        cls.id.asc(),
                     )
                     is_ordered = True
 
@@ -361,7 +417,9 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
 
         if kwargs:
             query = query.filter_by(**kwargs)
-            query_conditions.append(", ".join(f"{key}='{value}'" for key, value in kwargs.items()))
+            query_conditions.append(
+                ", ".join(f"{key}='{value}'" for key, value in kwargs.items())
+            )
 
         if actor:
             query = cls.apply_access_predicate(query, actor, access, access_type)
@@ -374,17 +432,25 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             return found
 
         # Construct a detailed error message based on query conditions
-        conditions_str = ", ".join(query_conditions) if query_conditions else "no specific conditions"
+        conditions_str = (
+            ", ".join(query_conditions)
+            if query_conditions
+            else "no specific conditions"
+        )
         raise NoResultFound(f"{cls.__name__} not found with {conditions_str}")
 
     @handle_db_timeout
     @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
-    def create(self, db_session: "Session", actor: Optional["User"] = None) -> "SqlalchemyBase":
-        logger.debug(f"Creating {self.__class__.__name__} with ID: {self.id} with actor={actor}")
+    def create(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        logger.debug(
+            f"Creating {self.__class__.__name__} with ID: {self.id} with actor={actor}"
+        )
 
         if actor:
             self._set_created_and_updated_by_fields(actor.id)
-        
+
         with db_session as session:
             try:
                 session.add(self)
@@ -393,17 +459,25 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 return self
             except (DBAPIError, IntegrityError) as e:
                 session.rollback()
-                logger.error(f"Failed to create {self.__class__.__name__} with ID {self.id}: {e}")
+                logger.error(
+                    f"Failed to create {self.__class__.__name__} with ID {self.id}: {e}"
+                )
                 self._handle_dbapi_error(e)
             except Exception as e:
                 session.rollback()
-                logger.error(f"Unexpected error creating {self.__class__.__name__} with ID {self.id}: {e}")
+                logger.error(
+                    f"Unexpected error creating {self.__class__.__name__} with ID {self.id}: {e}"
+                )
                 raise
 
     @handle_db_timeout
     @retry_db_operation(max_retries=3, base_delay=0.1, max_delay=2.0)
-    def delete(self, db_session: "Session", actor: Optional["User"] = None) -> "SqlalchemyBase":
-        logger.debug(f"Soft deleting {self.__class__.__name__} with ID: {self.id} with actor={actor}")
+    def delete(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        logger.debug(
+            f"Soft deleting {self.__class__.__name__} with ID: {self.id} with actor={actor}"
+        )
 
         if actor:
             self._set_created_and_updated_by_fields(actor.id)
@@ -413,9 +487,13 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
 
     @handle_db_timeout
     @retry_db_operation(max_retries=3, base_delay=0.1, max_delay=2.0)
-    def hard_delete(self, db_session: "Session", actor: Optional["User"] = None) -> None:
+    def hard_delete(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> None:
         """Permanently removes the record from the database."""
-        logger.debug(f"Hard deleting {self.__class__.__name__} with ID: {self.id} with actor={actor}")
+        logger.debug(
+            f"Hard deleting {self.__class__.__name__} with ID: {self.id} with actor={actor}"
+        )
 
         with db_session as session:
             try:
@@ -423,15 +501,25 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 session.commit()
             except Exception as e:
                 session.rollback()
-                logger.exception(f"Failed to hard delete {self.__class__.__name__} with ID {self.id}")
-                raise ValueError(f"Failed to hard delete {self.__class__.__name__} with ID {self.id}: {e}")
+                logger.exception(
+                    f"Failed to hard delete {self.__class__.__name__} with ID {self.id}"
+                )
+                raise ValueError(
+                    f"Failed to hard delete {self.__class__.__name__} with ID {self.id}: {e}"
+                )
             else:
-                logger.debug(f"{self.__class__.__name__} with ID {self.id} successfully hard deleted")
+                logger.debug(
+                    f"{self.__class__.__name__} with ID {self.id} successfully hard deleted"
+                )
 
     @handle_db_timeout
     @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
-    def update(self, db_session: "Session", actor: Optional["User"] = None) -> "SqlalchemyBase":
-        logger.debug(f"Updating {self.__class__.__name__} with ID: {self.id} with actor={actor}")
+    def update(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        logger.debug(
+            f"Updating {self.__class__.__name__} with ID: {self.id} with actor={actor}"
+        )
         if actor:
             self._set_created_and_updated_by_fields(actor.id)
 
@@ -445,7 +533,9 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 return self
             except Exception as e:
                 session.rollback()
-                logger.error(f"Failed to update {self.__class__.__name__} with ID {self.id}: {e}")
+                logger.error(
+                    f"Failed to update {self.__class__.__name__} with ID {self.id}: {e}"
+                )
                 raise
 
     @classmethod
@@ -583,7 +673,9 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
 
     @property
     def __pydantic_model__(self) -> "BaseModel":
-        raise NotImplementedError("Sqlalchemy models must declare a __pydantic_model__ property to be convertable.")
+        raise NotImplementedError(
+            "Sqlalchemy models must declare a __pydantic_model__ property to be convertable."
+        )
 
     def to_pydantic(self) -> "BaseModel":
         """converts to the basic pydantic model counterpart"""

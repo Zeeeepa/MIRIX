@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional
 
-from jinja2 import Template, TemplateSyntaxError, Environment
+from jinja2 import Environment, Template, TemplateSyntaxError
 from pydantic import BaseModel, Field
 
 # Forward referencing to avoid circular import with Agent -> Memory -> Agent
@@ -13,62 +13,93 @@ from mirix.schemas.message import Message
 from mirix.schemas.openai.chat_completion_request import Tool
 from mirix.schemas.user import User as PydanticUser
 
+
 class ContextWindowOverview(BaseModel):
     """
     Overview of the context window, including the number of messages and tokens.
     """
 
     # top-level information
-    context_window_size_max: int = Field(..., description="The maximum amount of tokens the context window can hold.")
-    context_window_size_current: int = Field(..., description="The current number of tokens in the context window.")
+    context_window_size_max: int = Field(
+        ..., description="The maximum amount of tokens the context window can hold."
+    )
+    context_window_size_current: int = Field(
+        ..., description="The current number of tokens in the context window."
+    )
 
     # context window breakdown (in messages)
     # (technically not in the context window, but useful to know)
-    num_messages: int = Field(..., description="The number of messages in the context window.")
-    num_archival_memory: int = Field(..., description="The number of messages in the archival memory.")
-    num_recall_memory: int = Field(..., description="The number of messages in the recall memory.")
+    num_messages: int = Field(
+        ..., description="The number of messages in the context window."
+    )
+    num_archival_memory: int = Field(
+        ..., description="The number of messages in the archival memory."
+    )
+    num_recall_memory: int = Field(
+        ..., description="The number of messages in the recall memory."
+    )
     num_tokens_external_memory_summary: int = Field(
-        ..., description="The number of tokens in the external memory summary (archival + recall metadata)."
+        ...,
+        description="The number of tokens in the external memory summary (archival + recall metadata).",
     )
     external_memory_summary: str = Field(
-        ..., description="The metadata summary of the external memory sources (archival + recall metadata)."
+        ...,
+        description="The metadata summary of the external memory sources (archival + recall metadata).",
     )
 
     # context window breakdown (in tokens)
     # this should all add up to context_window_size_current
 
-    num_tokens_system: int = Field(..., description="The number of tokens in the system prompt.")
+    num_tokens_system: int = Field(
+        ..., description="The number of tokens in the system prompt."
+    )
     system_prompt: str = Field(..., description="The content of the system prompt.")
 
-    num_tokens_core_memory: int = Field(..., description="The number of tokens in the core memory.")
+    num_tokens_core_memory: int = Field(
+        ..., description="The number of tokens in the core memory."
+    )
     core_memory: str = Field(..., description="The content of the core memory.")
 
-    num_tokens_summary_memory: int = Field(..., description="The number of tokens in the summary memory.")
-    summary_memory: Optional[str] = Field(None, description="The content of the summary memory.")
+    num_tokens_summary_memory: int = Field(
+        ..., description="The number of tokens in the summary memory."
+    )
+    summary_memory: Optional[str] = Field(
+        None, description="The content of the summary memory."
+    )
 
-    num_tokens_functions_definitions: int = Field(..., description="The number of tokens in the functions definitions.")
-    functions_definitions: Optional[List[Tool]] = Field(..., description="The content of the functions definitions.")
+    num_tokens_functions_definitions: int = Field(
+        ..., description="The number of tokens in the functions definitions."
+    )
+    functions_definitions: Optional[List[Tool]] = Field(
+        ..., description="The content of the functions definitions."
+    )
 
-    num_tokens_messages: int = Field(..., description="The number of tokens in the messages list.")
+    num_tokens_messages: int = Field(
+        ..., description="The number of tokens in the messages list."
+    )
     # TODO make list of messages?
     # messages: List[dict] = Field(..., description="The messages in the context window.")
-    messages: List[Message] = Field(..., description="The messages in the context window.")
+    messages: List[Message] = Field(
+        ..., description="The messages in the context window."
+    )
+
 
 def line_numbers(value: str, prefix: str = "Line ") -> str:
     """
-    Turn  
-        "a\nb"  
-    into  
+    Turn
+        "a\nb"
+    into
         "Line 1:\ta\nLine 2:\tb"
     """
     return "\n".join(
-        f"{prefix}{idx + 1}:\t{line}"
-        for idx, line in enumerate(value.splitlines())
+        f"{prefix}{idx + 1}:\t{line}" for idx, line in enumerate(value.splitlines())
     )
+
 
 # Build an environment and add a custom filter
 env = Environment()
 env.filters["line_numbers"] = line_numbers
+
 
 class Memory(BaseModel, validate_assignment=True):
     """
@@ -78,7 +109,9 @@ class Memory(BaseModel, validate_assignment=True):
     """
 
     # Memory.block contains the list of memory blocks in the core memory
-    blocks: List[Block] = Field(..., description="Memory blocks contained in the agent's in-context memory")
+    blocks: List[Block] = Field(
+        ..., description="Memory blocks contained in the agent's in-context memory"
+    )
 
     # Memory.template is a Jinja2 template for compiling memory module into a prompt string.
     prompt_template: str = Field(
@@ -112,7 +145,9 @@ class Memory(BaseModel, validate_assignment=True):
         except TemplateSyntaxError as e:
             raise ValueError(f"Invalid Jinja2 template syntax: {str(e)}")
         except Exception as e:
-            raise ValueError(f"Prompt template is not compatible with current memory structure: {str(e)}")
+            raise ValueError(
+                f"Prompt template is not compatible with current memory structure: {str(e)}"
+            )
 
     def compile(self) -> str:
         """Generate a string representation of the memory in-context using the Jinja2 template"""
@@ -132,7 +167,9 @@ class Memory(BaseModel, validate_assignment=True):
             if block.label == label:
                 return block
             keys.append(block.label)
-        raise KeyError(f"Block field {label} does not exist (available sections = {', '.join(keys)})")
+        raise KeyError(
+            f"Block field {label} does not exist (available sections = {', '.join(keys)})"
+        )
 
     def get_blocks(self) -> List[Block]:
         """Return a list of the blocks held inside the memory object"""
@@ -150,7 +187,7 @@ class Memory(BaseModel, validate_assignment=True):
     def update_block_value(self, label: str, value: str):
         """Update the value of a block"""
         if not isinstance(value, str):
-            raise ValueError(f"Provided value must be a string")
+            raise ValueError("Provided value must be a string")
 
         for block in self.blocks:
             if block.label == label:
@@ -181,7 +218,9 @@ class BasicBlockMemory(Memory):
         """
         super().__init__(blocks=blocks)
 
-    def core_memory_append(agent_state: "AgentState", label: str, content: str) -> Optional[str]:  # type: ignore
+    def core_memory_append(
+        agent_state: "AgentState", label: str, content: str
+    ) -> Optional[str]:  # type: ignore
         """
         Append to the contents of core memory.
 
@@ -222,7 +261,13 @@ class ChatMemory(BasicBlockMemory):
     ChatMemory initializes a BaseChatMemory with two default blocks, `human` and `persona`.
     """
 
-    def __init__(self, persona: str, human: str, actor: PydanticUser, limit: int = CORE_MEMORY_BLOCK_CHAR_LIMIT):
+    def __init__(
+        self,
+        persona: str,
+        human: str,
+        actor: PydanticUser,
+        limit: int = CORE_MEMORY_BLOCK_CHAR_LIMIT,
+    ):
         """
         Initialize the ChatMemory object with a persona and human string.
 
@@ -232,7 +277,12 @@ class ChatMemory(BasicBlockMemory):
             limit (int): The character limit for each block.
         """
         # TODO: Should these be CreateBlocks?
-        super().__init__(blocks=[Block(value=persona, limit=limit, label="persona", user_id=actor.id), Block(value=human, limit=limit, label="human", user_id=actor.id)])
+        super().__init__(
+            blocks=[
+                Block(value=persona, limit=limit, label="persona", user_id=actor.id),
+                Block(value=human, limit=limit, label="human", user_id=actor.id),
+            ]
+        )
 
 
 class UpdateMemory(BaseModel):

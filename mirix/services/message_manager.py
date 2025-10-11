@@ -7,8 +7,8 @@ from mirix.schemas.enums import MessageRole
 from mirix.schemas.message import Message as PydanticMessage
 from mirix.schemas.message import MessageUpdate
 from mirix.schemas.user import User as PydanticUser
-from mirix.utils import enforce_types
 from mirix.services.utils import update_timezone
+from mirix.utils import enforce_types
 
 
 class MessageManager:
@@ -21,21 +21,32 @@ class MessageManager:
 
     @update_timezone
     @enforce_types
-    def get_message_by_id(self, message_id: str, actor: PydanticUser) -> Optional[PydanticMessage]:
+    def get_message_by_id(
+        self, message_id: str, actor: PydanticUser
+    ) -> Optional[PydanticMessage]:
         """Fetch a message by ID."""
         with self.session_maker() as session:
             try:
-                message = MessageModel.read(db_session=session, identifier=message_id, actor=actor)
+                message = MessageModel.read(
+                    db_session=session, identifier=message_id, actor=actor
+                )
                 return message.to_pydantic()
             except NoResultFound:
                 return None
 
     @update_timezone
     @enforce_types
-    def get_messages_by_ids(self, message_ids: List[str], actor: PydanticUser) -> List[PydanticMessage]:
+    def get_messages_by_ids(
+        self, message_ids: List[str], actor: PydanticUser
+    ) -> List[PydanticMessage]:
         """Fetch messages by ID and return them in the requested order."""
         with self.session_maker() as session:
-            results = MessageModel.list(db_session=session, id=message_ids, organization_id=actor.organization_id, limit=len(message_ids))
+            results = MessageModel.list(
+                db_session=session,
+                id=message_ids,
+                organization_id=actor.organization_id,
+                limit=len(message_ids),
+            )
 
             if len(results) != len(message_ids):
                 raise NoResultFound(
@@ -47,7 +58,9 @@ class MessageManager:
             return [result_dict[msg_id] for msg_id in message_ids]
 
     @enforce_types
-    def create_message(self, pydantic_msg: PydanticMessage, actor: PydanticUser) -> PydanticMessage:
+    def create_message(
+        self, pydantic_msg: PydanticMessage, actor: PydanticUser
+    ) -> PydanticMessage:
         """Create a new message."""
         with self.session_maker() as session:
             # Set the organization id and user id of the Pydantic message
@@ -59,12 +72,16 @@ class MessageManager:
             return msg.to_pydantic()
 
     @enforce_types
-    def create_many_messages(self, pydantic_msgs: List[PydanticMessage], actor: PydanticUser) -> List[PydanticMessage]:
+    def create_many_messages(
+        self, pydantic_msgs: List[PydanticMessage], actor: PydanticUser
+    ) -> List[PydanticMessage]:
         """Create multiple messages."""
         return [self.create_message(m, actor=actor) for m in pydantic_msgs]
 
     @enforce_types
-    def update_message_by_id(self, message_id: str, message_update: MessageUpdate, actor: PydanticUser) -> PydanticMessage:
+    def update_message_by_id(
+        self, message_id: str, message_update: MessageUpdate, actor: PydanticUser
+    ) -> PydanticMessage:
         """
         Updates an existing record in the database with values from the provided record object.
         """
@@ -87,9 +104,15 @@ class MessageManager:
                 )
 
             # get update dictionary
-            update_data = message_update.model_dump(exclude_unset=True, exclude_none=True)
+            update_data = message_update.model_dump(
+                exclude_unset=True, exclude_none=True
+            )
             # Remove redundant update fields
-            update_data = {key: value for key, value in update_data.items() if getattr(message, key) != value}
+            update_data = {
+                key: value
+                for key, value in update_data.items()
+                if getattr(message, key) != value
+            }
 
             for key, value in update_data.items():
                 setattr(message, key, value)
@@ -125,7 +148,9 @@ class MessageManager:
             role: The role of the message
         """
         with self.session_maker() as session:
-            return MessageModel.size(db_session=session, actor=actor, role=role, agent_id=agent_id)
+            return MessageModel.size(
+                db_session=session, actor=actor, role=role, agent_id=agent_id
+            )
 
     @update_timezone
     @enforce_types
@@ -219,51 +244,55 @@ class MessageManager:
             return [msg.to_pydantic() for msg in results]
 
     @enforce_types
-    def delete_detached_messages_for_agent(self, agent_id: str, actor: PydanticUser) -> int:
+    def delete_detached_messages_for_agent(
+        self, agent_id: str, actor: PydanticUser
+    ) -> int:
         """
         Delete messages that belong to an agent but are not in the agent's current message_ids list.
-        
-        This is useful for cleaning up messages that were removed from context during 
+
+        This is useful for cleaning up messages that were removed from context during
         context window management but still exist in the database.
-        
+
         Args:
             agent_id: The ID of the agent to clean up messages for
             actor: The user performing this action
-            
+
         Returns:
             int: Number of messages deleted
         """
         with self.session_maker() as session:
             # First, get the agent to access its current message_ids
             from mirix.orm.agent import Agent as AgentModel
+
             try:
-                agent = AgentModel.read(db_session=session, identifier=agent_id, actor=actor)
+                agent = AgentModel.read(
+                    db_session=session, identifier=agent_id, actor=actor
+                )
             except NoResultFound:
                 raise ValueError(f"Agent with id {agent_id} not found.")
-            
+
             # Get current message_ids (messages that should be kept)
             current_message_ids = set(agent.message_ids or [])
-            
+
             # Find all messages for this agent
             all_messages = MessageModel.list(
-                db_session=session, 
+                db_session=session,
                 agent_id=agent_id,
                 organization_id=actor.organization_id,
-                limit=None  # Get all messages
+                limit=None,  # Get all messages
             )
-            
+
             # Identify detached messages (not in current message_ids)
             detached_messages = [
-                msg for msg in all_messages 
-                if msg.id not in current_message_ids
+                msg for msg in all_messages if msg.id not in current_message_ids
             ]
-            
+
             # Delete detached messages
             deleted_count = 0
             for msg in detached_messages:
                 msg.hard_delete(session, actor=actor)
                 deleted_count += 1
-            
+
             session.commit()
             return deleted_count
 
@@ -271,52 +300,49 @@ class MessageManager:
     def cleanup_all_detached_messages(self, actor: PydanticUser) -> Dict[str, int]:
         """
         Cleanup detached messages for all agents in the organization.
-        
+
         Args:
             actor: The user performing this action
-            
+
         Returns:
             Dict[str, int]: Dictionary mapping agent_id to number of messages deleted
         """
         from mirix.orm.agent import Agent as AgentModel
-        
+
         with self.session_maker() as session:
             # Get all agents for this organization
             agents = AgentModel.list(
-                db_session=session,
-                organization_id=actor.organization_id,
-                limit=None
+                db_session=session, organization_id=actor.organization_id, limit=None
             )
-            
+
             cleanup_results = {}
             total_deleted = 0
-            
+
             for agent in agents:
                 # Get current message_ids for this agent
                 current_message_ids = set(agent.message_ids or [])
-                
+
                 # Find all messages for this agent
                 all_messages = MessageModel.list(
                     db_session=session,
                     agent_id=agent.id,
                     organization_id=actor.organization_id,
-                    limit=None
+                    limit=None,
                 )
-                
+
                 # Identify and delete detached messages
                 detached_messages = [
-                    msg for msg in all_messages 
-                    if msg.id not in current_message_ids
+                    msg for msg in all_messages if msg.id not in current_message_ids
                 ]
-                
+
                 deleted_count = 0
                 for msg in detached_messages:
                     msg.hard_delete(session, actor=actor)
                     deleted_count += 1
-                
+
                 cleanup_results[agent.id] = deleted_count
                 total_deleted += deleted_count
-            
+
             session.commit()
-            cleanup_results['total'] = total_deleted
+            cleanup_results["total"] = total_deleted
             return cleanup_results

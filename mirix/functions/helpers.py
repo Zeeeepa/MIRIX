@@ -2,14 +2,23 @@ import json
 from typing import Any, Optional, Union
 
 import humps
+
 # from composio.constants import DEFAULT_ENTITY_ID
 from pydantic import BaseModel
 
-from mirix.constants import COMPOSIO_ENTITY_ENV_VAR_KEY, DEFAULT_MESSAGE_TOOL, DEFAULT_MESSAGE_TOOL_KWARG
+from mirix.constants import (
+    DEFAULT_MESSAGE_TOOL,
+    DEFAULT_MESSAGE_TOOL_KWARG,
+)
 from mirix.schemas.enums import MessageRole
-from mirix.schemas.mirix_message import AssistantMessage, ReasoningMessage, ToolCallMessage
-from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.message import MessageCreate
+from mirix.schemas.mirix_message import (
+    AssistantMessage,
+    ReasoningMessage,
+    ToolCallMessage,
+)
+from mirix.schemas.mirix_response import MirixResponse
+
 
 def generate_langchain_tool_wrapper(
     tool: "LangChainBaseTool", additional_imports_module_attr_map: dict[str, str] = None
@@ -22,7 +31,7 @@ def generate_langchain_tool_wrapper(
     assert_all_classes_are_imported(tool, additional_imports_module_attr_map)
 
     tool_instantiation = f"tool = {generate_imported_tool_instantiation_call_str(tool)}"
-    run_call = f"return tool._run(**kwargs)"
+    run_call = "return tool._run(**kwargs)"
     func_name = humps.decamelize(tool_name)
 
     # Combine all parts into the wrapper function
@@ -48,7 +57,9 @@ def assert_code_gen_compilable(code_str):
         print(f"Syntax error in code: {e}")
 
 
-def assert_all_classes_are_imported(tool: Union["LangChainBaseTool"], additional_imports_module_attr_map: dict[str, str]) -> None:
+def assert_all_classes_are_imported(
+    tool: Union["LangChainBaseTool"], additional_imports_module_attr_map: dict[str, str]
+) -> None:
     # Safety check that user has passed in all required imports:
     tool_name = tool.__class__.__name__
     current_class_imports = {tool_name}
@@ -62,7 +73,9 @@ def assert_all_classes_are_imported(tool: Union["LangChainBaseTool"], additional
         raise RuntimeError(err_msg)
 
 
-def find_required_class_names_for_import(obj: Union["LangChainBaseTool", BaseModel]) -> list[str]:
+def find_required_class_names_for_import(
+    obj: Union["LangChainBaseTool", BaseModel],
+) -> list[str]:
     """
     Finds all the class names for required imports when instantiating the `obj`.
     NOTE: This does not return the full import path, only the class name.
@@ -179,7 +192,9 @@ def generate_import_code(module_attr_map: Optional[dict]):
     code_lines = []
     for module, attr in module_attr_map.items():
         module_name = module.split(".")[-1]
-        code_lines.append(f"# Load the module\n    {module_name} = importlib.import_module('{module}')")
+        code_lines.append(
+            f"# Load the module\n    {module_name} = importlib.import_module('{module}')"
+        )
         code_lines.append(f"    # Access the {attr} from the module")
         code_lines.append(f"    {attr} = getattr({module_name}, '{attr}')")
     return "\n".join(code_lines)
@@ -194,7 +209,10 @@ def parse_mirix_response_for_assistant_message(
     for m in mirix_response.messages:
         if isinstance(m, AssistantMessage):
             return m.assistant_message
-        elif isinstance(m, ToolCallMessage) and m.tool_call.name == assistant_message_tool_name:
+        elif (
+            isinstance(m, ToolCallMessage)
+            and m.tool_call.name == assistant_message_tool_name
+        ):
             try:
                 return json.loads(m.tool_call.arguments)[assistant_message_tool_kwarg]
             except Exception:  # TODO: Make this more specific
@@ -237,7 +255,13 @@ async def async_send_message_with_retries(
     logging_prefix = logging_prefix or "[async_send_message_with_retries]"
     for attempt in range(1, max_retries + 1):
         try:
-            messages = [MessageCreate(role=MessageRole.user, text=message_text, name=sender_agent.agent_state.name)]
+            messages = [
+                MessageCreate(
+                    role=MessageRole.user,
+                    text=message_text,
+                    name=sender_agent.agent_state.name,
+                )
+            ]
             # Wrap in a timeout
             response = await asyncio.wait_for(
                 server.send_message_to_agent(
@@ -277,8 +301,12 @@ async def async_send_message_with_retries(
         # Exponential backoff before retrying
         if attempt < max_retries:
             backoff = uniform(0.5, 2) * (2**attempt)
-            sender_agent.logger.warning(f"{logging_prefix} - Retrying the agent to agent send_message...sleeping for {backoff}")
+            sender_agent.logger.warning(
+                f"{logging_prefix} - Retrying the agent to agent send_message...sleeping for {backoff}"
+            )
             await asyncio.sleep(backoff)
         else:
-            sender_agent.logger.error(f"{logging_prefix} - Fatal error during agent to agent send_message: {error_msg}")
+            sender_agent.logger.error(
+                f"{logging_prefix} - Fatal error during agent to agent send_message: {error_msg}"
+            )
             return error_msg

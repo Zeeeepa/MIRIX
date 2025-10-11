@@ -50,7 +50,9 @@ def convert_array(text):
         return None
 
 
-def verify_embedding_dimension(embedding: np.ndarray, expected_dim: int = MAX_EMBEDDING_DIM) -> bool:
+def verify_embedding_dimension(
+    embedding: np.ndarray, expected_dim: int = MAX_EMBEDDING_DIM
+) -> bool:
     """
     Verifies that an embedding has the expected dimension
 
@@ -67,7 +69,9 @@ def verify_embedding_dimension(embedding: np.ndarray, expected_dim: int = MAX_EM
 
 
 def validate_and_transform_embedding(
-    embedding: Union[bytes, sqlite3.Binary, list, np.ndarray], expected_dim: int = MAX_EMBEDDING_DIM, dtype: np.dtype = np.float32
+    embedding: Union[bytes, sqlite3.Binary, list, np.ndarray],
+    expected_dim: int = MAX_EMBEDDING_DIM,
+    dtype: np.dtype = np.float32,
 ) -> Optional[np.ndarray]:
     """
     Validates and transforms embeddings to ensure correct dimensionality.
@@ -98,7 +102,9 @@ def validate_and_transform_embedding(
 
     # Validate dimension
     if vec.shape[0] != expected_dim:
-        raise ValueError(f"Invalid embedding dimension: got {vec.shape[0]}, expected {expected_dim}")
+        raise ValueError(
+            f"Invalid embedding dimension: got {vec.shape[0]}, expected {expected_dim}"
+        )
 
     return vec
 
@@ -144,47 +150,47 @@ def configure_sqlite_connection(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, sqlite3.Connection):
         # Enable WAL mode for better concurrency
         dbapi_connection.execute("PRAGMA journal_mode=WAL")
-        
+
         # Set busy timeout for handling locked database
         dbapi_connection.execute("PRAGMA busy_timeout=30000")  # 30 seconds
-        
+
         # Enable foreign key constraints
         dbapi_connection.execute("PRAGMA foreign_keys=ON")
-        
+
         # Configure synchronous mode for better performance while maintaining safety
         dbapi_connection.execute("PRAGMA synchronous=NORMAL")
-        
+
         # Set cache size (negative value = KB, positive = pages)
         dbapi_connection.execute("PRAGMA cache_size=-64000")  # 64MB cache
-        
+
         # Configure temp store to memory for better performance
         dbapi_connection.execute("PRAGMA temp_store=MEMORY")
-        
+
         # Set mmap size for better I/O performance (256MB)
         dbapi_connection.execute("PRAGMA mmap_size=268435456")
-        
+
         # Configure checkpoint settings for WAL mode
         dbapi_connection.execute("PRAGMA wal_autocheckpoint=1000")
-        
+
         # Configure page size for better performance (must be set before any tables are created)
         dbapi_connection.execute("PRAGMA page_size=4096")
-        
+
         # Enable query optimization
         dbapi_connection.execute("PRAGMA optimize")
-        
+
         # Configure locking mode for better concurrency
         dbapi_connection.execute("PRAGMA locking_mode=NORMAL")
-        
+
         # Set journal size limit to prevent WAL from growing too large
         dbapi_connection.execute("PRAGMA journal_size_limit=67108864")  # 64MB limit
-        
+
         # Enable automatic index creation for better query performance
         dbapi_connection.execute("PRAGMA automatic_index=ON")
-        
+
         # Configure read uncommitted isolation for better concurrency (only for read operations)
         # This is safe for most read operations and improves performance
         dbapi_connection.execute("PRAGMA read_uncommitted=ON")
-        
+
         # Commit all pragma changes
         dbapi_connection.commit()
 

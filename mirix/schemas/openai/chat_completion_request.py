@@ -111,7 +111,7 @@ class ChatCompletionRequest(BaseModel):
     seed: Optional[int] = None
     stop: Optional[Union[str, List[str]]] = None
     stream: Optional[bool] = False
-    temperature: Optional[float] = 1 # TODO: might need to add logics to control this
+    temperature: Optional[float] = 1  # TODO: might need to add logics to control this
     top_p: Optional[float] = 1
 
     # function-calling related

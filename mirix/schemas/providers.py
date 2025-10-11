@@ -4,11 +4,14 @@ from typing import List, Optional
 from pydantic import Field, model_validator
 
 from mirix.constants import LLM_MAX_TOKENS, MIN_CONTEXT_WINDOW
-from mirix.llm_api.azure_openai import get_azure_chat_completions_endpoint, get_azure_embeddings_endpoint
+from mirix.llm_api.azure_openai import (
+    get_azure_chat_completions_endpoint,
+    get_azure_embeddings_endpoint,
+)
 from mirix.llm_api.azure_openai_constants import AZURE_MODEL_TO_CONTEXT_LENGTH
 from mirix.schemas.embedding_config import EmbeddingConfig
-from mirix.schemas.mirix_base import MirixBase
 from mirix.schemas.llm_config import LLMConfig
+from mirix.schemas.mirix_base import MirixBase
 
 
 class ProviderBase(MirixBase):
@@ -16,11 +19,20 @@ class ProviderBase(MirixBase):
 
 
 class Provider(ProviderBase):
-    id: Optional[str] = Field(None, description="The id of the provider, lazily created by the database manager.")
+    id: Optional[str] = Field(
+        None,
+        description="The id of the provider, lazily created by the database manager.",
+    )
     name: str = Field(..., description="The name of the provider")
-    api_key: Optional[str] = Field(None, description="API key used for requests to the provider.")
-    organization_id: Optional[str] = Field(None, description="The organization id of the user")
-    updated_at: Optional[datetime] = Field(None, description="The last update timestamp of the provider.")
+    api_key: Optional[str] = Field(
+        None, description="API key used for requests to the provider."
+    )
+    organization_id: Optional[str] = Field(
+        None, description="The organization id of the user"
+    )
+    updated_at: Optional[datetime] = Field(
+        None, description="The last update timestamp of the provider."
+    )
 
     def resolve_identifier(self):
         if not self.id:
@@ -54,7 +66,6 @@ class ProviderUpdate(ProviderBase):
 
 
 class MirixProvider(Provider):
-
     name: str = "mirix"
 
     def list_llm_models(self) -> List[LLMConfig]:
@@ -91,8 +102,14 @@ class OpenAIProvider(Provider):
 
         # Some hardcoded support for OpenRouter (so that we only get models with tool calling support)...
         # See: https://openrouter.ai/docs/requests
-        extra_params = {"supported_parameters": "tools"} if "openrouter.ai" in self.base_url else None
-        response = openai_get_model_list(self.base_url, api_key=self.api_key, extra_params=extra_params)
+        extra_params = (
+            {"supported_parameters": "tools"}
+            if "openrouter.ai" in self.base_url
+            else None
+        )
+        response = openai_get_model_list(
+            self.base_url, api_key=self.api_key, extra_params=extra_params
+        )
 
         # TogetherAI's response is missing the 'data' field
         # assert "data" in response, f"OpenAI model query response missing 'data' field: {response}"
@@ -158,7 +175,6 @@ class OpenAIProvider(Provider):
         return configs
 
     def list_embedding_models(self) -> List[EmbeddingConfig]:
-
         # TODO: actually automatically list models
         return [
             EmbeddingConfig(
@@ -233,12 +249,17 @@ class MistralProvider(Provider):
         # See: https://openrouter.ai/docs/requests
         response = mistral_get_model_list(self.base_url, api_key=self.api_key)
 
-        assert "data" in response, f"Mistral model query response missing 'data' field: {response}"
+        assert "data" in response, (
+            f"Mistral model query response missing 'data' field: {response}"
+        )
 
         configs = []
         for model in response["data"]:
             # If model has chat completions and function calling enabled
-            if model["capabilities"]["completion_chat"] and model["capabilities"]["function_calling"]:
+            if (
+                model["capabilities"]["completion_chat"]
+                and model["capabilities"]["function_calling"]
+            ):
                 configs.append(
                     LLMConfig(
                         model=model["id"],
@@ -274,9 +295,12 @@ class OllamaProvider(OpenAIProvider):
 
     name: str = "ollama"
     base_url: str = Field(..., description="Base URL for the Ollama API.")
-    api_key: Optional[str] = Field(None, description="API key for the Ollama API (default: `None`).")
+    api_key: Optional[str] = Field(
+        None, description="API key for the Ollama API (default: `None`)."
+    )
     default_prompt_formatter: str = Field(
-        ..., description="Default prompt formatter (aka model wrapper) to use on a /completions style API."
+        ...,
+        description="Default prompt formatter (aka model wrapper) to use on a /completions style API.",
     )
 
     def list_llm_models(self) -> List[LLMConfig]:
@@ -307,10 +331,11 @@ class OllamaProvider(OpenAIProvider):
         return configs
 
     def get_model_context_window(self, model_name: str) -> Optional[int]:
-
         import requests
 
-        response = requests.post(f"{self.base_url}/api/show", json={"name": model_name, "verbose": True})
+        response = requests.post(
+            f"{self.base_url}/api/show", json={"name": model_name, "verbose": True}
+        )
         response_json = response.json()
 
         ## thank you vLLM: https://github.com/vllm-project/vllm/blob/main/vllm/config.py#L1675
@@ -334,7 +359,9 @@ class OllamaProvider(OpenAIProvider):
         # parse model cards: nous, dolphon, llama
         if "model_info" not in response_json:
             if "error" in response_json:
-                print(f"Ollama fetch model info error for {model_name}: {response_json['error']}")
+                print(
+                    f"Ollama fetch model info error for {model_name}: {response_json['error']}"
+                )
             return None
         for key, value in response_json["model_info"].items():
             if "context_length" in key:
@@ -344,11 +371,15 @@ class OllamaProvider(OpenAIProvider):
     def get_model_embedding_dim(self, model_name: str):
         import requests
 
-        response = requests.post(f"{self.base_url}/api/show", json={"name": model_name, "verbose": True})
+        response = requests.post(
+            f"{self.base_url}/api/show", json={"name": model_name, "verbose": True}
+        )
         response_json = response.json()
         if "model_info" not in response_json:
             if "error" in response_json:
-                print(f"Ollama fetch model info error for {model_name}: {response_json['error']}")
+                print(
+                    f"Ollama fetch model info error for {model_name}: {response_json['error']}"
+                )
             return None
         for key, value in response_json["model_info"].items():
             if "embedding_length" in key:
@@ -394,7 +425,7 @@ class GroqProvider(OpenAIProvider):
         response = openai_get_model_list(self.base_url, api_key=self.api_key)
         configs = []
         for model in response["data"]:
-            if not "context_window" in model:
+            if "context_window" not in model:
                 continue
             configs.append(
                 LLMConfig(
@@ -426,7 +457,10 @@ class TogetherProvider(OpenAIProvider):
     name: str = "together"
     base_url: str = "https://api.together.ai/v1"
     api_key: str = Field(..., description="API key for the TogetherAI API.")
-    default_prompt_formatter: str = Field(..., description="Default prompt formatter (aka model wrapper) to use on vLLM /completions API.")
+    default_prompt_formatter: str = Field(
+        ...,
+        description="Default prompt formatter (aka model wrapper) to use on vLLM /completions API.",
+    )
 
     def list_llm_models(self) -> List[LLMConfig]:
         from mirix.llm_api.openai import openai_get_model_list
@@ -531,13 +565,22 @@ class GoogleAIProvider(Provider):
     def list_llm_models(self):
         from mirix.llm_api.google_ai import google_ai_get_model_list
 
-        model_options = google_ai_get_model_list(base_url=self.base_url, api_key=self.api_key)
+        model_options = google_ai_get_model_list(
+            base_url=self.base_url, api_key=self.api_key
+        )
         # filter by 'generateContent' models
-        model_options = [mo for mo in model_options if "generateContent" in mo["supportedGenerationMethods"]]
+        model_options = [
+            mo
+            for mo in model_options
+            if "generateContent" in mo["supportedGenerationMethods"]
+        ]
         model_options = [str(m["name"]) for m in model_options]
 
         # filter by model names
-        model_options = [mo[len("models/") :] if mo.startswith("models/") else mo for mo in model_options]
+        model_options = [
+            mo[len("models/") :] if mo.startswith("models/") else mo
+            for mo in model_options
+        ]
 
         # TODO remove manual filtering for gemini-pro
         # Add support for all gemini models
@@ -560,11 +603,20 @@ class GoogleAIProvider(Provider):
         from mirix.llm_api.google_ai import google_ai_get_model_list
 
         # TODO: use base_url instead
-        model_options = google_ai_get_model_list(base_url=self.base_url, api_key=self.api_key)
+        model_options = google_ai_get_model_list(
+            base_url=self.base_url, api_key=self.api_key
+        )
         # filter by 'generateContent' models
-        model_options = [mo for mo in model_options if "embedContent" in mo["supportedGenerationMethods"]]
+        model_options = [
+            mo
+            for mo in model_options
+            if "embedContent" in mo["supportedGenerationMethods"]
+        ]
         model_options = [str(m["name"]) for m in model_options]
-        model_options = [mo[len("models/") :] if mo.startswith("models/") else mo for mo in model_options]
+        model_options = [
+            mo[len("models/") :] if mo.startswith("models/") else mo
+            for mo in model_options
+        ]
 
         configs = []
         for model in model_options:
@@ -583,17 +635,22 @@ class GoogleAIProvider(Provider):
     def get_model_context_window(self, model_name: str) -> Optional[int]:
         from mirix.llm_api.google_ai import google_ai_get_model_context_window
 
-        return google_ai_get_model_context_window(self.base_url, self.api_key, model_name)
+        return google_ai_get_model_context_window(
+            self.base_url, self.api_key, model_name
+        )
 
 
 class AzureProvider(Provider):
     name: str = "azure"
     latest_api_version: str = "2024-09-01-preview"  # https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation
     base_url: str = Field(
-        ..., description="Base URL for the Azure API endpoint. This should be specific to your org, e.g. `https://mirix.openai.azure.com`."
+        ...,
+        description="Base URL for the Azure API endpoint. This should be specific to your org, e.g. `https://mirix.openai.azure.com`.",
     )
     api_key: str = Field(..., description="API key for the Azure API.")
-    api_version: str = Field(latest_api_version, description="API version for the Azure API")
+    api_version: str = Field(
+        latest_api_version, description="API version for the Azure API"
+    )
 
     @model_validator(mode="before")
     def set_default_api_version(cls, values):
@@ -605,14 +662,20 @@ class AzureProvider(Provider):
         return values
 
     def list_llm_models(self) -> List[LLMConfig]:
-        from mirix.llm_api.azure_openai import azure_openai_get_chat_completion_model_list
+        from mirix.llm_api.azure_openai import (
+            azure_openai_get_chat_completion_model_list,
+        )
 
-        model_options = azure_openai_get_chat_completion_model_list(self.base_url, api_key=self.api_key, api_version=self.api_version)
+        model_options = azure_openai_get_chat_completion_model_list(
+            self.base_url, api_key=self.api_key, api_version=self.api_version
+        )
         configs = []
         for model_option in model_options:
             model_name = model_option["id"]
             context_window_size = self.get_model_context_window(model_name)
-            model_endpoint = get_azure_chat_completions_endpoint(self.base_url, model_name, self.api_version)
+            model_endpoint = get_azure_chat_completions_endpoint(
+                self.base_url, model_name, self.api_version
+            )
             configs.append(
                 LLMConfig(
                     model=model_name,
@@ -628,12 +691,17 @@ class AzureProvider(Provider):
         from mirix.llm_api.azure_openai import azure_openai_get_embeddings_model_list
 
         model_options = azure_openai_get_embeddings_model_list(
-            self.base_url, api_key=self.api_key, api_version=self.api_version, require_embedding_in_name=True
+            self.base_url,
+            api_key=self.api_key,
+            api_version=self.api_version,
+            require_embedding_in_name=True,
         )
         configs = []
         for model_option in model_options:
             model_name = model_option["id"]
-            model_endpoint = get_azure_embeddings_endpoint(self.base_url, model_name, self.api_version)
+            model_endpoint = get_azure_embeddings_endpoint(
+                self.base_url, model_name, self.api_version
+            )
             configs.append(
                 EmbeddingConfig(
                     embedding_model=model_name,
@@ -691,7 +759,10 @@ class VLLMCompletionsProvider(Provider):
     # NOTE: vLLM only serves one model at a time (so could configure that through env variables)
     name: str = "vllm"
     base_url: str = Field(..., description="Base URL for the vLLM API.")
-    default_prompt_formatter: str = Field(..., description="Default prompt formatter (aka model wrapper) to use on vLLM /completions API.")
+    default_prompt_formatter: str = Field(
+        ...,
+        description="Default prompt formatter (aka model wrapper) to use on vLLM /completions API.",
+    )
 
     def list_llm_models(self) -> List[LLMConfig]:
         # not supported with vLLM

@@ -8,14 +8,15 @@ import os
 import pickle
 import platform
 import random
-import string
 import re
+import string
 import subprocess
 import sys
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from logging import Logger
 from typing import List, Union, _GenericAlias, get_args, get_origin, get_type_hints
 from urllib.parse import urljoin, urlparse
 
@@ -23,20 +24,18 @@ import demjson3 as demjson
 import pytz
 import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
-from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
-from logging import Logger
 
 import mirix
-from mirix.schemas.enums import MessageRole
 from mirix.constants import (
     CLI_WARNING_PREFIX,
     CORE_MEMORY_HUMAN_CHAR_LIMIT,
     CORE_MEMORY_PERSONA_CHAR_LIMIT,
     ERROR_MESSAGE_PREFIX,
-    MIRIX_DIR,
     MAX_FILENAME_LENGTH,
+    MIRIX_DIR,
     TOOL_CALL_ID_MAX_LEN,
 )
+from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 
 DEBUG = False
@@ -541,7 +540,11 @@ def enforce_types(func):
                 return any(matches_type(value, arg) for arg in args)
             elif origin is list and isinstance(value, list):  # Handle List[T]
                 element_type = args[0] if args else None
-                return all(isinstance(v, element_type) for v in value) if element_type else True
+                return (
+                    all(isinstance(v, element_type) for v in value)
+                    if element_type
+                    else True
+                )
             elif origin:  # Handle other generics like Dict, Tuple, etc.
                 return isinstance(value, origin)
             else:  # Handle non-generic types
@@ -551,20 +554,26 @@ def enforce_types(func):
         for arg_name, arg_value in args_with_hints.items():
             hint = hints.get(arg_name)
             if hint and not matches_type(arg_value, hint):
-                raise ValueError(f"Argument {arg_name} does not match type {hint}; is {arg_value}")
+                raise ValueError(
+                    f"Argument {arg_name} does not match type {hint}; is {arg_value}"
+                )
 
         # Check types of keyword arguments
         for arg_name, arg_value in kwargs.items():
             hint = hints.get(arg_name)
             if hint and not matches_type(arg_value, hint):
-                raise ValueError(f"Argument {arg_name} does not match type {hint}; is {arg_value}")
+                raise ValueError(
+                    f"Argument {arg_name} does not match type {hint}; is {arg_value}"
+                )
 
         return func(*args, **kwargs)
 
     return wrapper
 
 
-def annotate_message_json_list_with_tool_calls(messages: List[dict], allow_tool_roles: bool = False):
+def annotate_message_json_list_with_tool_calls(
+    messages: List[dict], allow_tool_roles: bool = False
+):
     """Add in missing tool_call_id fields to a list of messages using function call style
 
     Walk through the list forwards:
@@ -584,7 +593,7 @@ def annotate_message_json_list_with_tool_calls(messages: List[dict], allow_tool_
         # If we find a function call w/o a tool call ID annotation, annotate it
         if message["role"] == "assistant" and "function_call" in message:
             if "tool_call_id" in message and message["tool_call_id"] is not None:
-                printd(f"Message already has tool_call_id")
+                printd("Message already has tool_call_id")
                 tool_call_id = message["tool_call_id"]
             else:
                 tool_call_id = str(uuid.uuid4())
@@ -613,7 +622,11 @@ def annotate_message_json_list_with_tool_calls(messages: List[dict], allow_tool_
                 message["tool_call_id"] = tool_call_id
                 tool_call_id = None  # wipe the buffer
 
-        elif message["role"] == "assistant" and "tool_calls" in message and message["tool_calls"] is not None:
+        elif (
+            message["role"] == "assistant"
+            and "tool_calls" in message
+            and message["tool_calls"] is not None
+        ):
             if not allow_tool_roles:
                 raise NotImplementedError(
                     f"tool_call_id annotation is meant for deprecated functions style, but got role 'assistant' with 'tool_calls' in message (i={i}, total={len(messages)}):\n{messages[:i]}\n{message}"
@@ -626,7 +639,7 @@ def annotate_message_json_list_with_tool_calls(messages: List[dict], allow_tool_
 
             assistant_tool_call = message["tool_calls"][0]
             if "id" in assistant_tool_call and assistant_tool_call["id"] is not None:
-                printd(f"Message already has id (tool_call_id)")
+                printd("Message already has id (tool_call_id)")
                 tool_call_id = assistant_tool_call["id"]
             else:
                 tool_call_id = str(uuid.uuid4())
@@ -704,31 +717,55 @@ def create_random_username() -> str:
 
 
 def verify_first_message_correctness(
-    response: ChatCompletionResponse, require_send_message: bool = True, require_monologue: bool = False
+    response: ChatCompletionResponse,
+    require_send_message: bool = True,
+    require_monologue: bool = False,
 ) -> bool:
     """Can be used to enforce that the first message always uses send_message"""
     response_message = response.choices[0].message
 
     # First message should be a call to send_message with a non-empty content
-    if (hasattr(response_message, "function_call") and response_message.function_call is not None) and (
-        hasattr(response_message, "tool_calls") and response_message.tool_calls is not None
+    if (
+        hasattr(response_message, "function_call")
+        and response_message.function_call is not None
+    ) and (
+        hasattr(response_message, "tool_calls")
+        and response_message.tool_calls is not None
     ):
-        printd(f"First message includes both function call AND tool call: {response_message}")
+        printd(
+            f"First message includes both function call AND tool call: {response_message}"
+        )
         return False
-    elif hasattr(response_message, "function_call") and response_message.function_call is not None:
+    elif (
+        hasattr(response_message, "function_call")
+        and response_message.function_call is not None
+    ):
         function_call = response_message.function_call
-    elif hasattr(response_message, "tool_calls") and response_message.tool_calls is not None:
+    elif (
+        hasattr(response_message, "tool_calls")
+        and response_message.tool_calls is not None
+    ):
         function_call = response_message.tool_calls[0].function
     else:
         printd(f"First message didn't include function call: {response_message}")
         return False
 
     function_name = function_call.name if function_call is not None else ""
-    if require_send_message and function_name != "send_message" and function_name != "archival_memory_search":
-        printd(f"First message function call wasn't send_message or archival_memory_search: {response_message}")
+    if (
+        require_send_message
+        and function_name != "send_message"
+        and function_name != "archival_memory_search"
+    ):
+        printd(
+            f"First message function call wasn't send_message or archival_memory_search: {response_message}"
+        )
         return False
 
-    if require_monologue and (not response_message.content or response_message.content is None or response_message.content == ""):
+    if require_monologue and (
+        not response_message.content
+        or response_message.content is None
+        or response_message.content == ""
+    ):
         printd(f"First message missing internal monologue: {response_message}")
         return False
 
@@ -741,12 +778,16 @@ def verify_first_message_correctness(
             return any(char in s for char in special_characters)
 
         if contains_special_characters(monologue):
-            printd(f"First message internal monologue contained special characters: {response_message}")
+            printd(
+                f"First message internal monologue contained special characters: {response_message}"
+            )
             return False
         # if 'functions' in monologue or 'send_message' in monologue or 'inner thought' in monologue.lower():
         if "functions" in monologue or "send_message" in monologue:
             # Sometimes the syntax won't be correct and internal syntax will leak into message.context
-            printd(f"First message internal monologue contained reserved words: {response_message}")
+            printd(
+                f"First message internal monologue contained reserved words: {response_message}"
+            )
             return False
 
     return True
@@ -908,6 +949,7 @@ def parse_json(string) -> dict:
 
     try:
         from json_repair import repair_json
+
         string = repair_json(string)
         result = json_loads(string)
         return result
@@ -916,7 +958,13 @@ def parse_json(string) -> dict:
         print(f"Error repairing json with json_repair package: {e}")
         raise e
 
-def validate_function_response(function_response_string: any, return_char_limit: int, strict: bool = False, truncate: bool = True) -> str:
+
+def validate_function_response(
+    function_response_string: any,
+    return_char_limit: int,
+    strict: bool = False,
+    truncate: bool = True,
+) -> str:
     """Check to make sure that a function used by Mirix returned a valid response. Truncates to return_char_limit if necessary.
 
     Responses need to be strings (or None) that fall under a certain text count limit.
@@ -976,7 +1024,9 @@ def list_agent_config_files(sort="last_modified"):
     if sort is not None:
         if sort == "last_modified":
             # Sort the directories by last modified (most recent first)
-            files.sort(key=lambda x: os.path.getmtime(os.path.join(agent_dir, x)), reverse=True)
+            files.sort(
+                key=lambda x: os.path.getmtime(os.path.join(agent_dir, x)), reverse=True
+            )
         else:
             raise ValueError(f"Unrecognized sorting option {sort}")
 
@@ -989,7 +1039,9 @@ def list_human_files():
     user_dir = os.path.join(MIRIX_DIR, "humans")
 
     mirix_defaults = os.listdir(defaults_dir)
-    mirix_defaults = [os.path.join(defaults_dir, f) for f in mirix_defaults if f.endswith(".txt")]
+    mirix_defaults = [
+        os.path.join(defaults_dir, f) for f in mirix_defaults if f.endswith(".txt")
+    ]
 
     if os.path.exists(user_dir):
         user_added = os.listdir(user_dir)
@@ -1005,7 +1057,9 @@ def list_persona_files():
     user_dir = os.path.join(MIRIX_DIR, "personas")
 
     mirix_defaults = os.listdir(defaults_dir)
-    mirix_defaults = [os.path.join(defaults_dir, f) for f in mirix_defaults if f.endswith(".txt")]
+    mirix_defaults = [
+        os.path.join(defaults_dir, f) for f in mirix_defaults if f.endswith(".txt")
+    ]
 
     if os.path.exists(user_dir):
         user_added = os.listdir(user_dir)
@@ -1021,7 +1075,9 @@ def get_human_text(name: str, enforce_limit=True):
         if f"{name}.txt" == file or name == file:
             human_text = open(file_path, "r", encoding="utf-8").read().strip()
             if enforce_limit and len(human_text) > CORE_MEMORY_HUMAN_CHAR_LIMIT:
-                raise ValueError(f"Contents of {name}.txt is over the character limit ({len(human_text)} > {CORE_MEMORY_HUMAN_CHAR_LIMIT})")
+                raise ValueError(
+                    f"Contents of {name}.txt is over the character limit ({len(human_text)} > {CORE_MEMORY_HUMAN_CHAR_LIMIT})"
+                )
             return human_text
 
     raise ValueError(f"Human {name}.txt not found")
@@ -1047,10 +1103,17 @@ def get_schema_diff(schema_a, schema_b):
     linked_function_json = json_dumps(schema_b)
 
     # Compute the difference using difflib
-    difference = list(difflib.ndiff(f_schema_json.splitlines(keepends=True), linked_function_json.splitlines(keepends=True)))
+    difference = list(
+        difflib.ndiff(
+            f_schema_json.splitlines(keepends=True),
+            linked_function_json.splitlines(keepends=True),
+        )
+    )
 
     # Filter out lines that don't represent changes
-    difference = [line for line in difference if line.startswith("+ ") or line.startswith("- ")]
+    difference = [
+        line for line in difference if line.startswith("+ ") or line.startswith("- ")
+    ]
 
     return "".join(difference)
 
@@ -1116,7 +1179,9 @@ def sanitize_filename(filename: str) -> str:
 
     # Cannot start with a period
     if base.startswith("."):
-        raise ValueError(f"Invalid filename - derived file name {base} cannot start with '.'")
+        raise ValueError(
+            f"Invalid filename - derived file name {base} cannot start with '.'"
+        )
 
     # Truncate the base name to fit within the maximum allowed length
     max_base_length = MAX_FILENAME_LENGTH - len(ext) - 33  # 32 for UUID + 1 for `_`
@@ -1131,7 +1196,9 @@ def sanitize_filename(filename: str) -> str:
     return sanitized_filename
 
 
-def get_friendly_error_msg(function_name: str, exception_name: str, exception_message: str):
+def get_friendly_error_msg(
+    function_name: str, exception_name: str, exception_message: str
+):
     from mirix.constants import MAX_ERROR_MESSAGE_CHAR_LIMIT
 
     error_msg = f"{ERROR_MESSAGE_PREFIX} executing function {function_name}: {exception_name}: {exception_message}"
@@ -1153,11 +1220,11 @@ def check_args(run_action, function_args):
     """
     # Define required arguments for each action
     required_args = {
-        'str_replace': ['path', 'old_str', 'new_str'],
-        'view': ['path'],
-        'insert': ['path', 'insert_line', 'new_str'],
-        'create': ['path', 'file_text'],
-        'undo_edit': ['path']
+        "str_replace": ["path", "old_str", "new_str"],
+        "view": ["path"],
+        "insert": ["path", "insert_line", "new_str"],
+        "create": ["path", "file_text"],
+        "undo_edit": ["path"],
     }
 
     # Check if the run_action has a corresponding configuration
@@ -1165,11 +1232,17 @@ def check_args(run_action, function_args):
         return f"Invalid command: {run_action}"
 
     # Get the required arguments for the action
-    missing_args = [arg for arg in required_args[run_action] if arg not in function_args or function_args[arg] == '']
+    missing_args = [
+        arg
+        for arg in required_args[run_action]
+        if arg not in function_args or function_args[arg] == ""
+    ]
 
     # If any arguments are missing, return False with an error message
     if missing_args:
-        error_message = f"Missing arguments for action '{run_action}': {', '.join(missing_args)}"
+        error_message = (
+            f"Missing arguments for action '{run_action}': {', '.join(missing_args)}"
+        )
         return error_message
 
     return None
@@ -1197,7 +1270,7 @@ def num_tokens_from_functions(functions: List[dict], model: str = "gpt-4"):
     except KeyError:
         from mirix.utils import printd
 
-        printd(f"Warning: model not found. Using cl100k_base encoding.")
+        printd("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")
 
     num_tokens = 0
@@ -1205,11 +1278,15 @@ def num_tokens_from_functions(functions: List[dict], model: str = "gpt-4"):
         function_tokens = len(encoding.encode(function["name"]))
         if function["description"]:
             if not isinstance(function["description"], str):
-                warnings.warn(f"Function {function['name']} has non-string description: {function['description']}")
+                warnings.warn(
+                    f"Function {function['name']} has non-string description: {function['description']}"
+                )
             else:
                 function_tokens += len(encoding.encode(function["description"]))
         else:
-            warnings.warn(f"Function {function['name']} has no description, function: {function}")
+            warnings.warn(
+                f"Function {function['name']} has no description, function: {function}"
+            )
 
         if "parameters" in function:
             parameters = function["parameters"]
@@ -1232,9 +1309,13 @@ def num_tokens_from_functions(functions: List[dict], model: str = "gpt-4"):
                         elif field == "items":
                             function_tokens += 2
                             if isinstance(v["items"], dict) and "type" in v["items"]:
-                                function_tokens += len(encoding.encode(v["items"]["type"]))
+                                function_tokens += len(
+                                    encoding.encode(v["items"]["type"])
+                                )
                         else:
-                            warnings.warn(f"num_tokens_from_functions: Unsupported field {field} in function {function}")
+                            warnings.warn(
+                                f"num_tokens_from_functions: Unsupported field {field} in function {function}"
+                            )
                 function_tokens += 11
 
         num_tokens += function_tokens
@@ -1243,7 +1324,9 @@ def num_tokens_from_functions(functions: List[dict], model: str = "gpt-4"):
     return num_tokens
 
 
-def num_tokens_from_tool_calls(tool_calls: Union[List[dict], List[ToolCall]], model: str = "gpt-4"):
+def num_tokens_from_tool_calls(
+    tool_calls: Union[List[dict], List[ToolCall]], model: str = "gpt-4"
+):
     """Based on above code (num_tokens_from_functions).
 
     Example to encode:
@@ -1319,7 +1402,9 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
         tokens_per_message = 3
         tokens_per_name = 1
     elif model == "gpt-3.5-turbo-0301":
-        tokens_per_message = 4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
+        tokens_per_message = (
+            4  # every message follows <|start|>{role/name}\n{content}<|end|>\n
+        )
         tokens_per_name = -1  # if there's a name, the role is omitted
     elif "gpt-3.5-turbo" in model:
         # print("Warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613.")
@@ -1342,9 +1427,10 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
         num_tokens += tokens_per_message
         for key, value in message.items():
             try:
-
                 if isinstance(value, list) and key == "tool_calls":
-                    num_tokens += num_tokens_from_tool_calls(tool_calls=value, model=model)
+                    num_tokens += num_tokens_from_tool_calls(
+                        tool_calls=value, model=model
+                    )
                     # special case for tool calling (list)
                     # num_tokens += len(encoding.encode(value["name"]))
                     # num_tokens += len(encoding.encode(value["arguments"]))
@@ -1352,10 +1438,14 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
                 else:
                     if value is None:
                         # raise ValueError(f"Message has null value: {key} with value: {value} - message={message}")
-                        warnings.warn(f"Message has null value: {key} with value: {value} - message={message}")
+                        warnings.warn(
+                            f"Message has null value: {key} with value: {value} - message={message}"
+                        )
                     else:
                         if not isinstance(value, str):
-                            raise ValueError(f"Message has non-string value: {key} with value: {value} - message={message}")
+                            raise ValueError(
+                                f"Message has non-string value: {key} with value: {value} - message={message}"
+                            )
                         num_tokens += len(encoding.encode(value))
 
                 if key == "name":
@@ -1370,26 +1460,26 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
 
 
 def convert_timezone_to_utc(timestamp_str, timezone):
-
     try:
-        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S.%f')
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f")
     except:
-        timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
     # timezone is something like "Asia/Shanghai (UTC+08:00)"
     # Extract the timezone region name, e.g., "Asia/Shanghai" from "Asia/Shanghai (UTC+08:00)"
     tz_region = timezone.split(" (")[0]
-    
+
     # Get the timezone object using pytz
     local_tz = pytz.timezone(tz_region)
-    
+
     # Localize the naive datetime object to the provided timezone
     localized_timestamp = local_tz.localize(timestamp)
-    
+
     # Convert the localized datetime to UTC
     utc_timestamp = localized_timestamp.astimezone(pytz.utc)
-    
+
     return utc_timestamp
+
 
 def log_telemetry(logger: Logger, event: str, **kwargs):
     """
@@ -1402,8 +1492,12 @@ def log_telemetry(logger: Logger, event: str, **kwargs):
     from mirix.settings import settings
 
     if settings.verbose_telemetry_logging:
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S,%f UTC")  # More readable timestamp
-        extra_data = " | ".join(f"{key}={value}" for key, value in kwargs.items() if value is not None)
+        timestamp = datetime.now(timezone.utc).strftime(
+            "%Y-%m-%d %H:%M:%S,%f UTC"
+        )  # More readable timestamp
+        extra_data = " | ".join(
+            f"{key}={value}" for key, value in kwargs.items() if value is not None
+        )
         logger.info(f"[{timestamp}] EVENT: {event} | {extra_data}")
 
 
@@ -1423,17 +1517,18 @@ def count_tokens(s: str, model: str = "gpt-4") -> int:
     encoding = tiktoken.encoding_for_model(model)
     return len(encoding.encode(s))
 
+
 def generate_short_id(prefix="id", length=4):
     """
     Generate a short, LLM-friendly ID.
-    
+
     Args:
         prefix: The prefix for the ID (e.g., "mem", "task", "user")
         length: The length of the random part (default 4)
-        
+
     Returns:
         A short ID like "mem_A7K9", "task_B3X2", etc.
-        
+
     Examples:
         >>> generate_short_id("mem", 4)
         "mem_A7K9"
@@ -1441,23 +1536,28 @@ def generate_short_id(prefix="id", length=4):
         "task_X2A"
     """
     chars = string.ascii_uppercase + string.digits
-    random_part = random.choice(string.ascii_uppercase) + ''.join(random.choices(chars, k=length-1))
-    return f"{prefix}_{random_part}" 
+    random_part = random.choice(string.ascii_uppercase) + "".join(
+        random.choices(chars, k=length - 1)
+    )
+    return f"{prefix}_{random_part}"
 
-def generate_unique_short_id(session_maker, model_class, prefix="id", length=4, max_attempts=10):
+
+def generate_unique_short_id(
+    session_maker, model_class, prefix="id", length=4, max_attempts=10
+):
     """
     Generate a unique short, LLM-friendly ID with collision detection.
-    
+
     Args:
         session_maker: SQLAlchemy session maker for database access
         model_class: The SQLAlchemy model class to check for ID uniqueness
         prefix: The prefix for the ID (e.g., "sem", "res", "proc")
         length: The length of the random part (default 4)
         max_attempts: Maximum attempts to find a unique ID before fallback
-        
+
     Returns:
         A unique short ID like "sem_A7K9", "res_B3X2", etc.
-        
+
     Examples:
         >>> generate_unique_short_id(session_maker, SemanticMemoryItem, "sem", 4)
         "sem_A7K9"
@@ -1465,7 +1565,7 @@ def generate_unique_short_id(session_maker, model_class, prefix="id", length=4, 
         "res_B3X2"
     """
     from sqlalchemy import select
-    
+
     for _ in range(max_attempts):
         candidate_id = generate_short_id(prefix, length)
         # Check if this ID already exists
@@ -1475,6 +1575,6 @@ def generate_unique_short_id(session_maker, model_class, prefix="id", length=4, 
             ).first()
             if not existing:
                 return candidate_id
-    
+
     # If we can't find a unique ID after max_attempts, fall back to longer ID
-    return generate_short_id(prefix, length + 2) 
+    return generate_short_id(prefix, length + 2)

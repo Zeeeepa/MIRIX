@@ -71,7 +71,9 @@ class SystemMessage(MirixMessage):
         content (str): The message content sent by the system
     """
 
-    message_type: Literal[MessageType.system_message] = Field(MessageType.system_message, description="The type of the message.")
+    message_type: Literal[MessageType.system_message] = Field(
+        MessageType.system_message, description="The type of the message."
+    )
     content: str = Field(..., description="The message content sent by the system")
 
 
@@ -86,7 +88,9 @@ class UserMessage(MirixMessage):
         content (Union[str, List[MirixUserMessageContentUnion]]): The message content sent by the user (can be a string or an array of multi-modal content parts)
     """
 
-    message_type: Literal[MessageType.user_message] = Field(MessageType.user_message, description="The type of the message.")
+    message_type: Literal[MessageType.user_message] = Field(
+        MessageType.user_message, description="The type of the message."
+    )
     content: Union[str, List[MirixUserMessageContentUnion]] = Field(
         ...,
         description="The message content sent by the user (can be a string or an array of multi-modal content parts)",
@@ -108,7 +112,9 @@ class ReasoningMessage(MirixMessage):
         signature (Optional[str]): The model-generated signature of the reasoning step
     """
 
-    message_type: Literal[MessageType.reasoning_message] = Field(MessageType.reasoning_message, description="The type of the message.")
+    message_type: Literal[MessageType.reasoning_message] = Field(
+        MessageType.reasoning_message, description="The type of the message."
+    )
     source: Literal["reasoner_model", "non_reasoner_model"] = "non_reasoner_model"
     reasoning: str
     signature: Optional[str] = None
@@ -169,7 +175,9 @@ class ToolCallMessage(MirixMessage):
         tool_call (Union[ToolCall, ToolCallDelta]): The tool call
     """
 
-    message_type: Literal[MessageType.tool_call_message] = Field(MessageType.tool_call_message, description="The type of the message.")
+    message_type: Literal[MessageType.tool_call_message] = Field(
+        MessageType.tool_call_message, description="The type of the message."
+    )
     tool_call: Union[ToolCall, ToolCallDelta]
 
     def model_dump(self, *args, **kwargs):
@@ -179,7 +187,9 @@ class ToolCallMessage(MirixMessage):
         kwargs["exclude_none"] = True
         data = super().model_dump(*args, **kwargs)
         if isinstance(data["tool_call"], dict):
-            data["tool_call"] = {k: v for k, v in data["tool_call"].items() if v is not None}
+            data["tool_call"] = {
+                k: v for k, v in data["tool_call"].items() if v is not None
+            }
         return data
 
     class Config:
@@ -198,9 +208,17 @@ class ToolCallMessage(MirixMessage):
         """
         if isinstance(v, dict):
             if "name" in v and "arguments" in v and "tool_call_id" in v:
-                return ToolCall(name=v["name"], arguments=v["arguments"], tool_call_id=v["tool_call_id"])
+                return ToolCall(
+                    name=v["name"],
+                    arguments=v["arguments"],
+                    tool_call_id=v["tool_call_id"],
+                )
             elif "name" in v or "arguments" in v or "tool_call_id" in v:
-                return ToolCallDelta(name=v.get("name"), arguments=v.get("arguments"), tool_call_id=v.get("tool_call_id"))
+                return ToolCallDelta(
+                    name=v.get("name"),
+                    arguments=v.get("arguments"),
+                    tool_call_id=v.get("tool_call_id"),
+                )
             else:
                 raise ValueError("tool_call must contain either 'name' or 'arguments'")
         return v
@@ -221,7 +239,9 @@ class ToolReturnMessage(MirixMessage):
         stderr (Optional[List(str)]): Captured stderr from the tool invocation
     """
 
-    message_type: Literal[MessageType.tool_return_message] = Field(MessageType.tool_return_message, description="The type of the message.")
+    message_type: Literal[MessageType.tool_return_message] = Field(
+        MessageType.tool_return_message, description="The type of the message."
+    )
     tool_return: str
     status: Literal["success", "error"]
     tool_call_id: str
@@ -240,7 +260,9 @@ class AssistantMessage(MirixMessage):
         content (Union[str, List[MirixAssistantMessageContentUnion]]): The message content sent by the agent (can be a string or an array of content parts)
     """
 
-    message_type: Literal[MessageType.assistant_message] = Field(MessageType.assistant_message, description="The type of the message.")
+    message_type: Literal[MessageType.assistant_message] = Field(
+        MessageType.assistant_message, description="The type of the message."
+    )
     content: Union[str, List[MirixAssistantMessageContentUnion]] = Field(
         ...,
         description="The message content sent by the agent (can be a string or an array of content parts)",
@@ -250,7 +272,15 @@ class AssistantMessage(MirixMessage):
 
 # NOTE: use Pydantic's discriminated unions feature: https://docs.pydantic.dev/latest/concepts/unions/#discriminated-unions
 MirixMessageUnion = Annotated[
-    Union[SystemMessage, UserMessage, ReasoningMessage, HiddenReasoningMessage, ToolCallMessage, ToolReturnMessage, AssistantMessage],
+    Union[
+        SystemMessage,
+        UserMessage,
+        ReasoningMessage,
+        HiddenReasoningMessage,
+        ToolCallMessage,
+        ToolReturnMessage,
+        AssistantMessage,
+    ],
     Field(discriminator="message_type"),
 ]
 
@@ -289,7 +319,8 @@ def create_mirix_message_union_schema():
 class UpdateSystemMessage(BaseModel):
     message_type: Literal["system_message"] = "system_message"
     content: str = Field(
-        ..., description="The message content sent by the system (can be a string or an array of multi-modal content parts)"
+        ...,
+        description="The message content sent by the system (can be a string or an array of multi-modal content parts)",
     )
 
 
@@ -317,7 +348,12 @@ class UpdateAssistantMessage(BaseModel):
 
 
 MirixMessageUpdateUnion = Annotated[
-    Union[UpdateSystemMessage, UpdateUserMessage, UpdateReasoningMessage, UpdateAssistantMessage],
+    Union[
+        UpdateSystemMessage,
+        UpdateUserMessage,
+        UpdateReasoningMessage,
+        UpdateAssistantMessage,
+    ],
     Field(discriminator="message_type"),
 ]
 
@@ -367,4 +403,9 @@ class LegacyInternalMonologue(MirixMessage):
     internal_monologue: str
 
 
-LegacyMirixMessage = Union[LegacyInternalMonologue, AssistantMessage, LegacyFunctionCallMessage, LegacyFunctionReturn]
+LegacyMirixMessage = Union[
+    LegacyInternalMonologue,
+    AssistantMessage,
+    LegacyFunctionCallMessage,
+    LegacyFunctionReturn,
+]

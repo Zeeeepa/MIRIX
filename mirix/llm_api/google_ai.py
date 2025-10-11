@@ -1,20 +1,35 @@
-import os
-import json
 import uuid
 from typing import List, Optional, Tuple
 
 import requests
-
 import tiktoken
-from mirix.constants import NON_USER_MSG_PREFIX, MAX_IMAGES_TO_PROCESS
+
+from mirix.constants import MAX_IMAGES_TO_PROCESS, NON_USER_MSG_PREFIX
 from mirix.llm_api.helpers import make_post_request
 from mirix.schemas.openai.chat_completion_request import Tool
-from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse, Choice, FunctionCall, Message, ToolCall, UsageStatistics
-from mirix.utils import get_tool_call_id, get_utc_time, json_dumps, clean_json_string_extra_backslash, count_tokens
+from mirix.schemas.openai.chat_completion_response import (
+    ChatCompletionResponse,
+    Choice,
+    FunctionCall,
+    Message,
+    ToolCall,
+    UsageStatistics,
+)
+from mirix.utils import (
+    clean_json_string_extra_backslash,
+    count_tokens,
+    get_tool_call_id,
+    get_utc_time,
+    json_dumps,
+)
 
 
 def get_gemini_endpoint_and_headers(
-    base_url: str, model: Optional[str], api_key: str, key_in_header: bool = True, generate_content: bool = False
+    base_url: str,
+    model: Optional[str],
+    api_key: str,
+    key_in_header: bool = True,
+    generate_content: bool = False,
 ) -> Tuple[str, dict]:
     """
     Dynamically generate the model endpoint and headers.
@@ -40,10 +55,14 @@ def get_gemini_endpoint_and_headers(
     return url, headers
 
 
-def google_ai_get_model_details(base_url: str, api_key: str, model: str, key_in_header: bool = True) -> List[dict]:
+def google_ai_get_model_details(
+    base_url: str, api_key: str, model: str, key_in_header: bool = True
+) -> List[dict]:
     from mirix.utils import printd
 
-    url, headers = get_gemini_endpoint_and_headers(base_url, model, api_key, key_in_header)
+    url, headers = get_gemini_endpoint_and_headers(
+        base_url, model, api_key, key_in_header
+    )
 
     try:
         response = requests.get(url, headers=headers)
@@ -75,17 +94,25 @@ def google_ai_get_model_details(base_url: str, api_key: str, model: str, key_in_
         raise e
 
 
-def google_ai_get_model_context_window(base_url: str, api_key: str, model: str, key_in_header: bool = True) -> int:
-    model_details = google_ai_get_model_details(base_url=base_url, api_key=api_key, model=model, key_in_header=key_in_header)
+def google_ai_get_model_context_window(
+    base_url: str, api_key: str, model: str, key_in_header: bool = True
+) -> int:
+    model_details = google_ai_get_model_details(
+        base_url=base_url, api_key=api_key, model=model, key_in_header=key_in_header
+    )
     # TODO should this be:
     # return model_details["inputTokenLimit"] + model_details["outputTokenLimit"]
     return int(model_details["inputTokenLimit"])
 
 
-def google_ai_get_model_list(base_url: str, api_key: str, key_in_header: bool = True) -> List[dict]:
+def google_ai_get_model_list(
+    base_url: str, api_key: str, key_in_header: bool = True
+) -> List[dict]:
     from mirix.utils import printd
 
-    url, headers = get_gemini_endpoint_and_headers(base_url, None, api_key, key_in_header)
+    url, headers = get_gemini_endpoint_and_headers(
+        base_url, None, api_key, key_in_header
+    )
 
     try:
         response = requests.get(url, headers=headers)
@@ -126,12 +153,21 @@ def add_dummy_model_messages(messages: List[dict]) -> List[dict]:
     with role == 'model' that is placed in-betweeen and function output
     (role == 'tool') and user message (role == 'user').
     """
-    dummy_yield_message = {"role": "model", "parts": [{"text": f"{NON_USER_MSG_PREFIX}Function call returned, waiting for user response."}]}
+    dummy_yield_message = {
+        "role": "model",
+        "parts": [
+            {
+                "text": f"{NON_USER_MSG_PREFIX}Function call returned, waiting for user response."
+            }
+        ],
+    }
     messages_with_padding = []
     for i, message in enumerate(messages):
         messages_with_padding.append(message)
         # Check if the current message role is 'tool' and the next message role is 'user'
-        if message["role"] in ["tool", "function"] and (i + 1 < len(messages) and messages[i + 1]["role"] == "user"):
+        if message["role"] in ["tool", "function"] and (
+            i + 1 < len(messages) and messages[i + 1]["role"] == "user"
+        ):
             messages_with_padding.append(dummy_yield_message)
 
     return messages_with_padding
@@ -139,9 +175,10 @@ def add_dummy_model_messages(messages: List[dict]) -> List[dict]:
 
 # TODO use pydantic model as input
 def to_google_ai(openai_message_dict: dict) -> dict:
-
     # TODO supports "parts" as part of multimodal support
-    assert not isinstance(openai_message_dict["content"], list), "Multi-part content is message not yet supported"
+    assert not isinstance(openai_message_dict["content"], list), (
+        "Multi-part content is message not yet supported"
+    )
     if openai_message_dict["role"] == "user":
         google_ai_message_dict = {
             "role": "user",
@@ -158,11 +195,15 @@ def to_google_ai(openai_message_dict: dict) -> dict:
             "parts": [{"text": openai_message_dict["content"]}],
         }
     else:
-        raise ValueError(f"Unsupported conversion (OpenAI -> Google AI) from role {openai_message_dict['role']}")
+        raise ValueError(
+            f"Unsupported conversion (OpenAI -> Google AI) from role {openai_message_dict['role']}"
+        )
 
 
 # TODO convert return type to pydantic
-def convert_tools_to_google_ai_format(tools: List[Tool], inner_thoughts_in_kwargs: Optional[bool] = True) -> List[dict]:
+def convert_tools_to_google_ai_format(
+    tools: List[Tool], inner_thoughts_in_kwargs: Optional[bool] = True
+) -> List[dict]:
     """
     OpenAI style:
       "tools": [{
@@ -224,13 +265,17 @@ def convert_tools_to_google_ai_format(tools: List[Tool], inner_thoughts_in_kwarg
             param_fields["type"] = param_fields["type"].upper()
         # Add inner thoughts
         if inner_thoughts_in_kwargs:
-            from mirix.constants import INNER_THOUGHTS_KWARG, INNER_THOUGHTS_KWARG_DESCRIPTION
+            from mirix.constants import (
+                INNER_THOUGHTS_KWARG,
+                INNER_THOUGHTS_KWARG_DESCRIPTION,
+            )
 
             func["parameters"]["properties"][INNER_THOUGHTS_KWARG] = {
                 "type": "STRING",
                 "description": INNER_THOUGHTS_KWARG_DESCRIPTION,
             }
-            func["parameters"]["required"].append(INNER_THOUGHTS_KWARG)
+            if INNER_THOUGHTS_KWARG not in func["parameters"]["required"]:
+                func["parameters"]["required"].append(INNER_THOUGHTS_KWARG)
 
     return [{"functionDeclarations": function_list}]
 
@@ -238,7 +283,9 @@ def convert_tools_to_google_ai_format(tools: List[Tool], inner_thoughts_in_kwarg
 def convert_google_ai_response_to_chatcompletion(
     response_json: dict,  # REST response from Google AI API
     model: str,  # Required since not returned
-    input_messages: Optional[List[dict]] = None,  # Required if the API doesn't return UsageMetadata
+    input_messages: Optional[
+        List[dict]
+    ] = None,  # Required if the API doesn't return UsageMetadata
     pull_inner_thoughts_from_args: Optional[bool] = True,
 ) -> ChatCompletionResponse:
     """Google AI API response format is not the same as ChatCompletion, requires unpacking
@@ -284,7 +331,10 @@ def convert_google_ai_response_to_chatcompletion(
             # TODO Alternative here is to throw away everything else except for the first part
             for response_message in parts:
                 # Convert the actual message style to OpenAI style
-                if "functionCall" in response_message and response_message["functionCall"] is not None:
+                if (
+                    "functionCall" in response_message
+                    and response_message["functionCall"] is not None
+                ):
                     function_call = response_message["functionCall"]
                     assert isinstance(function_call, dict), function_call
                     function_name = function_call["name"]
@@ -296,9 +346,13 @@ def convert_google_ai_response_to_chatcompletion(
                     if pull_inner_thoughts_from_args:
                         from mirix.constants import INNER_THOUGHTS_KWARG
 
-                        assert INNER_THOUGHTS_KWARG in function_args, f"Couldn't find inner thoughts in function args:\n{function_call}"
+                        assert INNER_THOUGHTS_KWARG in function_args, (
+                            f"Couldn't find inner thoughts in function args:\n{function_call}"
+                        )
                         inner_thoughts = function_args.pop(INNER_THOUGHTS_KWARG)
-                        assert inner_thoughts is not None, f"Expected non-null inner thoughts function arg:\n{function_call}"
+                        assert inner_thoughts is not None, (
+                            f"Expected non-null inner thoughts function arg:\n{function_call}"
+                        )
                     else:
                         inner_thoughts = None
 
@@ -312,7 +366,9 @@ def convert_google_ai_response_to_chatcompletion(
                                 type="function",
                                 function=FunctionCall(
                                     name=function_name,
-                                    arguments=clean_json_string_extra_backslash(json_dumps(function_args)),
+                                    arguments=clean_json_string_extra_backslash(
+                                        json_dumps(function_args)
+                                    ),
                                 ),
                             )
                         ],
@@ -322,7 +378,6 @@ def convert_google_ai_response_to_chatcompletion(
                     continue
 
                 else:
-
                     # Inner thoughts are the content by default
                     inner_thoughts = response_message["text"]
 
@@ -341,7 +396,8 @@ def convert_google_ai_response_to_chatcompletion(
                 if finish_reason == "STOP":
                     openai_finish_reason = (
                         "function_call"
-                        if openai_response_message.tool_calls is not None and len(openai_response_message.tool_calls) > 0
+                        if openai_response_message.tool_calls is not None
+                        and len(openai_response_message.tool_calls) > 0
                         else "stop"
                     )
                 elif finish_reason == "MAX_TOKENS":
@@ -351,7 +407,9 @@ def convert_google_ai_response_to_chatcompletion(
                 elif finish_reason == "RECITATION":
                     openai_finish_reason = "content_filter"
                 else:
-                    raise ValueError(f"Unrecognized finish reason in Google AI response: {finish_reason}")
+                    raise ValueError(
+                        f"Unrecognized finish reason in Google AI response: {finish_reason}"
+                    )
 
                 choices.append(
                     Choice(
@@ -374,14 +432,22 @@ def convert_google_ai_response_to_chatcompletion(
         if "usageMetadata" in response_json:
             usage = UsageStatistics(
                 prompt_tokens=response_json["usageMetadata"]["promptTokenCount"],
-                completion_tokens=response_json["usageMetadata"]["candidatesTokenCount"],
+                completion_tokens=response_json["usageMetadata"][
+                    "candidatesTokenCount"
+                ],
                 total_tokens=response_json["usageMetadata"]["totalTokenCount"],
             )
         else:
             # Count it ourselves
-            assert input_messages is not None, f"Didn't get UsageMetadata from the API response, so input_messages is required"
-            prompt_tokens = count_tokens(json_dumps(input_messages))  # NOTE: this is a very rough approximation
-            completion_tokens = count_tokens(json_dumps(openai_response_message.model_dump()))  # NOTE: this is also approximate
+            assert input_messages is not None, (
+                "Didn't get UsageMetadata from the API response, so input_messages is required"
+            )
+            prompt_tokens = count_tokens(
+                json_dumps(input_messages)
+            )  # NOTE: this is a very rough approximation
+            completion_tokens = count_tokens(
+                json_dumps(openai_response_message.model_dump())
+            )  # NOTE: this is also approximate
             total_tokens = prompt_tokens + completion_tokens
             usage = UsageStatistics(
                 prompt_tokens=prompt_tokens,
@@ -403,7 +469,8 @@ def convert_google_ai_response_to_chatcompletion(
 
 def extract_content(content):
     import re
-    pattern = r'([^<]+)?(?:<image>\s*(.*?)\s*</image>)?'
+
+    pattern = r"([^<]+)?(?:<image>\s*(.*?)\s*</image>)?"
     matches = re.findall(pattern, content)
 
     result = []
@@ -414,6 +481,7 @@ def extract_content(content):
             result.append({"type": "image_url", "image_url": image.strip()})
 
     return result
+
 
 # TODO convert 'data' type to pydantic
 def google_ai_chat_completions_request(
@@ -440,7 +508,9 @@ def google_ai_chat_completions_request(
 
     assert api_key is not None, "Missing api_key when calling Google AI"
 
-    url, headers = get_gemini_endpoint_and_headers(base_url, model, api_key, key_in_header, generate_content=True)
+    url, headers = get_gemini_endpoint_and_headers(
+        base_url, model, api_key, key_in_header, generate_content=True
+    )
 
     # data["contents"][-1]["role"] = "model"
     if add_postfunc_model_messages:
@@ -448,44 +518,57 @@ def google_ai_chat_completions_request(
 
     num_processed_images = 0
 
-    for contents in data['contents'][::-1]:
-        if contents['role'] == 'user':
-            assert len(contents['parts']) == 1
-            part = contents['parts'][0]
-            
-            if "</image>" in part['text'] and "<image>" in part['text']:
-                
+    for contents in data["contents"][::-1]:
+        if contents["role"] == "user":
+            assert len(contents["parts"]) == 1
+            part = contents["parts"][0]
+
+            if "</image>" in part["text"] and "<image>" in part["text"]:
                 new_parts = []
-                
+
                 # for item in extract_content(json.loads(part['text'])['message']):
-                for item in extract_content(part['text']):
+                for item in extract_content(part["text"]):
+                    if item["type"] == "text":
+                        new_parts.append({"text": item["text"]})
 
-                    if item['type'] == 'text':
-                        new_parts.append({'text': item['text']})
-                    
-                    elif item['type'] == 'image_url':
-
-                        if image_uris is not None and "existing_image_uris" in image_uris and item['image_url'] in image_uris["existing_image_uris"]:
-                            new_parts.append({'file_data': {'mime_type': 'image/png', 'file_uri': item['image_url']}})
+                    elif item["type"] == "image_url":
+                        if (
+                            image_uris is not None
+                            and "existing_image_uris" in image_uris
+                            and item["image_url"] in image_uris["existing_image_uris"]
+                        ):
+                            new_parts.append(
+                                {
+                                    "file_data": {
+                                        "mime_type": "image/png",
+                                        "file_uri": item["image_url"],
+                                    }
+                                }
+                            )
                             num_processed_images += 1
                         else:
-                            new_parts.append({'text': "[This image has been deleted (maybe because it is either repeated or unimportant)]"})
+                            new_parts.append(
+                                {
+                                    "text": "[This image has been deleted (maybe because it is either repeated or unimportant)]"
+                                }
+                            )
 
-                contents['parts'] = new_parts
-                
+                contents["parts"] = new_parts
+
                 if num_processed_images >= MAX_IMAGES_TO_PROCESS:
                     break
 
     if get_input_data_for_debugging:
         return data
-    
+
     import time
+
     s1 = time.time()
     response_json = make_post_request(url, headers, data)
     s2 = time.time()
     print("Query Takes time:", s2 - s1)
 
-    if len(response_json['candidates'][0]['content']) == 0:
+    if len(response_json["candidates"][0]["content"]) == 0:
         raise ValueError("Empty response from Google AI API")
 
     return convert_google_ai_response_to_chatcompletion(
@@ -494,6 +577,7 @@ def google_ai_chat_completions_request(
         input_messages=data["contents"],
         pull_inner_thoughts_from_args=inner_thoughts_in_kwargs,
     )
+
 
 def count_tokens(s: str, model: str = "gpt-4") -> int:
     encoding = tiktoken.encoding_for_model(model)

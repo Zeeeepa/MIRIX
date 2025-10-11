@@ -23,12 +23,19 @@ class User(UserBase):
     """
 
     id: str = UserBase.generate_id_field()
-    organization_id: Optional[str] = Field(OrganizationManager.DEFAULT_ORG_ID, description="The organization id of the user")
+    organization_id: Optional[str] = Field(
+        OrganizationManager.DEFAULT_ORG_ID,
+        description="The organization id of the user",
+    )
     name: str = Field(..., description="The name of the user.")
     status: str = Field("active", description="Whether the user is active or not.")
     timezone: str = Field(..., description="The timezone of the user.")
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="The creation date of the user.")
-    updated_at: Optional[datetime] = Field(default_factory=datetime.utcnow, description="The update date of the user.")
+    created_at: Optional[datetime] = Field(
+        default_factory=datetime.utcnow, description="The creation date of the user."
+    )
+    updated_at: Optional[datetime] = Field(
+        default_factory=datetime.utcnow, description="The update date of the user."
+    )
     is_deleted: bool = Field(False, description="Whether this user is deleted or not.")
 
 
@@ -44,4 +51,6 @@ class UserUpdate(UserBase):
     name: Optional[str] = Field(None, description="The new name of the user.")
     status: Optional[str] = Field(None, description="The new status of the user.")
     timezone: Optional[str] = Field(None, description="The new timezone of the user.")
-    organization_id: Optional[str] = Field(None, description="The new organization id of the user.")
+    organization_id: Optional[str] = Field(
+        None, description="The new organization id of the user."
+    )

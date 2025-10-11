@@ -30,7 +30,9 @@ class OrganizationManager:
             return organization.to_pydantic()
 
     @enforce_types
-    def create_organization(self, pydantic_org: PydanticOrganization) -> PydanticOrganization:
+    def create_organization(
+        self, pydantic_org: PydanticOrganization
+    ) -> PydanticOrganization:
         """Create a new organization."""
         try:
             org = self.get_organization_by_id(pydantic_org.id)
@@ -39,7 +41,9 @@ class OrganizationManager:
             return self._create_organization(pydantic_org=pydantic_org)
 
     @enforce_types
-    def _create_organization(self, pydantic_org: PydanticOrganization) -> PydanticOrganization:
+    def _create_organization(
+        self, pydantic_org: PydanticOrganization
+    ) -> PydanticOrganization:
         with self.session_maker() as session:
             org = OrganizationModel(**pydantic_org.model_dump())
             org.create(session)
@@ -48,10 +52,14 @@ class OrganizationManager:
     @enforce_types
     def create_default_organization(self) -> PydanticOrganization:
         """Create the default organization."""
-        return self.create_organization(PydanticOrganization(name=self.DEFAULT_ORG_NAME, id=self.DEFAULT_ORG_ID))
+        return self.create_organization(
+            PydanticOrganization(name=self.DEFAULT_ORG_NAME, id=self.DEFAULT_ORG_ID)
+        )
 
     @enforce_types
-    def update_organization_name_using_id(self, org_id: str, name: Optional[str] = None) -> PydanticOrganization:
+    def update_organization_name_using_id(
+        self, org_id: str, name: Optional[str] = None
+    ) -> PydanticOrganization:
         """Update an organization."""
         with self.session_maker() as session:
             org = OrganizationModel.read(db_session=session, identifier=org_id)
@@ -68,8 +76,12 @@ class OrganizationManager:
             organization.hard_delete(session)
 
     @enforce_types
-    def list_organizations(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[PydanticOrganization]:
+    def list_organizations(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[PydanticOrganization]:
         """List organizations with pagination based on cursor (org_id) and limit."""
         with self.session_maker() as session:
-            results = OrganizationModel.list(db_session=session, cursor=cursor, limit=limit)
+            results = OrganizationModel.list(
+                db_session=session, cursor=cursor, limit=limit
+            )
             return [org.to_pydantic() for org in results]

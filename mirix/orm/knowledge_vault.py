@@ -1,16 +1,17 @@
-from typing import TYPE_CHECKING, Optional
-from datetime import datetime
 import datetime as dt
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Column, JSON, String
-from sqlalchemy.orm import Mapped, mapped_column, declared_attr, relationship
+from sqlalchemy import JSON, Column, String
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
-from mirix.orm.sqlalchemy_base import SqlalchemyBase
-from mirix.orm.mixins import OrganizationMixin, UserMixin
-from mirix.schemas.knowledge_vault import KnowledgeVaultItem as PydanticKnowledgeVaultItem
-
-from mirix.orm.custom_columns import CommonVector, EmbeddingConfigColumn
 from mirix.constants import MAX_EMBEDDING_DIM
+from mirix.orm.custom_columns import CommonVector, EmbeddingConfigColumn
+from mirix.orm.mixins import OrganizationMixin, UserMixin
+from mirix.orm.sqlalchemy_base import SqlalchemyBase
+from mirix.schemas.knowledge_vault import (
+    KnowledgeVaultItem as PydanticKnowledgeVaultItem,
+)
 from mirix.settings import settings
 
 if TYPE_CHECKING:
@@ -44,39 +45,39 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     entry_type: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        doc="Category (e.g., 'credential', 'bookmark', 'api_key')"
+        doc="Category (e.g., 'credential', 'bookmark', 'api_key')",
     )
 
     # Source (where or how it was provided)
     source: Mapped[str] = mapped_column(
         String,
-        doc="Information on who/where it was provided (e.g. 'user on 2025-03-01')"
+        doc="Information on who/where it was provided (e.g. 'user on 2025-03-01')",
     )
 
     # Sensitivity level
     sensitivity: Mapped[str] = mapped_column(
-        String,
-        doc="Data sensitivity (e.g. 'low', 'medium', 'high')"
+        String, doc="Data sensitivity (e.g. 'low', 'medium', 'high')"
     )
 
     # Actual data or secret, e.g. password, API token
     secret_value: Mapped[str] = mapped_column(
-        String,
-        doc="The actual credential or data value"
+        String, doc="The actual credential or data value"
     )
 
     # Description or notes about the entry
     caption: Mapped[str] = mapped_column(
-        String,
-        doc="Description or notes about the entry"
+        String, doc="Description or notes about the entry"
     )
 
     # When was this item last modified and what operation?
     last_modify: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
-        default=lambda: {"timestamp": datetime.now(dt.timezone.utc).isoformat(), "operation": "created"},
-        doc="Last modification info including timestamp and operation type"
+        default=lambda: {
+            "timestamp": datetime.now(dt.timezone.utc).isoformat(),
+            "operation": "created",
+        },
+        doc="Last modification info including timestamp and operation type",
     )
 
     # Optional catch-all for any extra metadata you want to store
@@ -84,18 +85,17 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         JSON,
         default={},
         nullable=True,
-        doc="Arbitrary additional metadata as a JSON object"
+        doc="Arbitrary additional metadata as a JSON object",
     )
 
     embedding_config: Mapped[Optional[dict]] = mapped_column(
-        EmbeddingConfigColumn, 
-        nullable=True,
-        doc="Embedding configuration"
+        EmbeddingConfigColumn, nullable=True, doc="Embedding configuration"
     )
-    
+
     # Vector embedding field based on database type
     if settings.mirix_pg_uri_no_default:
         from pgvector.sqlalchemy import Vector
+
         caption_embedding = mapped_column(Vector(MAX_EMBEDDING_DIM), nullable=True)
     else:
         caption_embedding = Column(CommonVector, nullable=True)
@@ -107,9 +107,7 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         Adjust 'back_populates' to match the collection name in your `Organization` model.
         """
         return relationship(
-            "Organization",
-            back_populates="knowledge_vault",
-            lazy="selectin"
+            "Organization", back_populates="knowledge_vault", lazy="selectin"
         )
 
     @declared_attr
@@ -117,7 +115,4 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         """
         Relationship to the User that owns this knowledge vault item.
         """
-        return relationship(
-            "User",
-            lazy="selectin"
-        )
+        return relationship("User", lazy="selectin")

@@ -1,7 +1,13 @@
 from typing import TYPE_CHECKING, Optional, Type
 
 from sqlalchemy import JSON, BigInteger, Integer, UniqueConstraint, event
-from sqlalchemy.orm import Mapped, attributes, mapped_column, relationship, declared_attr
+from sqlalchemy.orm import (
+    Mapped,
+    attributes,
+    declared_attr,
+    mapped_column,
+    relationship,
+)
 
 from mirix.constants import CORE_MEMORY_BLOCK_CHAR_LIMIT
 from mirix.orm.blocks_agents import BlocksAgents
@@ -24,29 +30,40 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
     __table_args__ = (UniqueConstraint("id", "label", name="unique_block_id_label"),)
 
     template_name: Mapped[Optional[str]] = mapped_column(
-        nullable=True, doc="the unique name that identifies a block in a human-readable way"
+        nullable=True,
+        doc="the unique name that identifies a block in a human-readable way",
     )
-    description: Mapped[Optional[str]] = mapped_column(nullable=True, doc="a description of the block for context")
-    label: Mapped[str] = mapped_column(doc="the type of memory block in use, ie 'human', 'persona', 'system'")
+    description: Mapped[Optional[str]] = mapped_column(
+        nullable=True, doc="a description of the block for context"
+    )
+    label: Mapped[str] = mapped_column(
+        doc="the type of memory block in use, ie 'human', 'persona', 'system'"
+    )
     is_template: Mapped[bool] = mapped_column(
-        doc="whether the block is a template (e.g. saved human/persona options as baselines for other templates)", default=False
+        doc="whether the block is a template (e.g. saved human/persona options as baselines for other templates)",
+        default=False,
     )
-    value: Mapped[str] = mapped_column(doc="Text content of the block for the respective section of core memory.")
-    limit: Mapped[BigInteger] = mapped_column(Integer, default=CORE_MEMORY_BLOCK_CHAR_LIMIT, doc="Character limit of the block.")
-    metadata_: Mapped[Optional[dict]] = mapped_column(JSON, default={}, doc="arbitrary information related to the block.")
+    value: Mapped[str] = mapped_column(
+        doc="Text content of the block for the respective section of core memory."
+    )
+    limit: Mapped[BigInteger] = mapped_column(
+        Integer,
+        default=CORE_MEMORY_BLOCK_CHAR_LIMIT,
+        doc="Character limit of the block.",
+    )
+    metadata_: Mapped[Optional[dict]] = mapped_column(
+        JSON, default={}, doc="arbitrary information related to the block."
+    )
 
     # relationships
     organization: Mapped[Optional["Organization"]] = relationship("Organization")
-    
+
     @declared_attr
     def user(cls) -> Mapped["User"]:
         """
         Relationship to the User that owns this block.
         """
-        return relationship(
-            "User",
-            lazy="selectin"
-        )
+        return relationship("User", lazy="selectin")
 
     def to_pydantic(self) -> Type:
         if self.label == "human":
@@ -68,7 +85,10 @@ def block_before_update(mapper, connection, target):
     blocks_agents = BlocksAgents.__table__
     connection.execute(
         blocks_agents.update()
-        .where(blocks_agents.c.block_id == target.id, blocks_agents.c.block_label == label_history.deleted[0])
+        .where(
+            blocks_agents.c.block_id == target.id,
+            blocks_agents.c.block_label == label_history.deleted[0],
+        )
         .values(block_label=label_history.added[0])
     )
 

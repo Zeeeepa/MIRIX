@@ -6,10 +6,13 @@ from mirix.constants import (
     COMPOSIO_TOOL_TAG_NAME,
     FUNCTION_RETURN_CHAR_LIMIT,
     MIRIX_CORE_TOOL_MODULE_NAME,
-    MIRIX_MEMORY_TOOL_MODULE_NAME,
     MIRIX_EXTRA_TOOL_MODULE_NAME,
+    MIRIX_MEMORY_TOOL_MODULE_NAME,
 )
-from mirix.functions.functions import derive_openai_json_schema, get_json_schema_from_module
+from mirix.functions.functions import (
+    derive_openai_json_schema,
+    get_json_schema_from_module,
+)
 from mirix.functions.helpers import generate_langchain_tool_wrapper
 from mirix.functions.schema_generator import generate_schema_from_args_schema_v2
 from mirix.orm.enums import ToolType
@@ -37,20 +40,34 @@ class Tool(BaseTool):
     tool_type: ToolType = Field(ToolType.CUSTOM, description="The type of the tool.")
     description: Optional[str] = Field(None, description="The description of the tool.")
     source_type: Optional[str] = Field(None, description="The type of the source code.")
-    organization_id: Optional[str] = Field(None, description="The unique identifier of the organization associated with the tool.")
+    organization_id: Optional[str] = Field(
+        None,
+        description="The unique identifier of the organization associated with the tool.",
+    )
     name: Optional[str] = Field(None, description="The name of the function.")
     tags: List[str] = Field([], description="Metadata tags.")
 
     # code
-    source_code: Optional[str] = Field(None, description="The source code of the function.")
-    json_schema: Optional[Dict] = Field(None, description="The JSON schema of the function.")
+    source_code: Optional[str] = Field(
+        None, description="The source code of the function."
+    )
+    json_schema: Optional[Dict] = Field(
+        None, description="The JSON schema of the function."
+    )
 
     # tool configuration
-    return_char_limit: int = Field(FUNCTION_RETURN_CHAR_LIMIT, description="The maximum number of characters in the response.")
+    return_char_limit: int = Field(
+        FUNCTION_RETURN_CHAR_LIMIT,
+        description="The maximum number of characters in the response.",
+    )
 
     # metadata fields
-    created_by_id: Optional[str] = Field(None, description="The id of the user that made this Tool.")
-    last_updated_by_id: Optional[str] = Field(None, description="The id of the user that made this Tool.")
+    created_by_id: Optional[str] = Field(
+        None, description="The id of the user that made this Tool."
+    )
+    last_updated_by_id: Optional[str] = Field(
+        None, description="The id of the user that made this Tool."
+    )
 
     @model_validator(mode="after")
     def populate_missing_fields(self):
@@ -61,20 +78,30 @@ class Tool(BaseTool):
         if self.tool_type == ToolType.CUSTOM:
             # If it's a custom tool, we need to ensure source_code is present
             if not self.source_code:
-                raise ValueError(f"Custom tool with id={self.id} is missing source_code field.")
+                raise ValueError(
+                    f"Custom tool with id={self.id} is missing source_code field."
+                )
 
             # Always derive json_schema for freshest possible json_schema
             # TODO: Instead of checking the tag, we should having `COMPOSIO` as a specific ToolType
             # TODO: We skip this for Composio bc composio json schemas are derived differently
-            if not (COMPOSIO_TOOL_TAG_NAME in self.tags):
-                self.json_schema = derive_openai_json_schema(source_code=self.source_code)
+            if COMPOSIO_TOOL_TAG_NAME not in self.tags:
+                self.json_schema = derive_openai_json_schema(
+                    source_code=self.source_code
+                )
         elif self.tool_type in {ToolType.MIRIX_CORE}:
             # If it's mirix core tool, we generate the json_schema on the fly here
-            self.json_schema = get_json_schema_from_module(module_name=MIRIX_CORE_TOOL_MODULE_NAME, function_name=self.name)
+            self.json_schema = get_json_schema_from_module(
+                module_name=MIRIX_CORE_TOOL_MODULE_NAME, function_name=self.name
+            )
         elif self.tool_type in {ToolType.MIRIX_MEMORY_CORE}:
-            self.json_schema = get_json_schema_from_module(module_name=MIRIX_MEMORY_TOOL_MODULE_NAME, function_name=self.name)
+            self.json_schema = get_json_schema_from_module(
+                module_name=MIRIX_MEMORY_TOOL_MODULE_NAME, function_name=self.name
+            )
         elif self.tool_type in {ToolType.MIRIX_EXTRA}:
-            self.json_schema = get_json_schema_from_module(module_name=MIRIX_EXTRA_TOOL_MODULE_NAME, function_name=self.name)
+            self.json_schema = get_json_schema_from_module(
+                module_name=MIRIX_EXTRA_TOOL_MODULE_NAME, function_name=self.name
+            )
         elif self.tool_type in {ToolType.MIRIX_MCP}:
             # MCP tools have their json_schema already provided by MCP tool registry
             # Skip validation since these are auto-generated tools
@@ -97,15 +124,22 @@ class Tool(BaseTool):
 
 
 class ToolCreate(MirixBase):
-    name: Optional[str] = Field(None, description="The name of the function (auto-generated from source_code if not provided).")
+    name: Optional[str] = Field(
+        None,
+        description="The name of the function (auto-generated from source_code if not provided).",
+    )
     description: Optional[str] = Field(None, description="The description of the tool.")
     tags: List[str] = Field([], description="Metadata tags.")
     source_code: str = Field(..., description="The source code of the function.")
     source_type: str = Field("python", description="The source type of the function.")
     json_schema: Optional[Dict] = Field(
-        None, description="The JSON schema of the function (auto-generated from source_code if not provided)"
+        None,
+        description="The JSON schema of the function (auto-generated from source_code if not provided)",
     )
-    return_char_limit: int = Field(FUNCTION_RETURN_CHAR_LIMIT, description="The maximum number of characters in the response.")
+    return_char_limit: int = Field(
+        FUNCTION_RETURN_CHAR_LIMIT,
+        description="The maximum number of characters in the response.",
+    )
 
     @classmethod
     def from_langchain(
@@ -127,8 +161,12 @@ class ToolCreate(MirixBase):
         source_type = "python"
         tags = ["langchain"]
         # NOTE: langchain tools may come from different packages
-        wrapper_func_name, wrapper_function_str = generate_langchain_tool_wrapper(langchain_tool, additional_imports_module_attr_map)
-        json_schema = generate_schema_from_args_schema_v2(langchain_tool.args_schema, name=wrapper_func_name, description=description)
+        wrapper_func_name, wrapper_function_str = generate_langchain_tool_wrapper(
+            langchain_tool, additional_imports_module_attr_map
+        )
+        json_schema = generate_schema_from_args_schema_v2(
+            langchain_tool.args_schema, name=wrapper_func_name, description=description
+        )
 
         return cls(
             name=wrapper_func_name,
@@ -146,7 +184,8 @@ class ToolCreate(MirixBase):
         from langchain_community.utilities import WikipediaAPIWrapper
 
         wikipedia_tool = ToolCreate.from_langchain(
-            WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()), {"langchain_community.utilities": "WikipediaAPIWrapper"}
+            WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper()),
+            {"langchain_community.utilities": "WikipediaAPIWrapper"},
         )
 
         return [wikipedia_tool]
@@ -169,12 +208,17 @@ class ToolUpdate(MirixBase):
     description: Optional[str] = Field(None, description="The description of the tool.")
     name: Optional[str] = Field(None, description="The name of the function.")
     tags: Optional[List[str]] = Field(None, description="Metadata tags.")
-    source_code: Optional[str] = Field(None, description="The source code of the function.")
+    source_code: Optional[str] = Field(
+        None, description="The source code of the function."
+    )
     source_type: Optional[str] = Field(None, description="The type of the source code.")
     json_schema: Optional[Dict] = Field(
-        None, description="The JSON schema of the function (auto-generated from source_code if not provided)"
+        None,
+        description="The JSON schema of the function (auto-generated from source_code if not provided)",
     )
-    return_char_limit: Optional[int] = Field(None, description="The maximum number of characters in the response.")
+    return_char_limit: Optional[int] = Field(
+        None, description="The maximum number of characters in the response."
+    )
 
     class Config:
         extra = "ignore"  # Allows extra fields without validation errors
@@ -184,6 +228,8 @@ class ToolUpdate(MirixBase):
 class ToolRunFromSource(MirixBase):
     source_code: str = Field(..., description="The source code of the function.")
     args: Dict[str, Any] = Field(..., description="The arguments to pass to the tool.")
-    env_vars: Dict[str, str] = Field(None, description="The environment variables to pass to the tool.")
+    env_vars: Dict[str, str] = Field(
+        None, description="The environment variables to pass to the tool."
+    )
     name: Optional[str] = Field(None, description="The name of the tool to run.")
     source_type: Optional[str] = Field(None, description="The type of the source code.")

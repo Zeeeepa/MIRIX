@@ -39,7 +39,9 @@ def set_field(config, section, field, value):
 
 @dataclass
 class MirixConfig:
-    config_path: str = os.getenv("MEMGPT_CONFIG_PATH") or os.path.join(MIRIX_DIR, "config")
+    config_path: str = os.getenv("MEMGPT_CONFIG_PATH") or os.path.join(
+        MIRIX_DIR, "config"
+    )
 
     # preset
     preset: str = DEFAULT_PRESET  # TODO: rename to system prompt
@@ -95,7 +97,11 @@ class MirixConfig:
         pass
 
     @classmethod
-    def load(cls, llm_config: Optional[LLMConfig] = None, embedding_config: Optional[EmbeddingConfig] = None) -> "MirixConfig":
+    def load(
+        cls,
+        llm_config: Optional[LLMConfig] = None,
+        embedding_config: Optional[EmbeddingConfig] = None,
+    ) -> "MirixConfig":
         # avoid circular import
         from mirix.utils import printd
 
@@ -286,7 +292,9 @@ class MirixConfig:
         else:
             config_path = MirixConfig.config_path
 
-        assert not os.path.isdir(config_path), f"Config path {config_path} cannot be set to a directory."
+        assert not os.path.isdir(config_path), (
+            f"Config path {config_path} cannot be set to a directory."
+        )
         return os.path.exists(config_path)
 
     @staticmethod

@@ -5,7 +5,11 @@ from sqlalchemy import JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mirix.orm.block import Block
-from mirix.orm.custom_columns import EmbeddingConfigColumn, LLMConfigColumn, ToolRulesColumn
+from mirix.orm.custom_columns import (
+    EmbeddingConfigColumn,
+    LLMConfigColumn,
+    ToolRulesColumn,
+)
 from mirix.orm.message import Message
 from mirix.orm.mixins import OrganizationMixin
 from mirix.orm.organization import Organization
@@ -21,7 +25,6 @@ if TYPE_CHECKING:
     from mirix.orm.agents_tags import AgentsTags
     from mirix.orm.organization import Organization
     from mirix.orm.tool import Tool
-    from mirix.orm.user import User
 
 
 class Agent(SqlalchemyBase, OrganizationMixin):
@@ -31,50 +34,84 @@ class Agent(SqlalchemyBase, OrganizationMixin):
     # agent generates its own id
     # TODO: We want to migrate all the ORM models to do this, so we will need to move this to the SqlalchemyBase
     # TODO: Some still rely on the Pydantic object to do this
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: f"agent-{uuid.uuid4()}")
+    id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=lambda: f"agent-{uuid.uuid4()}"
+    )
 
     # Descriptor fields
-    agent_type: Mapped[Optional[AgentType]] = mapped_column(String, nullable=True, doc="The type of Agent")
-    name: Mapped[Optional[str]] = mapped_column(String, nullable=True, doc="a human-readable identifier for an agent, non-unique.")
-    description: Mapped[Optional[str]] = mapped_column(String, nullable=True, doc="The description of the agent.")
+    agent_type: Mapped[Optional[AgentType]] = mapped_column(
+        String, nullable=True, doc="The type of Agent"
+    )
+    name: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        doc="a human-readable identifier for an agent, non-unique.",
+    )
+    description: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, doc="The description of the agent."
+    )
 
     # System prompt
-    system: Mapped[Optional[str]] = mapped_column(String, nullable=True, doc="The system prompt used by the agent.")
+    system: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, doc="The system prompt used by the agent."
+    )
 
     # Current Topic
-    topic: Mapped[Optional[str]] = mapped_column(String, nullable=True, doc="The current topic between the agent and the user.")
+    topic: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, doc="The current topic between the agent and the user."
+    )
 
     # In context memory
     # TODO: This should be a separate mapping table
     # This is dangerously flexible with the JSON type
-    message_ids: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="List of message IDs in in-context memory.")
+    message_ids: Mapped[Optional[List[str]]] = mapped_column(
+        JSON, nullable=True, doc="List of message IDs in in-context memory."
+    )
 
     # Metadata and configs
-    metadata_: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, doc="metadata for the agent.")
+    metadata_: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, doc="metadata for the agent."
+    )
     llm_config: Mapped[Optional[LLMConfig]] = mapped_column(
-        LLMConfigColumn, nullable=True, doc="the LLM backend configuration object for this agent."
+        LLMConfigColumn,
+        nullable=True,
+        doc="the LLM backend configuration object for this agent.",
     )
     embedding_config: Mapped[Optional[EmbeddingConfig]] = mapped_column(
         EmbeddingConfigColumn, doc="the embedding configuration object for this agent."
     )
 
     # Tool rules
-    tool_rules: Mapped[Optional[List[ToolRule]]] = mapped_column(ToolRulesColumn, doc="the tool rules for this agent.")
-    
+    tool_rules: Mapped[Optional[List[ToolRule]]] = mapped_column(
+        ToolRulesColumn, doc="the tool rules for this agent."
+    )
+
     # MCP tools - list of connected MCP server names
-    mcp_tools: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="List of connected MCP server names (e.g., ['gmail-native'])")
+    mcp_tools: Mapped[Optional[List[str]]] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="List of connected MCP server names (e.g., ['gmail-native'])",
+    )
 
     # relationships
-    organization: Mapped["Organization"] = relationship("Organization", back_populates="agents")
-    tool_exec_environment_variables: Mapped[List["AgentEnvironmentVariable"]] = relationship(
-        "AgentEnvironmentVariable",
-        back_populates="agent",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        doc="Environment variables associated with this agent.",
+    organization: Mapped["Organization"] = relationship(
+        "Organization", back_populates="agents"
     )
-    tools: Mapped[List["Tool"]] = relationship("Tool", secondary="tools_agents", lazy="selectin", passive_deletes=True)
-    core_memory: Mapped[List["Block"]] = relationship("Block", secondary="blocks_agents", lazy="selectin")
+    tool_exec_environment_variables: Mapped[List["AgentEnvironmentVariable"]] = (
+        relationship(
+            "AgentEnvironmentVariable",
+            back_populates="agent",
+            cascade="all, delete-orphan",
+            lazy="selectin",
+            doc="Environment variables associated with this agent.",
+        )
+    )
+    tools: Mapped[List["Tool"]] = relationship(
+        "Tool", secondary="tools_agents", lazy="selectin", passive_deletes=True
+    )
+    core_memory: Mapped[List["Block"]] = relationship(
+        "Block", secondary="blocks_agents", lazy="selectin"
+    )
     messages: Mapped[List["Message"]] = relationship(
         "Message",
         back_populates="agent",

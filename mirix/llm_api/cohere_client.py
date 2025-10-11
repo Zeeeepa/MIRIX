@@ -33,4 +33,4 @@ class CohereClient(LLMClientBase):
 
     def handle_llm_error(self, e: Exception) -> Exception:
         # TODO: Implement cohere-specific error handling
-        return super().handle_llm_error(e) 
+        return super().handle_llm_error(e)

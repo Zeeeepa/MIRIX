@@ -1,26 +1,31 @@
-import logging
-import time
-import os
 import base64
 import hashlib
+import logging
+import os
 import shutil
 from pathlib import Path
-from typing import Callable, Dict, Generator, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import requests
 
 import mirix.utils
-from mirix.constants import ADMIN_PREFIX, META_MEMORY_TOOLS, CORE_MEMORY_TOOLS, BASE_TOOLS, DEFAULT_HUMAN, DEFAULT_PERSONA, FUNCTION_RETURN_CHAR_LIMIT
+from mirix.constants import (
+    BASE_TOOLS,
+    DEFAULT_HUMAN,
+    DEFAULT_PERSONA,
+    FUNCTION_RETURN_CHAR_LIMIT,
+    META_MEMORY_TOOLS,
+)
 from mirix.functions.functions import parse_source_code
+from mirix.interface import QueuingInterface
 from mirix.orm.errors import NoResultFound
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent, UpdateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
-from mirix.schemas.mirix_message_content import TextContent, ImageContent, FileContent, CloudFileContent, MessageContentType
 
 # new schemas
-from mirix.schemas.enums import JobStatus, MessageRole
+from mirix.schemas.enums import MessageRole
 from mirix.schemas.environment_variables import (
     SandboxEnvironmentVariable,
     SandboxEnvironmentVariableCreate,
@@ -28,20 +33,32 @@ from mirix.schemas.environment_variables import (
 )
 from mirix.schemas.file import FileMetadata
 from mirix.schemas.file import FileMetadata as PydanticFileMetadata
-from mirix.schemas.mirix_message import MirixMessage, MirixMessageUnion
-from mirix.schemas.mirix_request import MirixRequest, MirixStreamingRequest
-from mirix.schemas.mirix_response import MirixResponse, MirixStreamingResponse
 from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.memory import ArchivalMemorySummary, ChatMemory, CreateArchivalMemory, Memory, RecallMemorySummary
+from mirix.schemas.memory import (
+    ArchivalMemorySummary,
+    Memory,
+    RecallMemorySummary,
+)
 from mirix.schemas.message import Message, MessageCreate, MessageUpdate
-from mirix.schemas.openai.chat_completion_response import UsageStatistics
+from mirix.schemas.mirix_message_content import (
+    CloudFileContent,
+    FileContent,
+    ImageContent,
+    MessageContentType,
+    TextContent,
+)
+from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.openai.chat_completions import ToolCall
 from mirix.schemas.organization import Organization
-from mirix.schemas.sandbox_config import E2BSandboxConfig, LocalSandboxConfig, SandboxConfig, SandboxConfigCreate, SandboxConfigUpdate
+from mirix.schemas.sandbox_config import (
+    E2BSandboxConfig,
+    LocalSandboxConfig,
+    SandboxConfig,
+    SandboxConfigCreate,
+    SandboxConfigUpdate,
+)
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
-from mirix.interface import QueuingInterface
-from mirix.prompts import gpt_persona
 
 
 def create_client():
@@ -55,7 +72,9 @@ class AbstractClient(object):
     ):
         self.debug = debug
 
-    def agent_exists(self, agent_id: Optional[str] = None, agent_name: Optional[str] = None) -> bool:
+    def agent_exists(
+        self, agent_id: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> bool:
         raise NotImplementedError
 
     def create_agent(
@@ -70,7 +89,10 @@ class AbstractClient(object):
         tool_ids: Optional[List[str]] = None,
         tool_rules: Optional[List[BaseToolRule]] = None,
         include_base_tools: Optional[bool] = True,
-        metadata: Optional[Dict] = {"human:": DEFAULT_HUMAN, "persona": DEFAULT_PERSONA},
+        metadata: Optional[Dict] = {
+            "human:": DEFAULT_HUMAN,
+            "persona": DEFAULT_PERSONA,
+        },
         description: Optional[str] = None,
         tags: Optional[List[str]] = None,
     ) -> AgentState:
@@ -116,7 +138,9 @@ class AbstractClient(object):
     def get_in_context_memory(self, agent_id: str) -> Memory:
         raise NotImplementedError
 
-    def update_in_context_memory(self, agent_id: str, section: str, value: Union[List[str], str]) -> Memory:
+    def update_in_context_memory(
+        self, agent_id: str, section: str, value: Union[List[str], str]
+    ) -> Memory:
         raise NotImplementedError
 
     def get_archival_memory_summary(self, agent_id: str) -> ArchivalMemorySummary:
@@ -179,19 +203,31 @@ class AbstractClient(object):
     def delete_human(self, id: str):
         raise NotImplementedError
 
-    def load_langchain_tool(self, langchain_tool: "LangChainBaseTool", additional_imports_module_attr_map: dict[str, str] = None) -> Tool:
+    def load_langchain_tool(
+        self,
+        langchain_tool: "LangChainBaseTool",
+        additional_imports_module_attr_map: dict[str, str] = None,
+    ) -> Tool:
         raise NotImplementedError
 
     def load_composio_tool(self, action: "ActionType") -> Tool:
         raise NotImplementedError
 
     def create_tool(
-        self, func, name: Optional[str] = None, tags: Optional[List[str]] = None, return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT
+        self,
+        func,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT,
     ) -> Tool:
         raise NotImplementedError
 
     def create_or_update_tool(
-        self, func, name: Optional[str] = None, tags: Optional[List[str]] = None, return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT
+        self,
+        func,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT,
     ) -> Tool:
         raise NotImplementedError
 
@@ -206,7 +242,9 @@ class AbstractClient(object):
     ) -> Tool:
         raise NotImplementedError
 
-    def list_tools(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[Tool]:
+    def list_tools(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Tool]:
         raise NotImplementedError
 
     def get_tool(self, id: str) -> Tool:
@@ -222,7 +260,11 @@ class AbstractClient(object):
         raise NotImplementedError
 
     def get_messages(
-        self, agent_id: str, before: Optional[str] = None, after: Optional[str] = None, limit: Optional[int] = 1000
+        self,
+        agent_id: str,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+        limit: Optional[int] = 1000,
     ) -> List[Message]:
         raise NotImplementedError
 
@@ -235,13 +277,17 @@ class AbstractClient(object):
     def create_org(self, name: Optional[str] = None) -> Organization:
         raise NotImplementedError
 
-    def list_orgs(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[Organization]:
+    def list_orgs(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Organization]:
         raise NotImplementedError
 
     def delete_org(self, org_id: str) -> Organization:
         raise NotImplementedError
 
-    def create_sandbox_config(self, config: Union[LocalSandboxConfig, E2BSandboxConfig]) -> SandboxConfig:
+    def create_sandbox_config(
+        self, config: Union[LocalSandboxConfig, E2BSandboxConfig]
+    ) -> SandboxConfig:
         """
         Create a new sandbox configuration.
 
@@ -253,7 +299,11 @@ class AbstractClient(object):
         """
         raise NotImplementedError
 
-    def update_sandbox_config(self, sandbox_config_id: str, config: Union[LocalSandboxConfig, E2BSandboxConfig]) -> SandboxConfig:
+    def update_sandbox_config(
+        self,
+        sandbox_config_id: str,
+        config: Union[LocalSandboxConfig, E2BSandboxConfig],
+    ) -> SandboxConfig:
         """
         Update an existing sandbox configuration.
 
@@ -275,7 +325,9 @@ class AbstractClient(object):
         """
         raise NotImplementedError
 
-    def list_sandbox_configs(self, limit: int = 50, cursor: Optional[str] = None) -> List[SandboxConfig]:
+    def list_sandbox_configs(
+        self, limit: int = 50, cursor: Optional[str] = None
+    ) -> List[SandboxConfig]:
         """
         List all sandbox configurations.
 
@@ -289,7 +341,11 @@ class AbstractClient(object):
         raise NotImplementedError
 
     def create_sandbox_env_var(
-        self, sandbox_config_id: str, key: str, value: str, description: Optional[str] = None
+        self,
+        sandbox_config_id: str,
+        key: str,
+        value: str,
+        description: Optional[str] = None,
     ) -> SandboxEnvironmentVariable:
         """
         Create a new environment variable for a sandbox configuration.
@@ -306,7 +362,11 @@ class AbstractClient(object):
         raise NotImplementedError
 
     def update_sandbox_env_var(
-        self, env_var_id: str, key: Optional[str] = None, value: Optional[str] = None, description: Optional[str] = None
+        self,
+        env_var_id: str,
+        key: Optional[str] = None,
+        value: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> SandboxEnvironmentVariable:
         """
         Update an existing environment variable.
@@ -346,6 +406,7 @@ class AbstractClient(object):
             List[SandboxEnvironmentVariable]: A list of environment variables.
         """
         raise NotImplementedError
+
 
 class LocalClient(AbstractClient):
     """
@@ -387,9 +448,10 @@ class LocalClient(AbstractClient):
         # create server
         self.interface = QueuingInterface(debug=debug)
         self.server = SyncServer(default_interface_factory=lambda: self.interface)
-        
+
         # initialize file manager
         from mirix.services.file_manager import FileManager
+
         self.file_manager = FileManager()
 
         # save org_id that `LocalClient` is associated with
@@ -406,10 +468,11 @@ class LocalClient(AbstractClient):
 
         self.user = self.server.user_manager.get_user_or_default(self.user_id)
         self.organization = self.server.get_organization_or_default(self.org_id)
-        
+
         # get images directory from settings and ensure it exists
         # Can be customized via MIRIX_IMAGES_DIR environment variable
         from mirix.settings import settings
+
         self.images_dir = Path(settings.images_dir)
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
@@ -417,43 +480,44 @@ class LocalClient(AbstractClient):
         """Generate a unique hash for file content to avoid duplicates."""
         return hashlib.sha256(content).hexdigest()[:16]
 
-    def _save_image_from_base64(self, base64_data: str, detail: str = "auto") -> FileMetadata:
+    def _save_image_from_base64(
+        self, base64_data: str, detail: str = "auto"
+    ) -> FileMetadata:
         """Save an image from base64 data and return FileMetadata."""
         try:
             # Parse the data URL format: data:image/jpeg;base64,{data}
-            if base64_data.startswith('data:'):
-                header, encoded = base64_data.split(',', 1)
+            if base64_data.startswith("data:"):
+                header, encoded = base64_data.split(",", 1)
                 # Extract MIME type from header
-                mime_type = header.split(':')[1].split(';')[0]
-                file_extension = mime_type.split('/')[-1]
+                mime_type = header.split(":")[1].split(";")[0]
+                file_extension = mime_type.split("/")[-1]
             else:
                 # Assume it's just base64 data without header
                 encoded = base64_data
-                mime_type = 'image/jpeg'
-                file_extension = 'jpg'
-            
+                mime_type = "image/jpeg"
+                file_extension = "jpg"
+
             # Decode base64 data
             image_data = base64.b64decode(encoded)
-            
+
             # Generate unique filename using hash
             file_hash = self._generate_file_hash(image_data)
             file_name = f"image_{file_hash}.{file_extension}"
             file_path = self.images_dir / file_name
-            
+
             # Check if file already exists
             if not file_path.exists():
                 # Save the image data
-                with open(file_path, 'wb') as f:
+                with open(file_path, "wb") as f:
                     f.write(image_data)
 
             # Create FileMetadata
             file_metadata = self.file_manager.create_file_metadata_from_path(
-                file_path=str(file_path),
-                organization_id=self.org_id
+                file_path=str(file_path), organization_id=self.org_id
             )
-            
+
             return file_metadata
-            
+
         except Exception as e:
             raise ValueError(f"Failed to save base64 image: {str(e)}")
 
@@ -463,109 +527,109 @@ class LocalClient(AbstractClient):
             # Download the image
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
+
             # Get content type and determine file extension
-            content_type = response.headers.get('content-type', 'image/jpeg')
-            file_extension = content_type.split('/')[-1]
-            if file_extension not in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                file_extension = 'jpg'
-            
+            content_type = response.headers.get("content-type", "image/jpeg")
+            file_extension = content_type.split("/")[-1]
+            if file_extension not in ["jpg", "jpeg", "png", "gif", "webp"]:
+                file_extension = "jpg"
+
             # Get the image content
             image_data = response.content
-            
+
             # Generate unique filename using hash
             file_hash = self._generate_file_hash(image_data)
             file_name = f"image_{file_hash}.{file_extension}"
             file_path = self.images_dir / file_name
-            
+
             # Check if file already exists
             if not file_path.exists():
                 # Save the image data
-                with open(file_path, 'wb') as f:
+                with open(file_path, "wb") as f:
                     f.write(image_data)
-            
+
             # Create FileMetadata
             file_metadata = self.file_manager.create_file_metadata_from_path(
-                file_path=str(file_path),
-                organization_id=self.org_id
+                file_path=str(file_path), organization_id=self.org_id
             )
-            
+
             return file_metadata
-            
+
         except Exception as e:
-            raise ValueError(f"Failed to download and save image from URL {url}: {str(e)}")
+            raise ValueError(
+                f"Failed to download and save image from URL {url}: {str(e)}"
+            )
 
     def _save_image_from_file_uri(self, file_uri: str) -> FileMetadata:
         """Copy an image from file URI and return FileMetadata."""
         try:
             # Parse file URI (could be file:// or just a local path)
-            if file_uri.startswith('file://'):
+            if file_uri.startswith("file://"):
                 source_path = file_uri[7:]  # Remove 'file://' prefix
             else:
                 source_path = file_uri
-            
+
             source_path = Path(source_path)
-            
+
             if not source_path.exists():
                 raise FileNotFoundError(f"Source file not found: {source_path}")
-            
+
             # Read the file content
-            with open(source_path, 'rb') as f:
+            with open(source_path, "rb") as f:
                 image_data = f.read()
-            
+
             # Generate unique filename using hash
             file_hash = self._generate_file_hash(image_data)
-            file_extension = source_path.suffix.lstrip('.') or 'jpg'
+            file_extension = source_path.suffix.lstrip(".") or "jpg"
             file_name = f"image_{file_hash}.{file_extension}"
             file_path = self.images_dir / file_name
-            
+
             # Check if file already exists
             if not file_path.exists():
                 # Copy the file
                 shutil.copy2(source_path, file_path)
-            
+
             # Create FileMetadata
             file_metadata = self.file_manager.create_file_metadata_from_path(
-                file_path=str(file_path),
-                organization_id=self.org_id
+                file_path=str(file_path), organization_id=self.org_id
             )
-            
+
             return file_metadata
-            
+
         except Exception as e:
             raise ValueError(f"Failed to copy image from file URI {file_uri}: {str(e)}")
 
     def _save_image_from_google_cloud_uri(self, cloud_uri: str) -> FileMetadata:
         """Create FileMetadata from Google Cloud URI without downloading the image.
-        
+
         Google Cloud URIs are not directly downloadable and should be stored as remote references
         in the source_url field, similar to how regular HTTP URLs are handled.
         """
         # Parse URI to get file name - Google Cloud URIs typically come in the format:
         # https://generativelanguage.googleapis.com/v1beta/files/{file_id}
-        from urllib.parse import urlparse
+
         parsed_uri = urlparse(cloud_uri)
-        
+
         # Extract file ID from path if available, otherwise use generic name
         file_id = os.path.basename(parsed_uri.path) or "google_cloud_file"
         file_name = f"google_cloud_{file_id}"
-        
+
         # Ensure file name has an extension
         if not os.path.splitext(file_name)[1]:
             file_name += ".jpg"  # Default to jpg for images without extension
-        
+
         # Determine MIME type from extension or default to image/jpeg
         file_extension = os.path.splitext(file_name)[1].lower()
         file_type_map = {
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg', 
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.bmp': 'image/bmp',
-            '.svg': 'image/svg+xml'
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
         }
-        file_type = file_type_map.get(file_extension, 'image/jpeg')
+        file_type = file_type_map.get(file_extension, "image/jpeg")
 
         # Create FileMetadata with Google Cloud URI in google_cloud_url field
         file_metadata = self.file_manager.create_file_metadata(
@@ -581,25 +645,24 @@ class LocalClient(AbstractClient):
                 file_last_modified_date=None,
             )
         )
-        
+
         return file_metadata
 
     def _save_file_from_path(self, file_path: str) -> FileMetadata:
         """Save a file from local path and return FileMetadata."""
         try:
             file_path = Path(file_path)
-            
+
             if not file_path.exists():
                 raise FileNotFoundError(f"File not found: {file_path}")
-            
+
             # Create FileMetadata using the file manager
             file_metadata = self.file_manager.create_file_metadata_from_path(
-                file_path=str(file_path),
-                organization_id=self.org_id
+                file_path=str(file_path), organization_id=self.org_id
             )
-            
+
             return file_metadata
-            
+
         except Exception as e:
             raise ValueError(f"Failed to save file from path {file_path}: {str(e)}")
 
@@ -608,64 +671,67 @@ class LocalClient(AbstractClient):
         file_extension = os.path.splitext(file_path)[1].lower()
         file_type_map = {
             # Images
-            '.jpg': 'image/jpeg',
-            '.jpeg': 'image/jpeg', 
-            '.png': 'image/png',
-            '.gif': 'image/gif',
-            '.webp': 'image/webp',
-            '.bmp': 'image/bmp',
-            '.svg': 'image/svg+xml',
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
             # Documents
-            '.pdf': 'application/pdf',
-            '.doc': 'application/msword',
-            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            '.txt': 'text/plain',
-            '.rtf': 'application/rtf',
-            '.html': 'text/html',
-            '.htm': 'text/html',
+            ".pdf": "application/pdf",
+            ".doc": "application/msword",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".txt": "text/plain",
+            ".rtf": "application/rtf",
+            ".html": "text/html",
+            ".htm": "text/html",
             # Spreadsheets
-            '.xls': 'application/vnd.ms-excel',
-            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            '.csv': 'text/csv',
+            ".xls": "application/vnd.ms-excel",
+            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".csv": "text/csv",
             # Presentations
-            '.ppt': 'application/vnd.ms-powerpoint',
-            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            ".ppt": "application/vnd.ms-powerpoint",
+            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
             # Other common formats
-            '.json': 'application/json',
-            '.xml': 'application/xml',
-            '.zip': 'application/zip',
+            ".json": "application/json",
+            ".xml": "application/xml",
+            ".zip": "application/zip",
         }
-        return file_type_map.get(file_extension, 'application/octet-stream')
+        return file_type_map.get(file_extension, "application/octet-stream")
 
-    def _create_file_metadata_from_url(self, url: str, detail: str = "auto") -> FileMetadata:
+    def _create_file_metadata_from_url(
+        self, url: str, detail: str = "auto"
+    ) -> FileMetadata:
         """Create FileMetadata from URL without downloading the image.
-        
+
         The URL is stored in the source_url field, not file_path, to clearly
         distinguish between local files and remote resources.
         """
         try:
             # Parse URL to get file name
             from urllib.parse import urlparse
+
             parsed_url = urlparse(url)
             file_name = os.path.basename(parsed_url.path) or "remote_image"
-            
+
             # Ensure file name has an extension
             if not os.path.splitext(file_name)[1]:
                 file_name += ".jpg"  # Default to jpg for images without extension
-            
+
             # Determine MIME type from extension or default to image/jpeg
             file_extension = os.path.splitext(file_name)[1].lower()
             file_type_map = {
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg', 
-                '.png': 'image/png',
-                '.gif': 'image/gif',
-                '.webp': 'image/webp',
-                '.bmp': 'image/bmp',
-                '.svg': 'image/svg+xml'
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".png": "image/png",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".bmp": "image/bmp",
+                ".svg": "image/svg+xml",
             }
-            file_type = file_type_map.get(file_extension, 'image/jpeg')
-            
+            file_type = file_type_map.get(file_extension, "image/jpeg")
+
             # Create FileMetadata with URL in source_url field
             file_metadata = self.file_manager.create_file_metadata(
                 PydanticFileMetadata(
@@ -679,21 +745,33 @@ class LocalClient(AbstractClient):
                     file_last_modified_date=None,
                 )
             )
-            
+
             return file_metadata
-            
+
         except Exception as e:
             raise ValueError(f"Failed to create file metadata from URL {url}: {str(e)}")
 
     # agents
     def list_agents(
-        self, query_text: Optional[str] = None, tags: Optional[List[str]] = None, limit: int = 100, cursor: Optional[str] = None
+        self,
+        query_text: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+        cursor: Optional[str] = None,
     ) -> List[AgentState]:
         self.interface.clear()
 
-        return self.server.agent_manager.list_agents(actor=self.server.user_manager.get_user_by_id(self.user.id), tags=tags, query_text=query_text, limit=limit, cursor=cursor)
+        return self.server.agent_manager.list_agents(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            tags=tags,
+            query_text=query_text,
+            limit=limit,
+            cursor=cursor,
+        )
 
-    def agent_exists(self, agent_id: Optional[str] = None, agent_name: Optional[str] = None) -> bool:
+    def agent_exists(
+        self, agent_id: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> bool:
         """
         Check if an agent exists
 
@@ -706,9 +784,9 @@ class LocalClient(AbstractClient):
         """
 
         if not (agent_id or agent_name):
-            raise ValueError(f"Either agent_id or agent_name must be provided")
+            raise ValueError("Either agent_id or agent_name must be provided")
         if agent_id and agent_name:
-            raise ValueError(f"Only one of agent_id or agent_name can be provided")
+            raise ValueError("Only one of agent_id or agent_name can be provided")
         existing = self.list_agents()
         if agent_id:
             return str(agent_id) in [str(agent.id) for agent in existing]
@@ -733,7 +811,10 @@ class LocalClient(AbstractClient):
         include_base_tools: Optional[bool] = True,
         include_meta_memory_tools: Optional[bool] = False,
         # metadata
-        metadata: Optional[Dict] = {"human:": DEFAULT_HUMAN, "persona": DEFAULT_PERSONA},
+        metadata: Optional[Dict] = {
+            "human:": DEFAULT_HUMAN,
+            "persona": DEFAULT_PERSONA,
+        },
         description: Optional[str] = None,
         initial_message_sequence: Optional[List[Message]] = None,
         tags: Optional[List[str]] = None,
@@ -763,15 +844,25 @@ class LocalClient(AbstractClient):
             tool_names += BASE_TOOLS
         if include_meta_memory_tools:
             tool_names += META_MEMORY_TOOLS
-        tool_ids += [self.server.tool_manager.get_tool_by_name(tool_name=name, actor=self.server.user_manager.get_user_by_id(self.user.id)).id for name in tool_names]
+        tool_ids += [
+            self.server.tool_manager.get_tool_by_name(
+                tool_name=name,
+                actor=self.server.user_manager.get_user_by_id(self.user.id),
+            ).id
+            for name in tool_names
+        ]
 
         # check if default configs are provided
-        assert embedding_config or self._default_embedding_config, f"Embedding config must be provided"
-        assert llm_config or self._default_llm_config, f"LLM config must be provided"
+        assert embedding_config or self._default_embedding_config, (
+            "Embedding config must be provided"
+        )
+        assert llm_config or self._default_llm_config, "LLM config must be provided"
 
         # TODO: This should not happen here, we need to have clear separation between create/add blocks
         for block in memory.get_blocks():
-            self.server.block_manager.create_or_update_block(block, actor=self.server.user_manager.get_user_by_id(self.user.id))
+            self.server.block_manager.create_or_update_block(
+                block, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            )
 
         # Also get any existing block_ids passed in
         block_ids = block_ids or []
@@ -789,7 +880,9 @@ class LocalClient(AbstractClient):
             "system": system,
             "agent_type": agent_type,
             "llm_config": llm_config if llm_config else self._default_llm_config,
-            "embedding_config": embedding_config if embedding_config else self._default_embedding_config,
+            "embedding_config": embedding_config
+            if embedding_config
+            else self._default_embedding_config,
             "initial_message_sequence": initial_message_sequence,
             "tags": tags,
         }
@@ -804,7 +897,9 @@ class LocalClient(AbstractClient):
         )
 
         # TODO: get full agent state
-        return self.server.agent_manager.get_agent_by_id(agent_state.id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.get_agent_by_id(
+            agent_state.id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
     def update_message(
         self,
@@ -891,7 +986,10 @@ class LocalClient(AbstractClient):
             List[Tool]: A list of Tool objs
         """
         self.interface.clear()
-        return self.server.agent_manager.get_agent_by_id(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id)).tools
+        return self.server.agent_manager.get_agent_by_id(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        ).tools
 
     def add_tool_to_agent(self, agent_id: str, tool_id: str):
         """
@@ -905,7 +1003,11 @@ class LocalClient(AbstractClient):
             agent_state (AgentState): State of the updated agent
         """
         self.interface.clear()
-        agent_state = self.server.agent_manager.attach_tool(agent_id=agent_id, tool_id=tool_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        agent_state = self.server.agent_manager.attach_tool(
+            agent_id=agent_id,
+            tool_id=tool_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return agent_state
 
     def remove_tool_from_agent(self, agent_id: str, tool_id: str):
@@ -920,7 +1022,11 @@ class LocalClient(AbstractClient):
             agent_state (AgentState): State of the updated agent
         """
         self.interface.clear()
-        agent_state = self.server.agent_manager.detach_tool(agent_id=agent_id, tool_id=tool_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        agent_state = self.server.agent_manager.detach_tool(
+            agent_id=agent_id,
+            tool_id=tool_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return agent_state
 
     def rename_agent(self, agent_id: str, new_name: str):
@@ -940,7 +1046,10 @@ class LocalClient(AbstractClient):
         Args:
             agent_id (str): ID of the agent to delete
         """
-        self.server.agent_manager.delete_agent(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        self.server.agent_manager.delete_agent(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_agent_by_name(self, agent_name: str) -> AgentState:
         """
@@ -953,7 +1062,10 @@ class LocalClient(AbstractClient):
             agent_state (AgentState): State of the agent
         """
         self.interface.clear()
-        return self.server.agent_manager.get_agent_by_name(agent_name=agent_name, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.get_agent_by_name(
+            agent_name=agent_name,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_agent(self, agent_id: str) -> AgentState:
         """
@@ -966,7 +1078,10 @@ class LocalClient(AbstractClient):
             agent_state (AgentState): State representation of the agent
         """
         self.interface.clear()
-        return self.server.agent_manager.get_agent_by_id(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.get_agent_by_id(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_agent_id(self, agent_name: str) -> Optional[str]:
         """
@@ -980,11 +1095,14 @@ class LocalClient(AbstractClient):
         """
 
         self.interface.clear()
-        assert agent_name, f"Agent name must be provided"
+        assert agent_name, "Agent name must be provided"
 
         # TODO: Refactor this futher to not have downstream users expect Optionals - this should just error
         try:
-            return self.server.agent_manager.get_agent_by_name(agent_name=agent_name, actor=self.server.user_manager.get_user_by_id(self.user.id)).id
+            return self.server.agent_manager.get_agent_by_name(
+                agent_name=agent_name,
+                actor=self.server.user_manager.get_user_by_id(self.user.id),
+            ).id
         except NoResultFound:
             return None
 
@@ -999,13 +1117,18 @@ class LocalClient(AbstractClient):
         Returns:
             memory (Memory): In-context memory of the agent
         """
-        memory = self.server.get_agent_memory(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        memory = self.server.get_agent_memory(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return memory
 
     def get_core_memory(self, agent_id: str) -> Memory:
         return self.get_in_context_memory(agent_id)
 
-    def update_in_context_memory(self, agent_id: str, section: str, value: Union[List[str], str]) -> Memory:
+    def update_in_context_memory(
+        self, agent_id: str, section: str, value: Union[List[str], str]
+    ) -> Memory:
         """
         Update the in-context memory of an agent
 
@@ -1017,7 +1140,12 @@ class LocalClient(AbstractClient):
 
         """
         # TODO: implement this (not sure what it should look like)
-        memory = self.server.update_agent_core_memory(agent_id=agent_id, label=section, value=value, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        memory = self.server.update_agent_core_memory(
+            agent_id=agent_id,
+            label=section,
+            value=value,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return memory
 
     def get_archival_memory_summary(self, agent_id: str) -> ArchivalMemorySummary:
@@ -1031,7 +1159,10 @@ class LocalClient(AbstractClient):
             summary (ArchivalMemorySummary): Summary of the archival memory
 
         """
-        return self.server.get_archival_memory_summary(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.get_archival_memory_summary(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_recall_memory_summary(self, agent_id: str) -> RecallMemorySummary:
         """
@@ -1043,7 +1174,10 @@ class LocalClient(AbstractClient):
         Returns:
             summary (RecallMemorySummary): Summary of the recall memory
         """
-        return self.server.get_recall_memory_summary(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.get_recall_memory_summary(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_in_context_messages(self, agent_id: str) -> List[Message]:
         """
@@ -1055,21 +1189,36 @@ class LocalClient(AbstractClient):
         Returns:
             messages (List[Message]): List of in-context messages
         """
-        return self.server.agent_manager.get_in_context_messages(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.get_in_context_messages(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     # agent interactions
 
-    def construct_system_message(self, agent_id: str, message: str, user_id: str) -> str:
+    def construct_system_message(
+        self, agent_id: str, message: str, user_id: str
+    ) -> str:
         """
         Construct a system message from a message.
         """
-        return self.server.construct_system_message(agent_id=agent_id, message=message, actor=self.server.user_manager.get_user_by_id(user_id))
+        return self.server.construct_system_message(
+            agent_id=agent_id,
+            message=message,
+            actor=self.server.user_manager.get_user_by_id(user_id),
+        )
 
-    def extract_memory_for_system_prompt(self, agent_id: str, message: str, user_id: str) -> str:
+    def extract_memory_for_system_prompt(
+        self, agent_id: str, message: str, user_id: str
+    ) -> str:
         """
         Extract memory for system prompt from a message.
         """
-        return self.server.extract_memory_for_system_prompt(agent_id=agent_id, message=message, actor=self.server.user_manager.get_user_by_id(user_id))
+        return self.server.extract_memory_for_system_prompt(
+            agent_id=agent_id,
+            message=message,
+            actor=self.server.user_manager.get_user_by_id(user_id),
+        )
 
     def send_messages(
         self,
@@ -1087,8 +1236,11 @@ class LocalClient(AbstractClient):
             response (MirixResponse): Response from the agent
         """
         self.interface.clear()
-        usage = self.server.send_messages(actor=self.server.user_manager.get_user_by_id(self.user.id), agent_id=agent_id, 
-                                          messages=messages)
+        usage = self.server.send_messages(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            agent_id=agent_id,
+            messages=messages,
+        )
 
         # format messages
         return MirixResponse(messages=messages, usage=usage)
@@ -1130,7 +1282,7 @@ class LocalClient(AbstractClient):
 
         if not agent_id:
             # lookup agent by name
-            assert agent_name, f"Either agent_id or agent_name must be provided"
+            assert agent_name, "Either agent_id or agent_name must be provided"
             agent_id = self.get_agent_id(agent_name=agent_name)
             assert agent_id, f"Agent with name {agent_name} not found"
 
@@ -1141,70 +1293,71 @@ class LocalClient(AbstractClient):
 
         if isinstance(message, str):
             content = [TextContent(text=message)]
-            input_messages = [MessageCreate(role=MessageRole(role), content=content, name=name)]
+            input_messages = [
+                MessageCreate(role=MessageRole(role), content=content, name=name)
+            ]
         elif isinstance(message, list):
+
             def convert_message(m):
-                if m['type'] == 'text':
+                if m["type"] == "text":
                     return TextContent(**m)
-                elif m['type'] == 'image_url':
-                    url = m['image_url']['url']
-                    detail = m['image_url'].get("detail", "auto")
-                    
+                elif m["type"] == "image_url":
+                    url = m["image_url"]["url"]
+                    detail = m["image_url"].get("detail", "auto")
+
                     # Handle the image based on URL type
-                    if url.startswith('data:'):
+                    if url.startswith("data:"):
                         # Base64 encoded image - save locally
                         file_metadata = self._save_image_from_base64(url, detail)
                     else:
                         # HTTP URL - just create FileMetadata without downloading
                         file_metadata = self._create_file_metadata_from_url(url, detail)
-                    
+
                     return ImageContent(
                         type=MessageContentType.image_url,
                         image_id=file_metadata.id,
-                        detail=detail
+                        detail=detail,
                     )
-                    
-                elif m['type'] == 'image_data':
+
+                elif m["type"] == "image_data":
                     # Base64 image data (new format)
-                    data = m['image_data']['data']
-                    detail = m['image_data'].get("detail", "auto")
-                    
+                    data = m["image_data"]["data"]
+                    detail = m["image_data"].get("detail", "auto")
+
                     # Save the base64 image to file_manager
                     file_metadata = self._save_image_from_base64(data, detail)
-                    
+
                     return ImageContent(
                         type=MessageContentType.image_url,
                         image_id=file_metadata.id,
-                        detail=detail
+                        detail=detail,
                     )
-                elif m['type'] == 'file_uri':
+                elif m["type"] == "file_uri":
+                    # File URI (local file path)
+                    file_path = m["file_uri"]
 
-                    # File URI (local file path)  
-                    file_path = m['file_uri']
-                    
                     # Check if it's an image or other file type
                     file_type = self._determine_file_type(file_path)
-                    
-                    if file_type.startswith('image/'):
+
+                    if file_type.startswith("image/"):
                         # Handle as image
                         file_metadata = self._save_image_from_file_uri(file_path)
                         return ImageContent(
                             type=MessageContentType.image_url,
                             image_id=file_metadata.id,
-                            detail="auto"
+                            detail="auto",
                         )
                     else:
                         # Handle as general file (e.g., PDF, DOC, etc.)
                         file_metadata = self._save_file_from_path(file_path)
                         return FileContent(
-                            type=MessageContentType.file_uri,
-                            file_id=file_metadata.id
+                            type=MessageContentType.file_uri, file_id=file_metadata.id
                         )
-                
-                elif m['type'] == 'google_cloud_file_uri':
+
+                elif m["type"] == "google_cloud_file_uri":
                     # Google Cloud file URI
                     # Handle both the typo version and the correct version from the test file
-                    file_uri = m.get('google_cloud_file_uri') or m.get('file_uri')
+                    file_uri = m.get("google_cloud_file_uri") or m.get("file_uri")
 
                     file_metadata = self._save_image_from_google_cloud_uri(file_uri)
                     return CloudFileContent(
@@ -1212,32 +1365,40 @@ class LocalClient(AbstractClient):
                         cloud_file_uri=file_metadata.id,
                     )
 
-                elif m['type'] == 'database_image_id':
+                elif m["type"] == "database_image_id":
                     return ImageContent(
                         type=MessageContentType.image_url,
-                        image_id=m['image_id'],
-                        detail="auto"
+                        image_id=m["image_id"],
+                        detail="auto",
                     )
-                
-                elif m['type'] == 'database_file_id':
+
+                elif m["type"] == "database_file_id":
                     return FileContent(
                         type=MessageContentType.file_uri,
-                        file_id=m['file_id'],
+                        file_id=m["file_id"],
                     )
-                
-                elif m['type'] == 'database_google_cloud_file_uri':
+
+                elif m["type"] == "database_google_cloud_file_uri":
                     return CloudFileContent(
                         type=MessageContentType.google_cloud_file_uri,
-                        cloud_file_uri=m['cloud_file_uri'],
+                        cloud_file_uri=m["cloud_file_uri"],
                     )
 
                 else:
                     raise ValueError(f"Unknown message type: {m['type']}")
-            
+
             content = [convert_message(m) for m in message]
-            input_messages = [MessageCreate(role=MessageRole(role), content=content, name=name)]
+            input_messages = [
+                MessageCreate(role=MessageRole(role), content=content, name=name)
+            ]
             if extra_messages is not None:
-                extra_messages = [MessageCreate(role=MessageRole(role), content=[convert_message(m) for m in extra_messages], name=name)]
+                extra_messages = [
+                    MessageCreate(
+                        role=MessageRole(role),
+                        content=[convert_message(m) for m in extra_messages],
+                        name=name,
+                    )
+                ]
 
         else:
             raise ValueError(f"Invalid message type: {type(message)}")
@@ -1253,7 +1414,7 @@ class LocalClient(AbstractClient):
             existing_file_uris=existing_file_uris,
             extra_messages=extra_messages,
             message_queue=message_queue,
-            user_id=user_id
+            user_id=user_id,
         )
 
         # format messages
@@ -1292,7 +1453,9 @@ class LocalClient(AbstractClient):
 
         """
         self.interface.clear()
-        usage = self.server.run_command(user_id=self.user_id, agent_id=agent_id, command=command)
+        usage = self.server.run_command(
+            user_id=self.user_id, agent_id=agent_id, command=command
+        )
 
         # NOTE: messages/usage may be empty, depending on the command
         return MirixResponse(messages=self.interface.to_list(), usage=usage)
@@ -1302,7 +1465,12 @@ class LocalClient(AbstractClient):
     # humans / personas
 
     def get_block_id(self, name: str, label: str) -> str:
-        block = self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), template_name=name, label=label, is_template=True)
+        block = self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            template_name=name,
+            label=label,
+            is_template=True,
+        )
         if not block:
             return None
         return block[0].id
@@ -1318,7 +1486,10 @@ class LocalClient(AbstractClient):
         Returns:
             human (Human): Human block
         """
-        return self.server.block_manager.create_or_update_block(Human(template_name=name, value=text), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.block_manager.create_or_update_block(
+            Human(template_name=name, value=text),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def create_persona(self, name: str, text: str):
         """
@@ -1331,7 +1502,10 @@ class LocalClient(AbstractClient):
         Returns:
             persona (Persona): Persona block
         """
-        return self.server.block_manager.create_or_update_block(Persona(template_name=name, value=text), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.block_manager.create_or_update_block(
+            Persona(template_name=name, value=text),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def list_humans(self):
         """
@@ -1340,7 +1514,11 @@ class LocalClient(AbstractClient):
         Returns:
             humans (List[Human]): List of human blocks
         """
-        return self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), label="human", is_template=True)
+        return self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            label="human",
+            is_template=True,
+        )
 
     def list_personas(self) -> List[Persona]:
         """
@@ -1349,7 +1527,11 @@ class LocalClient(AbstractClient):
         Returns:
             personas (List[Persona]): List of persona blocks
         """
-        return self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), label="persona", is_template=True)
+        return self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            label="persona",
+            is_template=True,
+        )
 
     def update_human(self, human_id: str, text: str):
         """
@@ -1364,7 +1546,9 @@ class LocalClient(AbstractClient):
         """
 
         return self.server.block_manager.update_block(
-            block_id=human_id, block_update=UpdateHuman(value=text, is_template=True), actor=self.server.user_manager.get_user_by_id(self.user.id)
+            block_id=human_id,
+            block_update=UpdateHuman(value=text, is_template=True),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def update_persona(self, persona_id: str, text: str):
@@ -1379,9 +1563,11 @@ class LocalClient(AbstractClient):
             persona (Persona): Updated persona block
         """
         blocks = self.server.block_manager.get_blocks(self.user)
-        persona_block = [block for block in blocks if block.label == 'persona'][0]
+        persona_block = [block for block in blocks if block.label == "persona"][0]
         return self.server.block_manager.update_block(
-            block_id=persona_block.id, block_update=BlockUpdate(value=text), actor=self.server.user_manager.get_user_by_id(self.user.id)
+            block_id=persona_block.id,
+            block_update=BlockUpdate(value=text),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def update_persona_text(self, persona_name: str, text: str):
@@ -1399,9 +1585,9 @@ class LocalClient(AbstractClient):
         if persona_id:
             # Update existing persona
             return self.server.block_manager.update_block(
-                block_id=persona_id, 
-                block_update=BlockUpdate(value=text, is_template=True), 
-                actor=self.server.user_manager.get_user_by_id(self.user.id)
+                block_id=persona_id,
+                block_update=BlockUpdate(value=text, is_template=True),
+                actor=self.server.user_manager.get_user_by_id(self.user.id),
             )
         else:
             # Create new persona if it doesn't exist
@@ -1417,8 +1603,12 @@ class LocalClient(AbstractClient):
         Returns:
             persona (Persona): Persona block
         """
-        assert id, f"Persona ID must be provided"
-        return Persona(**self.server.block_manager.get_block_by_id(id, actor=self.server.user_manager.get_user_by_id(self.user.id)).model_dump())
+        assert id, "Persona ID must be provided"
+        return Persona(
+            **self.server.block_manager.get_block_by_id(
+                id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            ).model_dump()
+        )
 
     def get_human(self, id: str) -> Human:
         """
@@ -1430,8 +1620,12 @@ class LocalClient(AbstractClient):
         Returns:
             human (Human): Human block
         """
-        assert id, f"Human ID must be provided"
-        return Human(**self.server.block_manager.get_block_by_id(id, actor=self.server.user_manager.get_user_by_id(self.user.id)).model_dump())
+        assert id, "Human ID must be provided"
+        return Human(
+            **self.server.block_manager.get_block_by_id(
+                id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            ).model_dump()
+        )
 
     def get_persona_id(self, name: str) -> str:
         """
@@ -1443,7 +1637,12 @@ class LocalClient(AbstractClient):
         Returns:
             id (str): ID of the persona block
         """
-        persona = self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), template_name=name, label="persona", is_template=True)
+        persona = self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            template_name=name,
+            label="persona",
+            is_template=True,
+        )
         if not persona:
             return None
         return persona[0].id
@@ -1458,7 +1657,12 @@ class LocalClient(AbstractClient):
         Returns:
             id (str): ID of the human block
         """
-        human = self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), template_name=name, label="human", is_template=True)
+        human = self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            template_name=name,
+            label="human",
+            is_template=True,
+        )
         if not human:
             return None
         return human[0].id
@@ -1482,23 +1686,40 @@ class LocalClient(AbstractClient):
         self.delete_block(id)
 
     # tools
-    def load_langchain_tool(self, langchain_tool: "LangChainBaseTool", additional_imports_module_attr_map: dict[str, str] = None) -> Tool:
+    def load_langchain_tool(
+        self,
+        langchain_tool: "LangChainBaseTool",
+        additional_imports_module_attr_map: dict[str, str] = None,
+    ) -> Tool:
         tool_create = ToolCreate.from_langchain(
             langchain_tool=langchain_tool,
             additional_imports_module_attr_map=additional_imports_module_attr_map,
         )
-        return self.server.tool_manager.create_or_update_tool(pydantic_tool=Tool(**tool_create.model_dump()), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.create_or_update_tool(
+            pydantic_tool=Tool(**tool_create.model_dump()),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
-    def load_crewai_tool(self, crewai_tool: "CrewAIBaseTool", additional_imports_module_attr_map: dict[str, str] = None) -> Tool:
+    def load_crewai_tool(
+        self,
+        crewai_tool: "CrewAIBaseTool",
+        additional_imports_module_attr_map: dict[str, str] = None,
+    ) -> Tool:
         tool_create = ToolCreate.from_crewai(
             crewai_tool=crewai_tool,
             additional_imports_module_attr_map=additional_imports_module_attr_map,
         )
-        return self.server.tool_manager.create_or_update_tool(pydantic_tool=Tool(**tool_create.model_dump()), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.create_or_update_tool(
+            pydantic_tool=Tool(**tool_create.model_dump()),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def load_composio_tool(self, action: "ActionType") -> Tool:
         tool_create = ToolCreate.from_composio(action_name=action.name)
-        return self.server.tool_manager.create_or_update_tool(pydantic_tool=Tool(**tool_create.model_dump()), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.create_or_update_tool(
+            pydantic_tool=Tool(**tool_create.model_dump()),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def create_tool(
         self,
@@ -1613,18 +1834,30 @@ class LocalClient(AbstractClient):
         }
 
         # Filter out any None values from the dictionary
-        update_data = {key: value for key, value in update_data.items() if value is not None}
+        update_data = {
+            key: value for key, value in update_data.items() if value is not None
+        }
 
-        return self.server.tool_manager.update_tool_by_id(tool_id=id, tool_update=ToolUpdate(**update_data), actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.update_tool_by_id(
+            tool_id=id,
+            tool_update=ToolUpdate(**update_data),
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
-    def list_tools(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[Tool]:
+    def list_tools(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Tool]:
         """
         List available tools for the user.
 
         Returns:
             tools (List[Tool]): List of tools
         """
-        return self.server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.list_tools(
+            cursor=cursor,
+            limit=limit,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def get_tool(self, id: str) -> Optional[Tool]:
         """
@@ -1636,7 +1869,9 @@ class LocalClient(AbstractClient):
         Returns:
             tool (Tool): Tool
         """
-        return self.server.tool_manager.get_tool_by_id(id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.get_tool_by_id(
+            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
     def delete_tool(self, id: str):
         """
@@ -1645,7 +1880,9 @@ class LocalClient(AbstractClient):
         Args:
             id (str): ID of the tool
         """
-        return self.server.tool_manager.delete_tool_by_id(id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.tool_manager.delete_tool_by_id(
+            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
     def get_tool_id(self, name: str) -> Optional[str]:
         """
@@ -1657,12 +1894,16 @@ class LocalClient(AbstractClient):
         Returns:
             id (str): ID of the tool (`None` if not found)
         """
-        tool = self.server.tool_manager.get_tool_by_name(tool_name=name, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        tool = self.server.tool_manager.get_tool_by_name(
+            tool_name=name, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
         return tool.id if tool else None
 
     # recall memory
 
-    def get_messages(self, agent_id: str, cursor: Optional[str] = None, limit: Optional[int] = 1000) -> List[Message]:
+    def get_messages(
+        self, agent_id: str, cursor: Optional[str] = None, limit: Optional[int] = 1000
+    ) -> List[Message]:
         """
         Get messages from an agent with pagination.
 
@@ -1684,7 +1925,9 @@ class LocalClient(AbstractClient):
             reverse=True,
         )
 
-    def list_blocks(self, label: Optional[str] = None, templates_only: Optional[bool] = True) -> List[Block]:
+    def list_blocks(
+        self, label: Optional[str] = None, templates_only: Optional[bool] = True
+    ) -> List[Block]:
         """
         List available blocks
 
@@ -1695,10 +1938,19 @@ class LocalClient(AbstractClient):
         Returns:
             blocks (List[Block]): List of blocks
         """
-        return self.server.block_manager.get_blocks(actor=self.server.user_manager.get_user_by_id(self.user.id), label=label, is_template=templates_only)
+        return self.server.block_manager.get_blocks(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            label=label,
+            is_template=templates_only,
+        )
 
     def create_block(
-        self, label: str, value: str, limit: Optional[int] = None, template_name: Optional[str] = None, is_template: bool = False
+        self,
+        label: str,
+        value: str,
+        limit: Optional[int] = None,
+        template_name: Optional[str] = None,
+        is_template: bool = False,
     ) -> Block:  #
         """
         Create a block
@@ -1712,12 +1964,26 @@ class LocalClient(AbstractClient):
         Returns:
             block (Block): Created block
         """
-        block = Block(label=label, template_name=template_name, value=value, is_template=is_template, limit=limit)
+        block = Block(
+            label=label,
+            template_name=template_name,
+            value=value,
+            is_template=is_template,
+            limit=limit,
+        )
         # if limit:
         #     block.limit = limit
-        return self.server.block_manager.create_or_update_block(block, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.block_manager.create_or_update_block(
+            block, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
-    def update_block(self, block_id: str, name: Optional[str] = None, text: Optional[str] = None, limit: Optional[int] = None) -> Block:
+    def update_block(
+        self,
+        block_id: str,
+        name: Optional[str] = None,
+        text: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Block:
         """
         Update a block
 
@@ -1731,7 +1997,11 @@ class LocalClient(AbstractClient):
         """
         return self.server.block_manager.update_block(
             block_id=block_id,
-            block_update=BlockUpdate(template_name=name, value=text, limit=limit if limit else self.get_block(block_id).limit),
+            block_update=BlockUpdate(
+                template_name=name,
+                value=text,
+                limit=limit if limit else self.get_block(block_id).limit,
+            ),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
@@ -1745,7 +2015,9 @@ class LocalClient(AbstractClient):
         Returns:
             block (Block): Block
         """
-        return self.server.block_manager.get_block_by_id(block_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.block_manager.get_block_by_id(
+            block_id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
     def delete_block(self, id: str) -> Block:
         """
@@ -1757,7 +2029,9 @@ class LocalClient(AbstractClient):
         Returns:
             block (Block): Deleted block
         """
-        return self.server.block_manager.delete_block(id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.block_manager.delete_block(
+            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
 
     def set_default_llm_config(self, llm_config: LLMConfig):
         """
@@ -1796,69 +2070,114 @@ class LocalClient(AbstractClient):
         return self.server.list_embedding_models()
 
     def create_org(self, name: Optional[str] = None) -> Organization:
-        return self.server.organization_manager.create_organization(pydantic_org=Organization(name=name))
+        return self.server.organization_manager.create_organization(
+            pydantic_org=Organization(name=name)
+        )
 
-    def list_orgs(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[Organization]:
-        return self.server.organization_manager.list_organizations(cursor=cursor, limit=limit)
+    def list_orgs(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Organization]:
+        return self.server.organization_manager.list_organizations(
+            cursor=cursor, limit=limit
+        )
 
     def delete_org(self, org_id: str) -> Organization:
         return self.server.organization_manager.delete_organization_by_id(org_id=org_id)
 
-    def create_sandbox_config(self, config: Union[LocalSandboxConfig, E2BSandboxConfig]) -> SandboxConfig:
+    def create_sandbox_config(
+        self, config: Union[LocalSandboxConfig, E2BSandboxConfig]
+    ) -> SandboxConfig:
         """
         Create a new sandbox configuration.
         """
         config_create = SandboxConfigCreate(config=config)
-        return self.server.sandbox_config_manager.create_or_update_sandbox_config(sandbox_config_create=config_create, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.sandbox_config_manager.create_or_update_sandbox_config(
+            sandbox_config_create=config_create,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
-    def update_sandbox_config(self, sandbox_config_id: str, config: Union[LocalSandboxConfig, E2BSandboxConfig]) -> SandboxConfig:
+    def update_sandbox_config(
+        self,
+        sandbox_config_id: str,
+        config: Union[LocalSandboxConfig, E2BSandboxConfig],
+    ) -> SandboxConfig:
         """
         Update an existing sandbox configuration.
         """
         sandbox_update = SandboxConfigUpdate(config=config)
         return self.server.sandbox_config_manager.update_sandbox_config(
-            sandbox_config_id=sandbox_config_id, sandbox_update=sandbox_update, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            sandbox_config_id=sandbox_config_id,
+            sandbox_update=sandbox_update,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def delete_sandbox_config(self, sandbox_config_id: str) -> None:
         """
         Delete a sandbox configuration.
         """
-        return self.server.sandbox_config_manager.delete_sandbox_config(sandbox_config_id=sandbox_config_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.sandbox_config_manager.delete_sandbox_config(
+            sandbox_config_id=sandbox_config_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
-    def list_sandbox_configs(self, limit: int = 50, cursor: Optional[str] = None) -> List[SandboxConfig]:
+    def list_sandbox_configs(
+        self, limit: int = 50, cursor: Optional[str] = None
+    ) -> List[SandboxConfig]:
         """
         List all sandbox configurations.
         """
-        return self.server.sandbox_config_manager.list_sandbox_configs(actor=self.server.user_manager.get_user_by_id(self.user.id), limit=limit, cursor=cursor)
+        return self.server.sandbox_config_manager.list_sandbox_configs(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            limit=limit,
+            cursor=cursor,
+        )
 
     def create_sandbox_env_var(
-        self, sandbox_config_id: str, key: str, value: str, description: Optional[str] = None
+        self,
+        sandbox_config_id: str,
+        key: str,
+        value: str,
+        description: Optional[str] = None,
     ) -> SandboxEnvironmentVariable:
         """
         Create a new environment variable for a sandbox configuration.
         """
-        env_var_create = SandboxEnvironmentVariableCreate(key=key, value=value, description=description)
+        env_var_create = SandboxEnvironmentVariableCreate(
+            key=key, value=value, description=description
+        )
         return self.server.sandbox_config_manager.create_sandbox_env_var(
-            env_var_create=env_var_create, sandbox_config_id=sandbox_config_id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            env_var_create=env_var_create,
+            sandbox_config_id=sandbox_config_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def update_sandbox_env_var(
-        self, env_var_id: str, key: Optional[str] = None, value: Optional[str] = None, description: Optional[str] = None
+        self,
+        env_var_id: str,
+        key: Optional[str] = None,
+        value: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> SandboxEnvironmentVariable:
         """
         Update an existing environment variable.
         """
-        env_var_update = SandboxEnvironmentVariableUpdate(key=key, value=value, description=description)
+        env_var_update = SandboxEnvironmentVariableUpdate(
+            key=key, value=value, description=description
+        )
         return self.server.sandbox_config_manager.update_sandbox_env_var(
-            env_var_id=env_var_id, env_var_update=env_var_update, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            env_var_id=env_var_id,
+            env_var_update=env_var_update,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def delete_sandbox_env_var(self, env_var_id: str) -> None:
         """
         Delete an environment variable by its ID.
         """
-        return self.server.sandbox_config_manager.delete_sandbox_env_var(env_var_id=env_var_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.sandbox_config_manager.delete_sandbox_env_var(
+            env_var_id=env_var_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def list_sandbox_env_vars(
         self, sandbox_config_id: str, limit: int = 50, cursor: Optional[str] = None
@@ -1867,51 +2186,54 @@ class LocalClient(AbstractClient):
         List all environment variables associated with a sandbox configuration.
         """
         return self.server.sandbox_config_manager.list_sandbox_env_vars(
-            sandbox_config_id=sandbox_config_id, actor=self.server.user_manager.get_user_by_id(self.user.id), limit=limit, cursor=cursor
+            sandbox_config_id=sandbox_config_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            limit=limit,
+            cursor=cursor,
         )
 
     # file management methods
-    def save_file(self, file_path: str, source_id: Optional[str] = None) -> FileMetadata:
+    def save_file(
+        self, file_path: str, source_id: Optional[str] = None
+    ) -> FileMetadata:
         """
         Save a file to the file manager and return its metadata.
-        
+
         Args:
             file_path (str): Path to the file to save
             source_id (Optional[str]): Optional source ID to associate with the file
-            
+
         Returns:
             FileMetadata: The created file metadata
         """
         return self.file_manager.create_file_metadata_from_path(
-            file_path=file_path,
-            organization_id=self.org_id,
-            source_id=source_id
+            file_path=file_path, organization_id=self.org_id, source_id=source_id
         )
 
-    def list_files(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> List[FileMetadata]:
+    def list_files(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[FileMetadata]:
         """
         List files for the current organization.
-        
+
         Args:
             cursor (Optional[str]): Pagination cursor
             limit (Optional[int]): Maximum number of files to return
-            
+
         Returns:
             List[FileMetadata]: List of file metadata
         """
         return self.file_manager.get_files_by_organization_id(
-            organization_id=self.org_id,
-            cursor=cursor,
-            limit=limit
+            organization_id=self.org_id, cursor=cursor, limit=limit
         )
 
     def get_file(self, file_id: str) -> FileMetadata:
         """
         Get file metadata by ID.
-        
+
         Args:
             file_id (str): ID of the file
-            
+
         Returns:
             FileMetadata: The file metadata
         """
@@ -1920,7 +2242,7 @@ class LocalClient(AbstractClient):
     def delete_file(self, file_id: str) -> None:
         """
         Delete a file by ID.
-        
+
         Args:
             file_id (str): ID of the file to delete
         """
@@ -1929,28 +2251,29 @@ class LocalClient(AbstractClient):
     def search_files(self, name_pattern: str) -> List[FileMetadata]:
         """
         Search files by name pattern.
-        
+
         Args:
             name_pattern (str): Pattern to search for in file names
-            
+
         Returns:
             List[FileMetadata]: List of matching files
         """
         return self.file_manager.search_files_by_name(
-            file_name=name_pattern,
-            organization_id=self.org_id
+            file_name=name_pattern, organization_id=self.org_id
         )
 
     def get_file_stats(self) -> dict:
         """
         Get file statistics for the current organization.
-        
+
         Returns:
             dict: File statistics including total files, size, and types
         """
         return self.file_manager.get_file_stats(organization_id=self.org_id)
 
-    def update_agent_memory_block_label(self, agent_id: str, current_label: str, new_label: str) -> Memory:
+    def update_agent_memory_block_label(
+        self, agent_id: str, current_label: str, new_label: str
+    ) -> Memory:
         """Rename a block in the agent's core memory
 
         Args:
@@ -1965,7 +2288,9 @@ class LocalClient(AbstractClient):
         return self.update_block(block.id, label=new_label)
 
     # TODO: remove this
-    def add_agent_memory_block(self, agent_id: str, create_block: CreateBlock) -> Memory:
+    def add_agent_memory_block(
+        self, agent_id: str, create_block: CreateBlock
+    ) -> Memory:
         """
         Create and link a memory block to an agent's core memory
 
@@ -1977,9 +2302,15 @@ class LocalClient(AbstractClient):
             memory (Memory): The updated memory
         """
         block_req = Block(**create_block.model_dump())
-        block = self.server.block_manager.create_or_update_block(actor=self.server.user_manager.get_user_by_id(self.user.id), block=block_req)
+        block = self.server.block_manager.create_or_update_block(
+            actor=self.server.user_manager.get_user_by_id(self.user.id), block=block_req
+        )
         # Link the block to the agent
-        agent = self.server.agent_manager.attach_block(agent_id=agent_id, block_id=block.id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        agent = self.server.agent_manager.attach_block(
+            agent_id=agent_id,
+            block_id=block.id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return agent.memory
 
     def link_agent_memory_block(self, agent_id: str, block_id: str) -> Memory:
@@ -1993,7 +2324,11 @@ class LocalClient(AbstractClient):
         Returns:
             memory (Memory): The updated memory
         """
-        return self.server.agent_manager.attach_block(agent_id=agent_id, block_id=block_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.attach_block(
+            agent_id=agent_id,
+            block_id=block_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def remove_agent_memory_block(self, agent_id: str, block_label: str) -> Memory:
         """
@@ -2006,7 +2341,11 @@ class LocalClient(AbstractClient):
         Returns:
             memory (Memory): The updated memory
         """
-        return self.server.agent_manager.detach_block_with_label(agent_id=agent_id, block_label=block_label, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.detach_block_with_label(
+            agent_id=agent_id,
+            block_label=block_label,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def list_agent_memory_blocks(self, agent_id: str) -> List[Block]:
         """
@@ -2018,7 +2357,10 @@ class LocalClient(AbstractClient):
         Returns:
             blocks (List[Block]): The blocks in the agent's core memory
         """
-        agent = self.server.agent_manager.get_agent_by_id(agent_id=agent_id, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        agent = self.server.agent_manager.get_agent_by_id(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
         return agent.memory.blocks
 
     def get_agent_memory_block(self, agent_id: str, label: str) -> Block:
@@ -2032,7 +2374,11 @@ class LocalClient(AbstractClient):
         Returns:
             block (Block): The block corresponding to the label
         """
-        return self.server.agent_manager.get_block_with_label(agent_id=agent_id, block_label=label, actor=self.server.user_manager.get_user_by_id(self.user.id))
+        return self.server.agent_manager.get_block_with_label(
+            agent_id=agent_id,
+            block_label=label,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
 
     def update_agent_memory_block(
         self,
@@ -2059,7 +2405,11 @@ class LocalClient(AbstractClient):
             data["value"] = value
         if limit:
             data["limit"] = limit
-        return self.server.block_manager.update_block(block.id, actor=self.server.user_manager.get_user_by_id(self.user.id), block_update=BlockUpdate(**data))
+        return self.server.block_manager.update_block(
+            block.id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            block_update=BlockUpdate(**data),
+        )
 
     def update_block(
         self,
@@ -2087,7 +2437,11 @@ class LocalClient(AbstractClient):
             data["limit"] = limit
         if label:
             data["label"] = label
-        return self.server.block_manager.update_block(block_id, actor=self.server.user_manager.get_user_by_id(self.user.id), block_update=BlockUpdate(**data))
+        return self.server.block_manager.update_block(
+            block_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            block_update=BlockUpdate(**data),
+        )
 
     def get_tags(
         self,
@@ -2101,4 +2455,9 @@ class LocalClient(AbstractClient):
         Returns:
             tags (List[str]): List of tags
         """
-        return self.server.agent_manager.list_tags(actor=self.server.user_manager.get_user_by_id(self.user.id), cursor=cursor, limit=limit, query_text=query_text)
+        return self.server.agent_manager.list_tags(
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            cursor=cursor,
+            limit=limit,
+            query_text=query_text,
+        )

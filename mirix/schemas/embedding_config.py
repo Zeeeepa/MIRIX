@@ -40,21 +40,37 @@ class EmbeddingConfig(BaseModel):
         "mistral",
         "together",  # completions endpoint
     ] = Field(..., description="The endpoint type for the model.")
-    embedding_endpoint: Optional[str] = Field(None, description="The endpoint for the model (`None` if local).")
+    embedding_endpoint: Optional[str] = Field(
+        None, description="The endpoint for the model (`None` if local)."
+    )
     embedding_model: str = Field(..., description="The model for the embedding.")
     embedding_dim: int = Field(..., description="The dimension of the embedding.")
-    embedding_chunk_size: Optional[int] = Field(300, description="The chunk size of the embedding.")
-    handle: Optional[str] = Field(None, description="The handle for this config, in the format provider/model-name.")
+    embedding_chunk_size: Optional[int] = Field(
+        300, description="The chunk size of the embedding."
+    )
+    handle: Optional[str] = Field(
+        None,
+        description="The handle for this config, in the format provider/model-name.",
+    )
 
     # azure only
-    azure_endpoint: Optional[str] = Field(None, description="The Azure endpoint for the model.")
-    azure_version: Optional[str] = Field(None, description="The Azure version for the model.")
-    azure_deployment: Optional[str] = Field(None, description="The Azure deployment for the model.")
+    azure_endpoint: Optional[str] = Field(
+        None, description="The Azure endpoint for the model."
+    )
+    azure_version: Optional[str] = Field(
+        None, description="The Azure version for the model."
+    )
+    azure_deployment: Optional[str] = Field(
+        None, description="The Azure deployment for the model."
+    )
 
     @classmethod
-    def default_config(cls, model_name: Optional[str] = None, provider: Optional[str] = None):
-
-        if model_name == "text-embedding-3-small" or (not model_name and provider == "openai"):
+    def default_config(
+        cls, model_name: Optional[str] = None, provider: Optional[str] = None
+    ):
+        if model_name == "text-embedding-3-small" or (
+            not model_name and provider == "openai"
+        ):
             return cls(
                 embedding_model="text-embedding-3-small",
                 embedding_endpoint_type="openai",
@@ -62,7 +78,9 @@ class EmbeddingConfig(BaseModel):
                 embedding_dim=1536,
                 embedding_chunk_size=8191,
             )
-        elif model_name == "text-embedding-004" or (not model_name and provider == "google_ai"):
+        elif model_name == "text-embedding-004" or (
+            not model_name and provider == "google_ai"
+        ):
             return cls(
                 embedding_model="text-embedding-004",
                 embedding_endpoint_type="google_ai",
@@ -84,6 +102,10 @@ class EmbeddingConfig(BaseModel):
     def pretty_print(self) -> str:
         return (
             f"{self.embedding_model}"
-            + (f" [type={self.embedding_endpoint_type}]" if self.embedding_endpoint_type else "")
+            + (
+                f" [type={self.embedding_endpoint_type}]"
+                if self.embedding_endpoint_type
+                else ""
+            )
             + (f" [ip={self.embedding_endpoint}]" if self.embedding_endpoint else "")
         )

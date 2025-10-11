@@ -50,21 +50,55 @@ DEFAULT_PRESET = "memgpt_chat"
 
 # Base tools that cannot be edited, as they access agent state directly
 # Note that we don't include "conversation_search_date" for now
-BASE_TOOLS = ["send_message", "send_intermediate_message", "conversation_search", 'search_in_memory', 'list_memory_within_timerange']
+BASE_TOOLS = [
+    "send_message",
+    "send_intermediate_message",
+    "conversation_search",
+    "search_in_memory",
+    "list_memory_within_timerange",
+]
 # Base memory tools CAN be edited, and are added by default by the server
 CORE_MEMORY_TOOLS = ["core_memory_append", "core_memory_rewrite"]
-EPISODIC_MEMORY_TOOLS = ['episodic_memory_insert', 'episodic_memory_merge', 'episodic_memory_replace', 'check_episodic_memory']
-PROCEDURAL_MEMORY_TOOLS = ['procedural_memory_insert', 'procedural_memory_update']
-RESOURCE_MEMORY_TOOLS = ['resource_memory_insert', 'resource_memory_update']
-KNOWLEDGE_VAULT_TOOLS = ['knowledge_vault_insert', 'knowledge_vault_update']
-SEMANTIC_MEMORY_TOOLS = ['semantic_memory_insert', 'semantic_memory_update', 'check_semantic_memory']
-CHAT_AGENT_TOOLS = ['trigger_memory_update_with_instruction']
-EXTRAS_TOOLS = ['web_search', 'fetch_and_read_pdf']
+EPISODIC_MEMORY_TOOLS = [
+    "episodic_memory_insert",
+    "episodic_memory_merge",
+    "episodic_memory_replace",
+    "check_episodic_memory",
+]
+PROCEDURAL_MEMORY_TOOLS = ["procedural_memory_insert", "procedural_memory_update"]
+RESOURCE_MEMORY_TOOLS = ["resource_memory_insert", "resource_memory_update"]
+KNOWLEDGE_VAULT_TOOLS = ["knowledge_vault_insert", "knowledge_vault_update"]
+SEMANTIC_MEMORY_TOOLS = [
+    "semantic_memory_insert",
+    "semantic_memory_update",
+    "check_semantic_memory",
+]
+CHAT_AGENT_TOOLS = ["trigger_memory_update_with_instruction"]
+EXTRAS_TOOLS = ["web_search", "fetch_and_read_pdf"]
 MCP_TOOLS = []
-META_MEMORY_TOOLS = ['trigger_memory_update']
-SEARCH_MEMORY_TOOLS = ['search_in_memory', 'list_memory_within_timerange']
-UNIVERSAL_MEMORY_TOOLS = ['search_in_memory', "finish_memory_update", 'list_memory_within_timerange']
-ALL_TOOLS = list(set(BASE_TOOLS + CORE_MEMORY_TOOLS + EPISODIC_MEMORY_TOOLS + PROCEDURAL_MEMORY_TOOLS + RESOURCE_MEMORY_TOOLS + KNOWLEDGE_VAULT_TOOLS + SEMANTIC_MEMORY_TOOLS + META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS + MCP_TOOLS))
+META_MEMORY_TOOLS = ["trigger_memory_update"]
+SEARCH_MEMORY_TOOLS = ["search_in_memory", "list_memory_within_timerange"]
+UNIVERSAL_MEMORY_TOOLS = [
+    "search_in_memory",
+    "finish_memory_update",
+    "list_memory_within_timerange",
+]
+ALL_TOOLS = list(
+    set(
+        BASE_TOOLS
+        + CORE_MEMORY_TOOLS
+        + EPISODIC_MEMORY_TOOLS
+        + PROCEDURAL_MEMORY_TOOLS
+        + RESOURCE_MEMORY_TOOLS
+        + KNOWLEDGE_VAULT_TOOLS
+        + SEMANTIC_MEMORY_TOOLS
+        + META_MEMORY_TOOLS
+        + UNIVERSAL_MEMORY_TOOLS
+        + CHAT_AGENT_TOOLS
+        + EXTRAS_TOOLS
+        + MCP_TOOLS
+    )
+)
 
 # The name of the tool used to send message to the user
 # May not be relevant in cases where the agent has multiple ways to message to user (send_imessage, send_discord_mesasge, ...)
@@ -76,12 +110,22 @@ DEFAULT_MESSAGE_TOOL_KWARG = "message"
 STRUCTURED_OUTPUT_MODELS = {"gpt-4o", "gpt-4o-mini"}
 
 # LOGGER_LOG_LEVEL is use to convert Text to Logging level value for logging mostly for Cli input to setting level
-LOGGER_LOG_LEVELS = {"CRITICAL": CRITICAL, "ERROR": ERROR, "WARN": WARN, "WARNING": WARNING, "INFO": INFO, "DEBUG": DEBUG, "NOTSET": NOTSET}
+LOGGER_LOG_LEVELS = {
+    "CRITICAL": CRITICAL,
+    "ERROR": ERROR,
+    "WARN": WARN,
+    "WARNING": WARNING,
+    "INFO": INFO,
+    "DEBUG": DEBUG,
+    "NOTSET": NOTSET,
+}
 
 FIRST_MESSAGE_ATTEMPTS = 10
 
 INITIAL_BOOT_MESSAGE = "Boot sequence complete. Persona activated."
-INITIAL_BOOT_MESSAGE_SEND_MESSAGE_THOUGHT = "Bootup sequence complete. Persona activated. Testing messaging functionality."
+INITIAL_BOOT_MESSAGE_SEND_MESSAGE_THOUGHT = (
+    "Bootup sequence complete. Persona activated. Testing messaging functionality."
+)
 STARTUP_QUOTES = [
     "I think, therefore I am.",
     "All those moments will be lost in time, like tears in rain.",
@@ -165,14 +209,18 @@ FUNCTION_RETURN_CHAR_LIMIT = 60000  # ~300 words
 MAX_PAUSE_HEARTBEATS = 360  # in min
 
 MESSAGE_CHATGPT_FUNCTION_MODEL = "gpt-3.5-turbo"
-MESSAGE_CHATGPT_FUNCTION_SYSTEM_MESSAGE = "You are a helpful assistant. Keep your responses short and concise."
+MESSAGE_CHATGPT_FUNCTION_SYSTEM_MESSAGE = (
+    "You are a helpful assistant. Keep your responses short and concise."
+)
 
 #### Functions related
 
 # REQ_HEARTBEAT_MESSAGE = f"{NON_USER_MSG_PREFIX}continue_chaining == true"
 REQ_HEARTBEAT_MESSAGE = f"{NON_USER_MSG_PREFIX}Function called using continue_chaining=true, returning control"
 # FUNC_FAILED_HEARTBEAT_MESSAGE = f"{NON_USER_MSG_PREFIX}Function call failed"
-FUNC_FAILED_HEARTBEAT_MESSAGE = f"{NON_USER_MSG_PREFIX}Function call failed, returning control"
+FUNC_FAILED_HEARTBEAT_MESSAGE = (
+    f"{NON_USER_MSG_PREFIX}Function call failed, returning control"
+)
 
 
 RETRIEVAL_QUERY_DEFAULT_PAGE_SIZE = 5
@@ -189,9 +237,19 @@ INNER_THOUGHTS_KWARG_DESCRIPTION_GO_FIRST = f"Deep inner monologue private to yo
 INNER_THOUGHTS_CLI_SYMBOL = "💭"
 ASSISTANT_MESSAGE_CLI_SYMBOL = "🤖"
 
-CLEAR_HISTORY_AFTER_MEMORY_UPDATE = os.getenv("CLEAR_HISTORY_AFTER_MEMORY_UPDATE", "true").lower() in ("true", "1", "yes")
-CALL_MEMORY_AGENT_IN_PARALLEL = os.getenv("CALL_MEMORY_AGENT_IN_PARALLEL", "false").lower() in ("true", "1", "yes")
-CHAINING_FOR_MEMORY_UPDATE = os.getenv("CHAINING_FOR_MEMORY_UPDATE", "false").lower() in ("true", "1", "yes")
+CLEAR_HISTORY_AFTER_MEMORY_UPDATE = os.getenv(
+    "CLEAR_HISTORY_AFTER_MEMORY_UPDATE", "true"
+).lower() in ("true", "1", "yes")
+CALL_MEMORY_AGENT_IN_PARALLEL = os.getenv(
+    "CALL_MEMORY_AGENT_IN_PARALLEL", "false"
+).lower() in ("true", "1", "yes")
+CHAINING_FOR_MEMORY_UPDATE = os.getenv(
+    "CHAINING_FOR_MEMORY_UPDATE", "false"
+).lower() in ("true", "1", "yes")
 
-LOAD_IMAGE_CONTENT_FOR_LAST_MESSAGE_ONLY = os.getenv("LOAD_IMAGE_CONTENT_FOR_LAST_MESSAGE_ONLY", "false").lower() in ("true", "1", "yes")
-BUILD_EMBEDDINGS_FOR_MEMORY = os.getenv("BUILD_EMBEDDINGS_FOR_MEMORY", "true").lower() in ("true", "1", "yes")
+LOAD_IMAGE_CONTENT_FOR_LAST_MESSAGE_ONLY = os.getenv(
+    "LOAD_IMAGE_CONTENT_FOR_LAST_MESSAGE_ONLY", "false"
+).lower() in ("true", "1", "yes")
+BUILD_EMBEDDINGS_FOR_MEMORY = os.getenv(
+    "BUILD_EMBEDDINGS_FOR_MEMORY", "true"
+).lower() in ("true", "1", "yes")

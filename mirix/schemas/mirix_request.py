@@ -23,8 +23,13 @@ class MirixRequestConfig(BaseModel):
 
 
 class MirixRequest(BaseModel):
-    messages: List[MessageCreate] = Field(..., description="The messages to be sent to the agent.")
-    config: MirixRequestConfig = Field(default=MirixRequestConfig(), description="Configuration options for the MirixRequest.")
+    messages: List[MessageCreate] = Field(
+        ..., description="The messages to be sent to the agent."
+    )
+    config: MirixRequestConfig = Field(
+        default=MirixRequestConfig(),
+        description="Configuration options for the MirixRequest.",
+    )
 
 
 class MirixStreamingRequest(MirixRequest):

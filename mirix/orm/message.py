@@ -1,17 +1,20 @@
 from typing import List, Optional
 
-from mirix.schemas.openai.openai import ToolCall as OpenAIToolCall
-from sqlalchemy import BigInteger, FetchedValue, ForeignKey, Index, event, text
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, declared_attr
+from sqlalchemy import ForeignKey, Index
+from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
-from mirix.orm.custom_columns import MessageContentColumn, ToolCallColumn, ToolReturnColumn
+from mirix.orm.custom_columns import (
+    MessageContentColumn,
+    ToolCallColumn,
+    ToolReturnColumn,
+)
 from mirix.orm.mixins import AgentMixin, OrganizationMixin, UserMixin
 from mirix.orm.sqlalchemy_base import SqlalchemyBase
-from mirix.schemas.mirix_message_content import MessageContent
-from mirix.schemas.mirix_message_content import TextContent as PydanticTextContent
 from mirix.schemas.message import Message as PydanticMessage
 from mirix.schemas.message import ToolReturn
-from mirix.settings import settings
+from mirix.schemas.mirix_message_content import MessageContent
+from mirix.schemas.mirix_message_content import TextContent as PydanticTextContent
+from mirix.schemas.openai.openai import ToolCall as OpenAIToolCall
 
 
 class Message(SqlalchemyBase, OrganizationMixin, UserMixin, AgentMixin):
@@ -27,37 +30,57 @@ class Message(SqlalchemyBase, OrganizationMixin, UserMixin, AgentMixin):
     id: Mapped[str] = mapped_column(primary_key=True, doc="Unique message identifier")
     role: Mapped[str] = mapped_column(doc="Message role (user/assistant/system/tool)")
     text: Mapped[Optional[str]] = mapped_column(nullable=True, doc="Message content")
-    content: Mapped[List[MessageContent]] = mapped_column(MessageContentColumn, nullable=True, doc="Message content parts")
+    content: Mapped[List[MessageContent]] = mapped_column(
+        MessageContentColumn, nullable=True, doc="Message content parts"
+    )
     model: Mapped[Optional[str]] = mapped_column(nullable=True, doc="LLM model used")
-    name: Mapped[Optional[str]] = mapped_column(nullable=True, doc="Name for multi-agent scenarios")
-    tool_calls: Mapped[List[OpenAIToolCall]] = mapped_column(ToolCallColumn, doc="Tool call information")
-    tool_call_id: Mapped[Optional[str]] = mapped_column(nullable=True, doc="ID of the tool call")
+    name: Mapped[Optional[str]] = mapped_column(
+        nullable=True, doc="Name for multi-agent scenarios"
+    )
+    tool_calls: Mapped[List[OpenAIToolCall]] = mapped_column(
+        ToolCallColumn, doc="Tool call information"
+    )
+    tool_call_id: Mapped[Optional[str]] = mapped_column(
+        nullable=True, doc="ID of the tool call"
+    )
     step_id: Mapped[Optional[str]] = mapped_column(
-        ForeignKey("steps.id", ondelete="SET NULL"), nullable=True, doc="ID of the step that this message belongs to"
+        ForeignKey("steps.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="ID of the step that this message belongs to",
     )
-    otid: Mapped[Optional[str]] = mapped_column(nullable=True, doc="The offline threading ID associated with this message")
+    otid: Mapped[Optional[str]] = mapped_column(
+        nullable=True, doc="The offline threading ID associated with this message"
+    )
     tool_returns: Mapped[List[ToolReturn]] = mapped_column(
-        ToolReturnColumn, nullable=True, doc="Tool execution return information for prior tool calls"
+        ToolReturnColumn,
+        nullable=True,
+        doc="Tool execution return information for prior tool calls",
     )
-    group_id: Mapped[Optional[str]] = mapped_column(nullable=True, doc="The multi-agent group that the message was sent in")
+    group_id: Mapped[Optional[str]] = mapped_column(
+        nullable=True, doc="The multi-agent group that the message was sent in"
+    )
     sender_id: Mapped[Optional[str]] = mapped_column(
-        nullable=True, doc="The id of the sender of the message, can be an identity id or agent id"
+        nullable=True,
+        doc="The id of the sender of the message, can be an identity id or agent id",
     )
 
     # Relationships
-    agent: Mapped["Agent"] = relationship("Agent", back_populates="messages", lazy="selectin")
-    organization: Mapped["Organization"] = relationship("Organization", back_populates="messages", lazy="selectin")
-    step: Mapped["Step"] = relationship("Step", back_populates="messages", lazy="selectin")
-    
+    agent: Mapped["Agent"] = relationship(
+        "Agent", back_populates="messages", lazy="selectin"
+    )
+    organization: Mapped["Organization"] = relationship(
+        "Organization", back_populates="messages", lazy="selectin"
+    )
+    step: Mapped["Step"] = relationship(
+        "Step", back_populates="messages", lazy="selectin"
+    )
+
     @declared_attr
     def user(cls) -> Mapped["User"]:
         """
         Relationship to the User that owns this message.
         """
-        return relationship(
-            "User",
-            lazy="selectin"
-        )
+        return relationship("User", lazy="selectin")
 
     def to_pydantic(self) -> PydanticMessage:
         """Custom pydantic conversion to handle data using legacy text field"""

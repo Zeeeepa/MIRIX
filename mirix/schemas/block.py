@@ -16,14 +16,24 @@ class BaseBlock(MirixBase, validate_assignment=True):
 
     # data value
     value: str = Field(..., description="Value of the block.")
-    limit: int = Field(CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block.")
+    limit: int = Field(
+        CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block."
+    )
 
     # template data (optional)
-    template_name: Optional[str] = Field(None, description="Name of the block if it is a template.", alias="name")
-    is_template: bool = Field(False, description="Whether the block is a template (e.g. saved human/persona options).")
+    template_name: Optional[str] = Field(
+        None, description="Name of the block if it is a template.", alias="name"
+    )
+    is_template: bool = Field(
+        False,
+        description="Whether the block is a template (e.g. saved human/persona options).",
+    )
 
     # context window label
-    label: Optional[str] = Field(None, description="Label of the block (e.g. 'human', 'persona') in the context window.")
+    label: Optional[str] = Field(
+        None,
+        description="Label of the block (e.g. 'human', 'persona') in the context window.",
+    )
 
     # metadata
     description: Optional[str] = Field(None, description="Description of the block.")
@@ -70,12 +80,21 @@ class Block(BaseBlock):
     id: str = BaseBlock.generate_id_field()
 
     # associated user/agent
-    user_id: Optional[str] = Field(None, description="The unique identifier of the user associated with the block.")
-    organization_id: Optional[str] = Field(None, description="The unique identifier of the organization associated with the block.")
+    user_id: Optional[str] = Field(
+        None, description="The unique identifier of the user associated with the block."
+    )
+    organization_id: Optional[str] = Field(
+        None,
+        description="The unique identifier of the organization associated with the block.",
+    )
 
     # default orm fields
-    created_by_id: Optional[str] = Field(None, description="The id of the user that made this Block.")
-    last_updated_by_id: Optional[str] = Field(None, description="The id of the user that last updated this Block.")
+    created_by_id: Optional[str] = Field(
+        None, description="The id of the user that made this Block."
+    )
+    last_updated_by_id: Optional[str] = Field(
+        None, description="The id of the user that last updated this Block."
+    )
 
 
 class Human(Block):
@@ -119,7 +138,9 @@ class BlockLabelUpdate(BaseModel):
 class BlockUpdate(BaseBlock):
     """Update a block"""
 
-    limit: Optional[int] = Field(CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block.")
+    limit: Optional[int] = Field(
+        CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block."
+    )
     value: Optional[str] = Field(None, description="Value of the block.")
 
     class Config:
@@ -149,12 +170,16 @@ class CreateBlock(BaseBlock):
     """Create a block"""
 
     label: str = Field(..., description="Label of the block.")
-    limit: int = Field(CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block.")
+    limit: int = Field(
+        CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block."
+    )
     value: str = Field(..., description="Value of the block.")
 
     # block templates
     is_template: bool = False
-    template_name: Optional[str] = Field(None, description="Name of the block if it is a template.", alias="name")
+    template_name: Optional[str] = Field(
+        None, description="Name of the block if it is a template.", alias="name"
+    )
 
 
 class CreateHuman(CreateBlock):

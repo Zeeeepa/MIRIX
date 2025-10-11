@@ -1,10 +1,5 @@
-from typing import List, Literal, Optional
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from mirix.orm.errors import NoResultFound
-from mirix.orm.sqlalchemy_base import AccessType
 from mirix.orm.step import Step as StepModel
 from mirix.schemas.openai.chat_completion_response import UsageStatistics
 from mirix.schemas.step import Step as PydanticStep
@@ -13,7 +8,6 @@ from mirix.utils import enforce_types
 
 
 class StepManager:
-
     def __init__(self):
         from mirix.server.server import db_context
 

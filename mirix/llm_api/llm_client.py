@@ -55,4 +55,4 @@ class LLMClient:
                     put_inner_thoughts_first=put_inner_thoughts_first,
                 )
             case _:
-                return None 
+                return None

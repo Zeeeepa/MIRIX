@@ -7,11 +7,16 @@ import requests
 from mirix.local_llm.utils import count_tokens
 from mirix.schemas.message import Message
 from mirix.schemas.openai.chat_completion_request import ChatCompletionRequest, Tool
-from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse, Choice, FunctionCall
+from mirix.schemas.openai.chat_completion_response import (
+    ChatCompletionResponse,
+    Choice,
+    FunctionCall,
+    ToolCall,
+    UsageStatistics,
+)
 from mirix.schemas.openai.chat_completion_response import (
     Message as ChoiceMessage,  # NOTE: avoid conflict with our own Mirix Message datatype
 )
-from mirix.schemas.openai.chat_completion_response import ToolCall, UsageStatistics
 from mirix.utils import get_tool_call_id, get_utc_time, json_dumps, smart_urljoin
 
 BASE_URL = "https://api.cohere.ai/v1"
@@ -54,7 +59,9 @@ def cohere_get_model_details(url: str, api_key: Union[str, None], model: str) ->
         raise e
 
 
-def cohere_get_model_context_window(url: str, api_key: Union[str, None], model: str) -> int:
+def cohere_get_model_context_window(
+    url: str, api_key: Union[str, None], model: str
+) -> int:
     model_details = cohere_get_model_details(url=url, api_key=api_key, model=model)
     return model_details["context_length"]
 
@@ -150,7 +157,9 @@ def convert_cohere_response_to_chatcompletion(
         completion_tokens = response_json["meta"]["billed_units"]["output_tokens"]
     else:
         # For some reason input_tokens not included in 'meta' 'tokens' dict?
-        prompt_tokens = count_tokens(json_dumps(response_json["chat_history"]))  # NOTE: this is a very rough approximation
+        prompt_tokens = count_tokens(
+            json_dumps(response_json["chat_history"])
+        )  # NOTE: this is a very rough approximation
         completion_tokens = response_json["meta"]["tokens"]["output_tokens"]
 
     finish_reason = remap_finish_reason(response_json["finish_reason"])
@@ -190,7 +199,9 @@ def convert_cohere_response_to_chatcompletion(
 
     # In Cohere API empty string == null
     content = None if content == "" else content
-    assert content is not None or tool_calls is not None, "Response message must have either content or tool_calls"
+    assert content is not None or tool_calls is not None, (
+        "Response message must have either content or tool_calls"
+    )
 
     choice = Choice(
         index=0,
@@ -215,7 +226,9 @@ def convert_cohere_response_to_chatcompletion(
     )
 
 
-def convert_tools_to_cohere_format(tools: List[Tool], inner_thoughts_in_kwargs: Optional[bool] = True) -> List[dict]:
+def convert_tools_to_cohere_format(
+    tools: List[Tool], inner_thoughts_in_kwargs: Optional[bool] = True
+) -> List[dict]:
     """See: https://docs.cohere.com/reference/chat
 
     OpenAI style:
@@ -264,7 +277,9 @@ def convert_tools_to_cohere_format(tools: List[Tool], inner_thoughts_in_kwargs: 
                         "type": p_fields["type"],
                         "required": p_name in tool.function.parameters["required"],
                     }
-                    for p_name, p_fields in tool.function.parameters["properties"].items()
+                    for p_name, p_fields in tool.function.parameters[
+                        "properties"
+                    ].items()
                 },
             }
         )
@@ -272,7 +287,10 @@ def convert_tools_to_cohere_format(tools: List[Tool], inner_thoughts_in_kwargs: 
     if inner_thoughts_in_kwargs:
         # NOTE: since Cohere doesn't allow "text" in the response when a tool call happens, if we want
         # a simultaneous CoT + tool call we need to put it inside a kwarg
-        from mirix.local_llm.constants import INNER_THOUGHTS_KWARG, INNER_THOUGHTS_KWARG_DESCRIPTION
+        from mirix.local_llm.constants import (
+            INNER_THOUGHTS_KWARG,
+            INNER_THOUGHTS_KWARG_DESCRIPTION,
+        )
 
         for cohere_tool in tools_dict_list:
             cohere_tool["parameter_definitions"][INNER_THOUGHTS_KWARG] = {
@@ -299,21 +317,32 @@ def cohere_chat_completions_request(
     }
 
     # convert the tools
-    cohere_tools = None if chat_completion_request.tools is None else convert_tools_to_cohere_format(chat_completion_request.tools)
+    cohere_tools = (
+        None
+        if chat_completion_request.tools is None
+        else convert_tools_to_cohere_format(chat_completion_request.tools)
+    )
 
     # pydantic -> dict
     data = chat_completion_request.model_dump(exclude_none=True)
 
     if "functions" in data:
-        raise ValueError(f"'functions' unexpected in Anthropic API payload")
+        raise ValueError("'functions' unexpected in Anthropic API payload")
 
     # If tools == None, strip from the payload
     if "tools" in data and data["tools"] is None:
         data.pop("tools")
-        data.pop("tool_choice", None)  # extra safe,  should exist always (default="auto")
+        data.pop(
+            "tool_choice", None
+        )  # extra safe,  should exist always (default="auto")
 
     # Convert messages to Cohere format
-    msg_objs = [Message.dict_to_message(user_id=uuid.uuid4(), agent_id=uuid.uuid4(), openai_message_dict=m) for m in data["messages"]]
+    msg_objs = [
+        Message.dict_to_message(
+            user_id=uuid.uuid4(), agent_id=uuid.uuid4(), openai_message_dict=m
+        )
+        for m in data["messages"]
+    ]
 
     # System message 0 should instead be a "preamble"
     # See: https://docs.cohere.com/reference/chat
@@ -373,7 +402,9 @@ def cohere_chat_completions_request(
         response.raise_for_status()  # Raises HTTPError for 4XX/5XX status
         response = response.json()  # convert to dict from string
         printd(f"response.json = {response}")
-        response = convert_cohere_response_to_chatcompletion(response_json=response, model=chat_completion_request.model)
+        response = convert_cohere_response_to_chatcompletion(
+            response_json=response, model=chat_completion_request.model
+        )
         return response
     except requests.exceptions.HTTPError as http_err:
         # Handle HTTP errors (e.g., response 4XX, 5XX)

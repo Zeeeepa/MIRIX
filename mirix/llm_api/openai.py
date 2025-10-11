@@ -1,5 +1,4 @@
 import json
-import base64
 import warnings
 from typing import Generator, List, Optional, Union
 
@@ -8,17 +7,29 @@ import requests
 from httpx_sse import connect_sse
 from httpx_sse._exceptions import SSEError
 
-from mirix.constants import OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING
+from mirix.constants import (
+    INNER_THOUGHTS_KWARG,
+    INNER_THOUGHTS_KWARG_DESCRIPTION,
+    OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING,
+)
 from mirix.errors import LLMError
-from mirix.llm_api.helpers import add_inner_thoughts_to_functions, convert_to_structured_output, make_post_request
-from mirix.constants import INNER_THOUGHTS_KWARG, INNER_THOUGHTS_KWARG_DESCRIPTION
-from mirix.utils import num_tokens_from_functions, num_tokens_from_messages
+from mirix.llm_api.helpers import (
+    add_inner_thoughts_to_functions,
+    convert_to_structured_output,
+    make_post_request,
+)
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.message import Message as _Message
 from mirix.schemas.message import MessageRole as _MessageRole
-from mirix.schemas.openai.chat_completion_request import ChatCompletionRequest
-from mirix.schemas.openai.chat_completion_request import FunctionCall as ToolFunctionChoiceFunctionCall
-from mirix.schemas.openai.chat_completion_request import Tool, ToolFunctionChoice, cast_message_to_subtype
+from mirix.schemas.openai.chat_completion_request import (
+    ChatCompletionRequest,
+    Tool,
+    ToolFunctionChoice,
+    cast_message_to_subtype,
+)
+from mirix.schemas.openai.chat_completion_request import (
+    FunctionCall as ToolFunctionChoiceFunctionCall,
+)
 from mirix.schemas.openai.chat_completion_response import (
     ChatCompletionChunkResponse,
     ChatCompletionResponse,
@@ -29,13 +40,21 @@ from mirix.schemas.openai.chat_completion_response import (
     UsageStatistics,
 )
 from mirix.schemas.openai.embedding_response import EmbeddingResponse
-from mirix.utils import get_tool_call_id, smart_urljoin
+from mirix.utils import (
+    get_tool_call_id,
+    num_tokens_from_functions,
+    num_tokens_from_messages,
+    smart_urljoin,
+)
 
 OPENAI_SSE_DONE = "[DONE]"
 
 
 def openai_get_model_list(
-    url: str, api_key: Union[str, None], fix_url: Optional[bool] = False, extra_params: Optional[dict] = None
+    url: str,
+    api_key: Union[str, None],
+    fix_url: Optional[bool] = False,
+    extra_params: Optional[dict] = None,
 ) -> dict:
     """https://platform.openai.com/docs/api-reference/models/list"""
     from mirix.utils import printd
@@ -107,26 +126,38 @@ def build_openai_chat_completions_request(
         )
 
     openai_message_list = [
-        cast_message_to_subtype(m.to_openai_dict(put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs)) for m in messages
+        cast_message_to_subtype(
+            m.to_openai_dict(
+                put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs
+            )
+        )
+        for m in messages
     ]
 
     if llm_config.model:
         model = llm_config.model
     else:
-        warnings.warn(f"Model type not set in llm_config: {llm_config.model_dump_json(indent=4)}")
+        warnings.warn(
+            f"Model type not set in llm_config: {llm_config.model_dump_json(indent=4)}"
+        )
         model = None
 
     if use_tool_naming:
         if function_call is None:
             tool_choice = None
         elif function_call not in ["none", "auto", "required"]:
-            tool_choice = ToolFunctionChoice(type="function", function=ToolFunctionChoiceFunctionCall(name=function_call))
+            tool_choice = ToolFunctionChoice(
+                type="function",
+                function=ToolFunctionChoiceFunctionCall(name=function_call),
+            )
         else:
             tool_choice = function_call
         data = ChatCompletionRequest(
             model=model,
             messages=openai_message_list,
-            tools=[Tool(type="function", function=f) for f in functions] if functions else None,
+            tools=[Tool(type="function", function=f) for f in functions]
+            if functions
+            else None,
             tool_choice=tool_choice,
             max_tokens=max_tokens,
         )
@@ -157,7 +188,7 @@ def openai_chat_completions_process_stream(
     url: str,
     api_key: str,
     chat_completion_request: ChatCompletionRequest,
-    stream_interface = None,
+    stream_interface=None,
     create_message_id: bool = True,
     create_message_datetime: bool = True,
     override_tool_call_id: bool = True,
@@ -172,7 +203,9 @@ def openai_chat_completions_process_stream(
 
     # Count the prompt tokens
     # TODO move to post-request?
-    chat_history = [m.model_dump(exclude_none=True) for m in chat_completion_request.messages]
+    chat_history = [
+        m.model_dump(exclude_none=True) for m in chat_completion_request.messages
+    ]
     # print(chat_history)
 
     prompt_tokens = num_tokens_from_messages(
@@ -226,9 +259,15 @@ def openai_chat_completions_process_stream(
     n_chunks = 0  # approx == n_tokens
     try:
         for chunk_idx, chat_completion_chunk in enumerate(
-            openai_chat_completions_request_stream(url=url, api_key=api_key, chat_completion_request=chat_completion_request)
+            openai_chat_completions_request_stream(
+                url=url,
+                api_key=api_key,
+                chat_completion_request=chat_completion_request,
+            )
         ):
-            assert isinstance(chat_completion_chunk, ChatCompletionChunkResponse), type(chat_completion_chunk)
+            assert isinstance(chat_completion_chunk, ChatCompletionChunkResponse), type(
+                chat_completion_chunk
+            )
 
             # NOTE: this assumes that the tool call ID will only appear in one of the chunks during the stream
             if override_tool_call_id:
@@ -242,8 +281,12 @@ def openai_chat_completions_process_stream(
                 if isinstance(stream_interface, AgentChunkStreamingInterface):
                     stream_interface.process_chunk(
                         chat_completion_chunk,
-                        message_id=chat_completion_response.id if create_message_id else chat_completion_chunk.id,
-                        message_date=chat_completion_response.created if create_message_datetime else chat_completion_chunk.created,
+                        message_id=chat_completion_response.id
+                        if create_message_id
+                        else chat_completion_chunk.id,
+                        message_date=chat_completion_response.created
+                        if create_message_datetime
+                        else chat_completion_chunk.created,
                     )
                 elif isinstance(stream_interface, AgentRefreshStreamingInterface):
                     stream_interface.process_refresh(chat_completion_response)
@@ -266,15 +309,23 @@ def openai_chat_completions_process_stream(
                 ]
 
             # add the choice delta
-            assert len(chat_completion_chunk.choices) == len(chat_completion_response.choices), chat_completion_chunk
+            assert len(chat_completion_chunk.choices) == len(
+                chat_completion_response.choices
+            ), chat_completion_chunk
             for chunk_choice in chat_completion_chunk.choices:
                 if chunk_choice.finish_reason is not None:
-                    chat_completion_response.choices[chunk_choice.index].finish_reason = chunk_choice.finish_reason
+                    chat_completion_response.choices[
+                        chunk_choice.index
+                    ].finish_reason = chunk_choice.finish_reason
 
                 if chunk_choice.logprobs is not None:
-                    chat_completion_response.choices[chunk_choice.index].logprobs = chunk_choice.logprobs
+                    chat_completion_response.choices[
+                        chunk_choice.index
+                    ].logprobs = chunk_choice.logprobs
 
-                accum_message = chat_completion_response.choices[chunk_choice.index].message
+                accum_message = chat_completion_response.choices[
+                    chunk_choice.index
+                ].message
                 message_delta = chunk_choice.delta
 
                 if message_delta.content is not None:
@@ -291,7 +342,10 @@ def openai_chat_completions_process_stream(
                     # If this is the first tool call showing up in a chunk, initialize the list with it
                     if accum_message.tool_calls is None:
                         accum_message.tool_calls = [
-                            ToolCall(id=TEMP_STREAM_TOOL_CALL_ID, function=FunctionCall(name="", arguments=""))
+                            ToolCall(
+                                id=TEMP_STREAM_TOOL_CALL_ID,
+                                function=FunctionCall(name="", arguments=""),
+                            )
                             for _ in range(len(tool_calls_delta))
                         ]
 
@@ -300,38 +354,54 @@ def openai_chat_completions_process_stream(
                         if tool_call_delta.id is not None:
                             # TODO assert that we're not overwriting?
                             # TODO += instead of =?
-                            if tool_call_delta.index not in range(len(accum_message.tool_calls)):
+                            if tool_call_delta.index not in range(
+                                len(accum_message.tool_calls)
+                            ):
                                 warnings.warn(
                                     f"Tool call index out of range ({tool_call_delta.index})\ncurrent tool calls: {accum_message.tool_calls}\ncurrent delta: {tool_call_delta}"
                                 )
                                 # force index 0
                                 # accum_message.tool_calls[0].id = tool_call_delta.id
                             else:
-                                accum_message.tool_calls[tool_call_delta.index].id = tool_call_delta.id
+                                accum_message.tool_calls[
+                                    tool_call_delta.index
+                                ].id = tool_call_delta.id
                         if tool_call_delta.function is not None:
                             if tool_call_delta.function.name is not None:
                                 # TODO assert that we're not overwriting?
                                 # TODO += instead of =?
-                                if tool_call_delta.index not in range(len(accum_message.tool_calls)):
+                                if tool_call_delta.index not in range(
+                                    len(accum_message.tool_calls)
+                                ):
                                     warnings.warn(
                                         f"Tool call index out of range ({tool_call_delta.index})\ncurrent tool calls: {accum_message.tool_calls}\ncurrent delta: {tool_call_delta}"
                                     )
                                     # force index 0
                                     # accum_message.tool_calls[0].function.name = tool_call_delta.function.name
                                 else:
-                                    accum_message.tool_calls[tool_call_delta.index].function.name = tool_call_delta.function.name
+                                    accum_message.tool_calls[
+                                        tool_call_delta.index
+                                    ].function.name = tool_call_delta.function.name
                             if tool_call_delta.function.arguments is not None:
-                                if tool_call_delta.index not in range(len(accum_message.tool_calls)):
+                                if tool_call_delta.index not in range(
+                                    len(accum_message.tool_calls)
+                                ):
                                     warnings.warn(
                                         f"Tool call index out of range ({tool_call_delta.index})\ncurrent tool calls: {accum_message.tool_calls}\ncurrent delta: {tool_call_delta}"
                                     )
                                     # force index 0
                                     # accum_message.tool_calls[0].function.arguments += tool_call_delta.function.arguments
                                 else:
-                                    accum_message.tool_calls[tool_call_delta.index].function.arguments += tool_call_delta.function.arguments
+                                    accum_message.tool_calls[
+                                        tool_call_delta.index
+                                    ].function.arguments += (
+                                        tool_call_delta.function.arguments
+                                    )
 
                 if message_delta.function_call is not None:
-                    raise NotImplementedError(f"Old function_call style not support with stream=True")
+                    raise NotImplementedError(
+                        "Old function_call style not support with stream=True"
+                    )
 
             # overwrite response fields based on latest chunk
             if not create_message_id:
@@ -339,7 +409,9 @@ def openai_chat_completions_process_stream(
             if not create_message_datetime:
                 chat_completion_response.created = chat_completion_chunk.created
             chat_completion_response.model = chat_completion_chunk.model
-            chat_completion_response.system_fingerprint = chat_completion_chunk.system_fingerprint
+            chat_completion_response.system_fingerprint = (
+                chat_completion_chunk.system_fingerprint
+            )
 
             # increment chunk counter
             n_chunks += 1
@@ -354,10 +426,17 @@ def openai_chat_completions_process_stream(
             stream_interface.stream_end()
 
     # make sure we didn't leave temp stuff in
-    assert all([c.finish_reason != TEMP_STREAM_FINISH_REASON for c in chat_completion_response.choices])
     assert all(
         [
-            all([tc.id != TEMP_STREAM_TOOL_CALL_ID for tc in c.message.tool_calls]) if c.message.tool_calls else True
+            c.finish_reason != TEMP_STREAM_FINISH_REASON
+            for c in chat_completion_response.choices
+        ]
+    )
+    assert all(
+        [
+            all([tc.id != TEMP_STREAM_TOOL_CALL_ID for tc in c.message.tool_calls])
+            if c.message.tool_calls
+            else True
             for c in chat_completion_response.choices
         ]
     )
@@ -375,17 +454,22 @@ def openai_chat_completions_process_stream(
     return chat_completion_response
 
 
-def _sse_post(url: str, data: dict, headers: dict) -> Generator[ChatCompletionChunkResponse, None, None]:
-
+def _sse_post(
+    url: str, data: dict, headers: dict
+) -> Generator[ChatCompletionChunkResponse, None, None]:
     with httpx.Client() as client:
-        with connect_sse(client, method="POST", url=url, json=data, headers=headers) as event_source:
-
+        with connect_sse(
+            client, method="POST", url=url, json=data, headers=headers
+        ) as event_source:
             # Inspect for errors before iterating (see https://github.com/florimondmanca/httpx-sse/pull/12)
             if not event_source.response.is_success:
                 # handle errors
                 from mirix.utils import printd
 
-                printd("Caught error before iterating SSE request:", vars(event_source.response))
+                printd(
+                    "Caught error before iterating SSE request:",
+                    vars(event_source.response),
+                )
                 printd(event_source.response.read())
 
                 try:
@@ -398,7 +482,9 @@ def _sse_post(url: str, data: dict, headers: dict) -> Generator[ChatCompletionCh
                 except LLMError:
                     raise
                 except:
-                    print(f"Failed to parse SSE message, throwing SSE HTTP error up the stack")
+                    print(
+                        "Failed to parse SSE message, throwing SSE HTTP error up the stack"
+                    )
                     event_source.response.raise_for_status()
 
             try:
@@ -421,11 +507,17 @@ def _sse_post(url: str, data: dict, headers: dict) -> Generator[ChatCompletionCh
 
             except SSEError as e:
                 print("Caught an error while iterating the SSE stream:", str(e))
-                if "application/json" in str(e):  # Check if the error is because of JSON response
+                if "application/json" in str(
+                    e
+                ):  # Check if the error is because of JSON response
                     # TODO figure out a better way to catch the error other than re-trying with a POST
-                    response = client.post(url=url, json=data, headers=headers)  # Make the request again to get the JSON response
+                    response = client.post(
+                        url=url, json=data, headers=headers
+                    )  # Make the request again to get the JSON response
                     if response.headers["Content-Type"].startswith("application/json"):
-                        error_details = response.json()  # Parse the JSON to get the error message
+                        error_details = (
+                            response.json()
+                        )  # Parse the JSON to get the error message
                         print("Request:", vars(response.request))
                         print("POST Error:", error_details)
                         print("Original SSE Error:", str(e))
@@ -464,11 +556,15 @@ def openai_chat_completions_request_stream(
     # If functions == None, strip from the payload
     if "functions" in data and data["functions"] is None:
         data.pop("functions")
-        data.pop("function_call", None)  # extra safe,  should exist always (default="auto")
+        data.pop(
+            "function_call", None
+        )  # extra safe,  should exist always (default="auto")
 
     if "tools" in data and data["tools"] is None:
         data.pop("tools")
-        data.pop("tool_choice", None)  # extra safe,  should exist always (default="auto")
+        data.pop(
+            "tool_choice", None
+        )  # extra safe,  should exist always (default="auto")
 
     if "tools" in data:
         for tool in data["tools"]:
@@ -476,7 +572,9 @@ def openai_chat_completions_request_stream(
             try:
                 tool["function"] = convert_to_structured_output(tool["function"])
             except ValueError as e:
-                warnings.warn(f"Failed to convert tool function to structured output, tool={tool}, error={e}")
+                warnings.warn(
+                    f"Failed to convert tool function to structured output, tool={tool}, error={e}"
+                )
 
     # print(f"\n\n\n\nData[tools]: {json.dumps(data['tools'], indent=2)}")
 
@@ -496,9 +594,11 @@ def openai_chat_completions_request_stream(
         printd(f"Got unknown Exception, exception={e}")
         raise e
 
+
 def extract_content(content):
     import re
-    pattern = r'([^<]+)?(?:<image>\s*(.*?)\s*</image>)?'
+
+    pattern = r"([^<]+)?(?:<image>\s*(.*?)\s*</image>)?"
     matches = re.findall(pattern, content)
 
     result = []
@@ -510,11 +610,12 @@ def extract_content(content):
 
     return result
 
+
 def openai_chat_completions_request(
     url: str,
     api_key: str,
     chat_completion_request: ChatCompletionRequest,
-    get_input_data_for_debugging=False
+    get_input_data_for_debugging=False,
 ) -> ChatCompletionResponse:
     """Send a ChatCompletion request to an OpenAI-compatible server
 
@@ -538,18 +639,24 @@ def openai_chat_completions_request(
     # If functions == None, strip from the payload
     if "functions" in data and data["functions"] is None:
         data.pop("functions")
-        data.pop("function_call", None)  # extra safe,  should exist always (default="auto")
+        data.pop(
+            "function_call", None
+        )  # extra safe,  should exist always (default="auto")
 
     if "tools" in data and data["tools"] is None:
         data.pop("tools")
-        data.pop("tool_choice", None)  # extra safe,  should exist always (default="auto")
+        data.pop(
+            "tool_choice", None
+        )  # extra safe,  should exist always (default="auto")
 
     if "tools" in data:
         for tool in data["tools"]:
             try:
                 tool["function"] = convert_to_structured_output(tool["function"])
             except ValueError as e:
-                warnings.warn(f"Failed to convert tool function to structured output, tool={tool}, error={e}")
+                warnings.warn(
+                    f"Failed to convert tool function to structured output, tool={tool}, error={e}"
+                )
 
     if get_input_data_for_debugging:
         return data
@@ -557,6 +664,7 @@ def openai_chat_completions_request(
     response_json = make_post_request(url, headers, data)
 
     return ChatCompletionResponse(**response_json)
+
 
 def openai_embeddings_request(url: str, api_key: str, data: dict) -> EmbeddingResponse:
     """https://platform.openai.com/docs/api-reference/embeddings/create"""

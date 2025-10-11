@@ -1,7 +1,7 @@
 import json
 import uuid
-from typing import Optional
 import warnings
+from typing import Optional
 
 from .constants import (
     INITIAL_BOOT_MESSAGE,
@@ -36,7 +36,9 @@ def get_initial_boot_messages(version="startup"):
                         "type": "function",
                         "function": {
                             "name": "send_message",
-                            "arguments": '{\n  "message": "' + f"{INITIAL_BOOT_MESSAGE_SEND_MESSAGE_FIRST_MSG}" + '"\n}',
+                            "arguments": '{\n  "message": "'
+                            + f"{INITIAL_BOOT_MESSAGE_SEND_MESSAGE_FIRST_MSG}"
+                            + '"\n}',
                         },
                     }
                 ],
@@ -65,7 +67,9 @@ def get_initial_boot_messages(version="startup"):
                         "type": "function",
                         "function": {
                             "name": "send_message",
-                            "arguments": '{\n  "message": "' + f"Hi, is anyone there?" + '"\n}',
+                            "arguments": '{\n  "message": "'
+                            + "Hi, is anyone there?"
+                            + '"\n}',
                         },
                     }
                 ],
@@ -86,7 +90,11 @@ def get_initial_boot_messages(version="startup"):
     return messages
 
 
-def get_contine_chaining(reason="Automated timer", include_location=False, location_name="San Francisco, CA, USA"):
+def get_contine_chaining(
+    reason="Automated timer",
+    include_location=False,
+    location_name="San Francisco, CA, USA",
+):
     # Package the message with time and location
     formatted_time = get_local_time()
     packaged_message = {
@@ -101,7 +109,11 @@ def get_contine_chaining(reason="Automated timer", include_location=False, locat
     return json_dumps(packaged_message)
 
 
-def get_login_event(last_login="Never (first login)", include_location=False, location_name="San Francisco, CA, USA"):
+def get_login_event(
+    last_login="Never (first login)",
+    include_location=False,
+    location_name="San Francisco, CA, USA",
+):
     # Package the message with time and location
     formatted_time = get_local_time()
     packaged_message = {
@@ -162,7 +174,13 @@ def package_system_message(system_message, message_type="system_alert", time=Non
     return json.dumps(packaged_message)
 
 
-def package_summarize_message(summary, summary_message_count, hidden_message_count, total_message_count, timestamp=None):
+def package_summarize_message(
+    summary,
+    summary_message_count,
+    hidden_message_count,
+    total_message_count,
+    timestamp=None,
+):
     context_message = (
         f"Note: prior messages ({hidden_message_count} of {total_message_count} total messages) have been hidden from view due to conversation memory constraints.\n"
         + f"The following is a summary of the previous {summary_message_count} messages:\n {summary}"
@@ -178,7 +196,9 @@ def package_summarize_message(summary, summary_message_count, hidden_message_cou
     return json_dumps(packaged_message)
 
 
-def package_summarize_message_no_summary(hidden_message_count, timestamp=None, message=None):
+def package_summarize_message_no_summary(
+    hidden_message_count, timestamp=None, message=None
+):
     """Add useful metadata to the summary message"""
 
     # Package the message with time and location
@@ -214,18 +234,27 @@ def unpack_message(packed_message) -> str:
     try:
         message_json = json.loads(packed_message)
     except:
-        warnings.warn(f"Was unable to load message as JSON to unpack: '{packed_message}'")
+        warnings.warn(
+            f"Was unable to load message as JSON to unpack: '{packed_message}'"
+        )
         return packed_message
 
     if "message" not in message_json:
-        if "type" in message_json and message_json["type"] in ["login", "contine_chaining"]:
+        if "type" in message_json and message_json["type"] in [
+            "login",
+            "contine_chaining",
+        ]:
             # This is a valid user message that the ADE expects, so don't print warning
             return packed_message
-        warnings.warn(f"Was unable to find 'message' field in packed message object: '{packed_message}'")
+        warnings.warn(
+            f"Was unable to find 'message' field in packed message object: '{packed_message}'"
+        )
         return packed_message
     else:
         message_type = message_json["type"]
         if message_type != "user_message":
-            warnings.warn(f"Expected type to be 'user_message', but was '{message_type}', so not unpacking: '{packed_message}'")
+            warnings.warn(
+                f"Expected type to be 'user_message', but was '{message_type}', so not unpacking: '{packed_message}'"
+            )
             return packed_message
         return message_json.get("message")

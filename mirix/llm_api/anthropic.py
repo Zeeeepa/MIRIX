@@ -2,8 +2,6 @@ import json
 import re
 from typing import List, Optional, Tuple, Union
 
-import httpx
-import base64
 import anthropic
 from anthropic import PermissionDeniedError
 
@@ -11,11 +9,16 @@ from mirix.errors import BedrockError, BedrockPermissionError
 from mirix.llm_api.aws_bedrock import get_bedrock_client
 from mirix.schemas.message import Message
 from mirix.schemas.openai.chat_completion_request import ChatCompletionRequest, Tool
-from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse, Choice, FunctionCall
+from mirix.schemas.openai.chat_completion_response import (
+    ChatCompletionResponse,
+    Choice,
+    FunctionCall,
+    ToolCall,
+    UsageStatistics,
+)
 from mirix.schemas.openai.chat_completion_response import (
     Message as ChoiceMessage,  # NOTE: avoid conflict with our own Mirix Message datatype
 )
-from mirix.schemas.openai.chat_completion_response import ToolCall, UsageStatistics
 from mirix.settings import model_settings
 from mirix.utils import get_utc_time, smart_urljoin
 
@@ -42,7 +45,9 @@ MODEL_LIST = [
 DUMMY_FIRST_USER_MESSAGE = "User initializing bootup sequence."
 
 
-def antropic_get_model_context_window(url: str, api_key: Union[str, None], model: str) -> int:
+def antropic_get_model_context_window(
+    url: str, api_key: Union[str, None], model: str
+) -> int:
     for model_dict in anthropic_get_model_list(url=url, api_key=api_key):
         if model_dict["name"] == model:
             return model_dict["context_window"]
@@ -107,7 +112,8 @@ def convert_tools_to_anthropic_format(tools: List[Tool]) -> List[dict]:
         formatted_tool = {
             "name": tool.function.name,
             "description": tool.function.description,
-            "input_schema": tool.function.parameters or {"type": "object", "properties": {}, "required": []},
+            "input_schema": tool.function.parameters
+            or {"type": "object", "properties": {}, "required": []},
         }
         formatted_tools.append(formatted_tool)
 
@@ -314,13 +320,15 @@ def _prepare_anthropic_request(
 ) -> dict:
     """Prepare the request data for Anthropic API format."""
     # convert the tools
-    anthropic_tools = None if data.tools is None else convert_tools_to_anthropic_format(data.tools)
+    anthropic_tools = (
+        None if data.tools is None else convert_tools_to_anthropic_format(data.tools)
+    )
 
     # pydantic -> dict
     data = data.model_dump(exclude_none=True)
 
     if "functions" in data:
-        raise ValueError(f"'functions' unexpected in Anthropic API payload")
+        raise ValueError("'functions' unexpected in Anthropic API payload")
 
     # Handle tools
     if "tools" in data and data["tools"] is None:
@@ -336,7 +344,9 @@ def _prepare_anthropic_request(
             }
 
     # Move 'system' to the top level
-    assert data["messages"][0]["role"] == "system", f"Expected 'system' role in messages[0]:\n{data['messages'][0]}"
+    assert data["messages"][0]["role"] == "system", (
+        f"Expected 'system' role in messages[0]:\n{data['messages'][0]}"
+    )
     data["system"] = data["messages"][0]["content"]
     data["messages"] = data["messages"][1:]
 
@@ -346,12 +356,20 @@ def _prepare_anthropic_request(
             message["content"] = None
 
     # Convert to Anthropic format
-    msg_objs = [Message.dict_to_message(user_id=None, agent_id=None, openai_message_dict=m) for m in data["messages"]]
-    data["messages"] = [m.to_anthropic_dict(inner_thoughts_xml_tag=inner_thoughts_xml_tag) for m in msg_objs]
+    msg_objs = [
+        Message.dict_to_message(user_id=None, agent_id=None, openai_message_dict=m)
+        for m in data["messages"]
+    ]
+    data["messages"] = [
+        m.to_anthropic_dict(inner_thoughts_xml_tag=inner_thoughts_xml_tag)
+        for m in msg_objs
+    ]
 
     # Ensure first message is user
     if data["messages"][0]["role"] != "user":
-        data["messages"] = [{"role": "user", "content": DUMMY_FIRST_USER_MESSAGE}] + data["messages"]
+        data["messages"] = [
+            {"role": "user", "content": DUMMY_FIRST_USER_MESSAGE}
+        ] + data["messages"]
 
     # Handle alternating messages
     data["messages"] = merge_tool_results_into_user_messages(data["messages"])
@@ -360,7 +378,14 @@ def _prepare_anthropic_request(
     assert "max_tokens" in data, data
 
     # Remove OpenAI-specific fields
-    for field in ["frequency_penalty", "logprobs", "n", "top_p", "presence_penalty", "user"]:
+    for field in [
+        "frequency_penalty",
+        "logprobs",
+        "n",
+        "top_p",
+        "presence_penalty",
+        "user",
+    ]:
         data.pop(field, None)
 
     return data
@@ -406,52 +431,59 @@ def anthropic_chat_completions_request(
     data = _prepare_anthropic_request(data, inner_thoughts_xml_tag)
 
     if image_uris is not None:
-
         import base64
-        import httpx
-        for image_url in image_uris:
-            image_media_type = 'image/' + image_url.split('.')[-1]
 
-            image_data = base64.standard_b64encode(httpx.get(image_url).content).decode("utf-8")
-            data['messages'][2]['content'].append(
+        import httpx
+
+        for image_url in image_uris:
+            image_media_type = "image/" + image_url.split(".")[-1]
+
+            image_data = base64.standard_b64encode(httpx.get(image_url).content).decode(
+                "utf-8"
+            )
+            data["messages"][2]["content"].append(
                 {
-                    'type': "image",
-                    'source': {
-                        'type': "base64",
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
                         "media_type": image_media_type,
                         "data": image_data,
-                    }
+                    },
                 }
             )
 
-    if len(data['messages'][-1]['content']) == 2:  
-        content = data['messages'][-1]['content'][-2]['content']
+    if len(data["messages"][-1]["content"]) == 2:
+        content = data["messages"][-1]["content"][-2]["content"]
         if "<image>" in content and "</image>" in content:
             index1 = content.index("<image>")
             index2 = content.index("</image>") + len("</image>")
-            image_url = content[index1+len("<image>"):index2-len("</image>")]
+            image_url = content[index1 + len("<image>") : index2 - len("</image>")]
             content = content.replace(f"<image>{image_url}</image>", "<Image>")
 
             import base64
+
             # Get the image data
-            image_media_type = 'image/' + image_url.split('.')[-1]
-            if 'http://' in image_url:
+            image_media_type = "image/" + image_url.split(".")[-1]
+            if "http://" in image_url:
                 import httpx
-                image_data = base64.standard_b64encode(httpx.get(image_url).content).decode("utf-8")
+
+                image_data = base64.standard_b64encode(
+                    httpx.get(image_url).content
+                ).decode("utf-8")
             else:
                 with open(image_url, "rb") as image_file:
                     image_data = base64.b64encode(image_file.read()).decode("utf-8")
 
-            data['messages'][-1]['content'][-2]['content'] = content
+            data["messages"][-1]["content"][-2]["content"] = content
 
-            data['messages'][-1]['content'].append(
+            data["messages"][-1]["content"].append(
                 {
-                    'type': "image",
-                    'source': {
-                        'type': "base64",
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
                         "media_type": image_media_type,
                         "data": image_data,
-                    }
+                    },
                 }
             )
 
@@ -459,7 +491,9 @@ def anthropic_chat_completions_request(
         **data,
         betas=betas,
     )
-    return convert_anthropic_response_to_chatcompletion(response=response, inner_thoughts_xml_tag=inner_thoughts_xml_tag)
+    return convert_anthropic_response_to_chatcompletion(
+        response=response, inner_thoughts_xml_tag=inner_thoughts_xml_tag
+    )
 
 
 def anthropic_bedrock_chat_completions_request(
@@ -475,8 +509,12 @@ def anthropic_bedrock_chat_completions_request(
     # Make the request
     try:
         response = client.messages.create(**data)
-        return convert_anthropic_response_to_chatcompletion(response=response, inner_thoughts_xml_tag=inner_thoughts_xml_tag)
+        return convert_anthropic_response_to_chatcompletion(
+            response=response, inner_thoughts_xml_tag=inner_thoughts_xml_tag
+        )
     except PermissionDeniedError:
-        raise BedrockPermissionError(f"User does not have access to the Bedrock model with the specified ID. {data['model']}")
+        raise BedrockPermissionError(
+            f"User does not have access to the Bedrock model with the specified ID. {data['model']}"
+        )
     except Exception as e:
         raise BedrockError(f"Bedrock error: {e}")

@@ -5,50 +5,42 @@ This module extracts the database schema from SQLAlchemy models and generates DD
 
 import os
 import sys
-from io import StringIO
-from contextlib import redirect_stdout
+
 from sqlalchemy import create_engine
-from sqlalchemy.schema import CreateTable
-from sqlalchemy.sql.ddl import DDLElement
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.schema import CreateTable
 
 # Add the mirix directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 
 def extract_schema_ddl():
     """Extract DDL statements from SQLAlchemy models for PGlite"""
-    
+
     # Import all the ORM models to ensure they're registered
-    from mirix.orm import (
-        Organization, User, Agent, Message, Tool, Block, Provider,
-        KnowledgeVaultItem, EpisodicEvent, ProceduralMemoryItem, 
-        ResourceMemoryItem, SemanticMemoryItem, FileMetadata,
-        CloudFileMapping, SandboxConfig, SandboxEnvironmentVariable,
-        AgentsTags, Step
-    )
     from mirix.orm.sqlalchemy_base import SqlalchemyBase
-    
+
     # Create a PostgreSQL engine for DDL generation (PGlite uses PostgreSQL dialect)
-    engine = create_engine('postgresql://user:pass@localhost/db')
-    
+    engine = create_engine("postgresql://user:pass@localhost/db")
+
     # Get all tables from the base metadata
     metadata = SqlalchemyBase.metadata
-    
+
     ddl_statements = []
-    
+
     # Generate CREATE TABLE statements
     for table in metadata.sorted_tables:
         # Skip tables that are for PostgreSQL-specific features we don't need
-        if table.name in ['alembic_version']:
+        if table.name in ["alembic_version"]:
             continue
-            
+
         create_table_ddl = str(CreateTable(table).compile(dialect=postgresql.dialect()))
-        
+
         # Clean up the DDL for PGlite compatibility
         create_table_ddl = clean_ddl_for_pglite(create_table_ddl)
-        
+
         ddl_statements.append(create_table_ddl)
-    
+
     # Add any additional setup statements
     setup_statements = [
         "-- PGlite Schema Initialization",
@@ -58,57 +50,62 @@ def extract_schema_ddl():
         "-- (PGlite should handle SERIAL columns automatically)",
         "",
     ]
-    
-    return '\n'.join(setup_statements + ddl_statements)
+
+    return "\n".join(setup_statements + ddl_statements)
+
 
 def clean_ddl_for_pglite(ddl):
     """Clean DDL statements for PGlite compatibility"""
-    
+
     # Remove PostgreSQL-specific extensions and features that PGlite doesn't support
     replacements = [
         # Remove vector column types (PGlite doesn't support pgvector)
-        ('vector(1536)', 'TEXT'),  # Replace vector columns with TEXT for now
-        ('vector(3072)', 'TEXT'),
-        ('vector(4096)', 'TEXT'),
-        
+        ("vector(1536)", "TEXT"),  # Replace vector columns with TEXT for now
+        ("vector(3072)", "TEXT"),
+        ("vector(4096)", "TEXT"),
         # Remove GIN indexes (not supported in PGlite)
-        ('USING gin', ''),
-        
+        ("USING gin", ""),
         # Simplify constraint names
-        ('CONSTRAINT ', ''),
-        
+        ("CONSTRAINT ", ""),
         # Remove some PostgreSQL-specific column constraints
-        ('::text', ''),
-        
+        ("::text", ""),
         # Remove timezone from TIMESTAMP
-        ('TIMESTAMP WITH TIME ZONE', 'TIMESTAMP'),
-        
+        ("TIMESTAMP WITH TIME ZONE", "TIMESTAMP"),
         # Simplify SERIAL to INTEGER with autoincrement
-        ('BIGSERIAL', 'INTEGER'),
-        ('SERIAL', 'INTEGER'),
+        ("BIGSERIAL", "INTEGER"),
+        ("SERIAL", "INTEGER"),
     ]
-    
+
     for old, new in replacements:
         ddl = ddl.replace(old, new)
-    
+
     # Remove any lines that contain unsupported PostgreSQL features
-    lines = ddl.split('\n')
+    lines = ddl.split("\n")
     filtered_lines = []
-    
+
     for line in lines:
         # Skip lines with unsupported features
-        if any(unsupported in line.lower() for unsupported in [
-            'gin', 'gist', 'tsvector', 'to_tsvector', 'pg_trgm',
-            'btree_gin', 'btree_gist'
-        ]):
+        if any(
+            unsupported in line.lower()
+            for unsupported in [
+                "gin",
+                "gist",
+                "tsvector",
+                "to_tsvector",
+                "pg_trgm",
+                "btree_gin",
+                "btree_gist",
+            ]
+        ):
             continue
         filtered_lines.append(line)
-    
-    return '\n'.join(filtered_lines)
+
+    return "\n".join(filtered_lines)
+
 
 def get_basic_schema():
     """Get a basic schema for PGlite with essential tables"""
-    
+
     return """
 -- Basic PGlite Schema for Mirix
 -- Essential tables for core functionality
@@ -342,6 +339,7 @@ VALUES ('default-user', 'default-org', 'Default User', 'UTC')
 ON CONFLICT DO NOTHING;
 """
 
+
 if __name__ == "__main__":
     try:
         # Try to extract full schema from SQLAlchemy models
@@ -351,4 +349,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Failed to extract full schema: {e}")
         print("Using basic schema instead:")
-        print(get_basic_schema()) 
+        print(get_basic_schema())

@@ -13,8 +13,12 @@ class AgentsTags(Base):
     # # TODO: Move this in this PR? at the very end?
     # id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: f"agents_tags-{uuid.uuid4()}")
 
-    agent_id: Mapped[String] = mapped_column(String, ForeignKey("agents.id"), primary_key=True)
-    tag: Mapped[str] = mapped_column(String, doc="The name of the tag associated with the agent.", primary_key=True)
+    agent_id: Mapped[String] = mapped_column(
+        String, ForeignKey("agents.id"), primary_key=True
+    )
+    tag: Mapped[str] = mapped_column(
+        String, doc="The name of the tag associated with the agent.", primary_key=True
+    )
 
     # Relationships
     agent: Mapped["Agent"] = relationship("Agent", back_populates="tags")

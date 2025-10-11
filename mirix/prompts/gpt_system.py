@@ -1,11 +1,14 @@
 import os
 
-from mirix.constants import MIRIX_DIR
 
 
 def get_system_text(key):
-    filename = f"{key}.txt"
-    file_path = os.path.join(os.path.dirname(__file__), "system", filename)
+
+    if os.path.exists(os.path.dirname(key)):
+        file_path = f"{key}.txt"
+    else:
+        filename = f"{key}.txt"
+        file_path = os.path.join(os.path.dirname(__file__), "system", filename)
 
     # first look in prompts/system/*.txt
     if os.path.exists(file_path):

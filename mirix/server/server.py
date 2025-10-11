@@ -4,8 +4,8 @@ import os
 import traceback
 import warnings
 from abc import abstractmethod
-from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from datetime import datetime
+from typing import Callable, Dict, List, Optional, Union
 
 # from composio.client import Composio
 # from composio.client.collections import ActionModel, AppModel
@@ -15,13 +15,26 @@ from fastapi.responses import StreamingResponse
 import mirix.constants as constants
 import mirix.server.utils as server_utils
 import mirix.system as system
-from mirix.agent import Agent, save_agent
+from mirix.agent import (
+    Agent,
+    BackgroundAgent,
+    CoreMemoryAgent,
+    EpisodicMemoryAgent,
+    KnowledgeVaultAgent,
+    MetaMemoryAgent,
+    ProceduralMemoryAgent,
+    ReflexionAgent,
+    ResourceMemoryAgent,
+    SemanticMemoryAgent,
+    save_agent,
+)
 
 # TODO use custom interface
-from mirix.interface import AgentInterface  # abstract
-from mirix.interface import CLIInterface  # for printing to terminal
+from mirix.interface import (
+    AgentInterface,  # abstract
+    CLIInterface,  # for printing to terminal
+)
 from mirix.log import get_logger
-from mirix.agent import EpisodicMemoryAgent, ProceduralMemoryAgent, ResourceMemoryAgent, KnowledgeVaultAgent, MetaMemoryAgent, SemanticMemoryAgent, CoreMemoryAgent, ReflexionAgent, BackgroundAgent
 from mirix.orm import Base
 from mirix.orm.errors import NoResultFound
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
@@ -29,13 +42,20 @@ from mirix.schemas.block import BlockUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 
 # openai schemas
-from mirix.schemas.enums import JobStatus, MessageStreamStatus
-from mirix.schemas.environment_variables import SandboxEnvironmentVariableCreate
-from mirix.schemas.mirix_message import LegacyMirixMessage, MirixMessage, ToolReturnMessage
-from mirix.schemas.mirix_response import MirixResponse
+from mirix.schemas.enums import MessageStreamStatus
 from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.memory import ArchivalMemorySummary, ContextWindowOverview, Memory, RecallMemorySummary
-from mirix.schemas.message import Message, MessageCreate, MessageRole, MessageUpdate
+from mirix.schemas.memory import (
+    ContextWindowOverview,
+    Memory,
+    RecallMemorySummary,
+)
+from mirix.schemas.message import Message, MessageCreate, MessageUpdate
+from mirix.schemas.mirix_message import (
+    LegacyMirixMessage,
+    MirixMessage,
+    ToolReturnMessage,
+)
+from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
 from mirix.schemas.providers import (
     AnthropicBedrockProvider,
@@ -51,24 +71,22 @@ from mirix.schemas.providers import (
     VLLMChatCompletionsProvider,
     VLLMCompletionsProvider,
 )
-from mirix.schemas.sandbox_config import SandboxType
-from mirix.schemas.source import Source
 from mirix.schemas.tool import Tool
 from mirix.schemas.usage import MirixUsageStatistics
 from mirix.schemas.user import User
 from mirix.services.agent_manager import AgentManager
 from mirix.services.block_manager import BlockManager
+from mirix.services.cloud_file_mapping_manager import CloudFileMappingManager
+from mirix.services.episodic_memory_manager import EpisodicMemoryManager
+from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
 from mirix.services.message_manager import MessageManager
 from mirix.services.organization_manager import OrganizationManager
-from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
-from mirix.services.episodic_memory_manager import EpisodicMemoryManager
-from mirix.services.procedural_memory_manager import ProceduralMemoryManager
-from mirix.services.resource_memory_manager import ResourceMemoryManager
-from mirix.services.semantic_memory_manager import SemanticMemoryManager
 from mirix.services.per_agent_lock_manager import PerAgentLockManager
-from mirix.services.cloud_file_mapping_manager import CloudFileMappingManager
-from mirix.services.sandbox_config_manager import SandboxConfigManager
+from mirix.services.procedural_memory_manager import ProceduralMemoryManager
 from mirix.services.provider_manager import ProviderManager
+from mirix.services.resource_memory_manager import ResourceMemoryManager
+from mirix.services.sandbox_config_manager import SandboxConfigManager
+from mirix.services.semantic_memory_manager import SemanticMemoryManager
 from mirix.services.step_manager import StepManager
 from mirix.services.tool_execution_sandbox import ToolExecutionSandbox
 from mirix.services.tool_manager import ToolManager
@@ -97,7 +115,9 @@ class Server(object):
         raise NotImplementedError
 
     @abstractmethod
-    def update_agent_core_memory(self, user_id: str, agent_id: str, label: str, actor: User) -> Memory:
+    def update_agent_core_memory(
+        self, user_id: str, agent_id: str, label: str, actor: User
+    ) -> Memory:
         """Update the agents core memory block, return the new state"""
         raise NotImplementedError
 
@@ -123,12 +143,16 @@ class Server(object):
         raise NotImplementedError
 
     @abstractmethod
-    def send_messages(self, user_id: str, agent_id: str, messages: Union[MessageCreate, List[Message]]) -> None:
+    def send_messages(
+        self, user_id: str, agent_id: str, messages: Union[MessageCreate, List[Message]]
+    ) -> None:
         """Send a list of messages to the agent"""
         raise NotImplementedError
 
     @abstractmethod
-    def run_command(self, user_id: str, agent_id: str, command: str) -> Union[str, None]:
+    def run_command(
+        self, user_id: str, agent_id: str, command: str
+    ) -> Union[str, None]:
         """Run a command on the agent, e.g. /memory
 
         May return a string with a message generated by the command
@@ -156,13 +180,22 @@ def print_sqlite_schema_error():
     """Print a formatted error message for SQLite schema issues"""
     console = Console()
     error_text = Text()
-    error_text.append("Existing SQLite DB schema is invalid, and schema migrations are not supported for SQLite. ", style="bold red")
-    error_text.append("To have migrations supported between Mirix versions, please run Mirix with Docker (", style="white")
+    error_text.append(
+        "Existing SQLite DB schema is invalid, and schema migrations are not supported for SQLite. ",
+        style="bold red",
+    )
+    error_text.append(
+        "To have migrations supported between Mirix versions, please run Mirix with Docker (",
+        style="white",
+    )
     error_text.append("https://docs.mirix.com/server/docker", style="blue underline")
     error_text.append(") or use Postgres by setting ", style="white")
     error_text.append("MIRIX_PG_URI", style="yellow")
     error_text.append(".\n\n", style="white")
-    error_text.append("If you wish to keep using SQLite, you can reset your database by removing the DB file with ", style="white")
+    error_text.append(
+        "If you wish to keep using SQLite, you can reset your database by removing the DB file with ",
+        style="white",
+    )
     error_text.append("rm ~/.mirix/sqlite.db", style="yellow")
     error_text.append(" or downgrade to your previous version of Mirix.", style="white")
 
@@ -181,90 +214,91 @@ def db_error_handler():
         # raise ValueError(f"SQLite DB error: {str(e)}")
         exit(1)
 
+
 # Check for PGlite mode
-USE_PGLITE = os.environ.get('MIRIX_USE_PGLITE', 'false').lower() == 'true'
+USE_PGLITE = os.environ.get("MIRIX_USE_PGLITE", "false").lower() == "true"
 
 if USE_PGLITE:
     print("PGlite mode detected - setting up PGlite adapter")
-    
+
     # Import PGlite connector
     try:
         from mirix.database.pglite_connector import pglite_connector
-        
+
         # Create a simple adapter to make PGlite work with existing code
         class PGliteSession:
             """Adapter to make PGlite work with SQLAlchemy-style code"""
-            
+
             def __init__(self, connector):
                 self.connector = connector
-                
+
             def execute(self, query, params=None):
                 """Execute a query using PGlite bridge"""
-                if hasattr(query, 'compile'):
+                if hasattr(query, "compile"):
                     # Handle SQLAlchemy query objects
                     compiled = query.compile(compile_kwargs={"literal_binds": True})
                     query_str = str(compiled)
                 else:
                     query_str = str(query)
-                
+
                 result = self.connector.execute_query(query_str, params)
-                
+
                 # Create a simple result wrapper
                 class ResultWrapper:
                     def __init__(self, data):
-                        self.rows = data.get('rows', [])
-                        self.rowcount = data.get('rowCount', 0)
-                        
+                        self.rows = data.get("rows", [])
+                        self.rowcount = data.get("rowCount", 0)
+
                     def scalars(self):
                         return self.rows
-                        
+
                     def all(self):
                         return self.rows
-                        
+
                     def first(self):
                         return self.rows[0] if self.rows else None
-                        
+
                 return ResultWrapper(result)
-                
+
             def commit(self):
                 pass  # PGlite handles commits automatically
-                
+
             def rollback(self):
                 pass  # Basic implementation
-                
+
             def close(self):
                 pass  # No need to close PGlite sessions
-        
+
         class PGliteEngine:
             """Engine adapter for PGlite"""
-            
+
             def __init__(self, connector):
                 self.connector = connector
-                
+
             def connect(self):
                 return PGliteSession(self.connector)
-                
+
         # Create the engine
         engine = PGliteEngine(pglite_connector)
-        
+
         # Create sessionmaker
         class PGliteSessionMaker:
             def __init__(self, engine):
                 self.engine = engine
-                
+
             def __call__(self):
                 return self.engine.connect()
-                
+
         SessionLocal = PGliteSessionMaker(engine)
-        
+
         # Set config for PGlite mode
         config.recall_storage_type = "pglite"
         config.recall_storage_uri = "pglite://local"
-        config.archival_storage_type = "pglite" 
+        config.archival_storage_type = "pglite"
         config.archival_storage_uri = "pglite://local"
-        
+
         print("PGlite adapter initialized successfully")
-        
+
     except ImportError as e:
         print(f"Failed to import PGlite connector: {e}")
         print("Falling back to SQLite mode")
@@ -286,13 +320,13 @@ if not USE_PGLITE and settings.mirix_pg_uri_no_default:
         pool_recycle=settings.pg_pool_recycle,
         echo=settings.pg_echo,
     )
-    
+
     # Create all tables for PostgreSQL
     Base.metadata.create_all(bind=engine)
 elif not USE_PGLITE:
     # TODO: don't rely on config storage
     sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
-    
+
     # Configure SQLite engine with proper concurrency settings
     engine = create_engine(
         f"sqlite:///{sqlite_db_path}",
@@ -361,7 +395,9 @@ class SyncServer(Server):
         self,
         chaining: bool = True,
         max_chaining_steps: Optional[bool] = None,
-        default_interface_factory: Callable[[], AgentInterface] = lambda: CLIInterface(),
+        default_interface_factory: Callable[
+            [], AgentInterface
+        ] = lambda: CLIInterface(),
         init_with_default_org_and_user: bool = True,
         # default_interface: AgentInterface = CLIInterface(),
         # default_persistence_manager_cls: PersistenceManager = LocalStateManager,
@@ -400,7 +436,7 @@ class SyncServer(Server):
 
         # Newly added managers
         self.knowledge_vault_manager = KnowledgeVaultManager()
-        self.episodic_memory_manager =  EpisodicMemoryManager()
+        self.episodic_memory_manager = EpisodicMemoryManager()
         self.procedural_memory_manager = ProceduralMemoryManager()
         self.resource_memory_manager = ResourceMemoryManager()
         self.semantic_memory_manager = SemanticMemoryManager()
@@ -434,11 +470,15 @@ class SyncServer(Server):
 
         # collect providers (always has Mirix as a default)
         self._enabled_providers: List[Provider] = [MirixProvider()]
-        
+
         # Check for database-stored API key first, fall back to model_settings
         openai_override_key = ProviderManager().get_openai_override_key()
-        openai_api_key = openai_override_key if openai_override_key else model_settings.openai_api_key
-        
+        openai_api_key = (
+            openai_override_key
+            if openai_override_key
+            else model_settings.openai_api_key
+        )
+
         if openai_api_key:
             self._enabled_providers.append(
                 OpenAIProvider(
@@ -462,8 +502,12 @@ class SyncServer(Server):
             )
         # Check for database-stored API key first, fall back to model_settings
         gemini_override_key = ProviderManager().get_gemini_override_key()
-        gemini_api_key = gemini_override_key if gemini_override_key else model_settings.gemini_api_key
-        
+        gemini_api_key = (
+            gemini_override_key
+            if gemini_override_key
+            else model_settings.gemini_api_key
+        )
+
         if gemini_api_key:
             self._enabled_providers.append(
                 GoogleAIProvider(
@@ -508,40 +552,66 @@ class SyncServer(Server):
                     base_url=model_settings.vllm_api_base,
                 )
             )
-        if model_settings.aws_access_key and model_settings.aws_secret_access_key and model_settings.aws_region:
+        if (
+            model_settings.aws_access_key
+            and model_settings.aws_secret_access_key
+            and model_settings.aws_region
+        ):
             self._enabled_providers.append(
                 AnthropicBedrockProvider(
                     aws_region=model_settings.aws_region,
                 )
             )
 
-    def load_agent(self, agent_id: str, actor: User, interface: Union[AgentInterface, None] = None) -> Agent:
+    def load_agent(
+        self, agent_id: str, actor: User, interface: Union[AgentInterface, None] = None
+    ) -> Agent:
         """Updated method to load agents from persisted storage"""
         agent_lock = self.per_agent_lock_manager.get_lock(agent_id)
         with agent_lock:
-            agent_state = self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor)
+            agent_state = self.agent_manager.get_agent_by_id(
+                agent_id=agent_id, actor=actor
+            )
 
             interface = interface or self.default_interface_factory()
             if agent_state.agent_type == AgentType.chat_agent:
                 agent = Agent(agent_state=agent_state, interface=interface, user=actor)
             elif agent_state.agent_type == AgentType.episodic_memory_agent:
-                agent = EpisodicMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = EpisodicMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.knowledge_vault_agent:
-                agent = KnowledgeVaultAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = KnowledgeVaultAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.procedural_memory_agent:
-                agent = ProceduralMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = ProceduralMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.resource_memory_agent:
-                agent = ResourceMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = ResourceMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.meta_memory_agent:
-                agent = MetaMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = MetaMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.semantic_memory_agent:
-                agent = SemanticMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = SemanticMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.core_memory_agent:
-                agent = CoreMemoryAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = CoreMemoryAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.reflexion_agent:
-                agent = ReflexionAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = ReflexionAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             elif agent_state.agent_type == AgentType.background_agent:
-                agent = BackgroundAgent(agent_state=agent_state, interface=interface, user=actor)
+                agent = BackgroundAgent(
+                    agent_state=agent_state, interface=interface, user=actor
+                )
             else:
                 raise ValueError(f"Invalid agent type {agent_state.agent_type}")
 
@@ -568,17 +638,27 @@ class SyncServer(Server):
         logger.debug(f"Got input messages: {input_messages}")
         mirix_agent = None
         try:
-            mirix_agent = self.load_agent(agent_id=agent_id, interface=interface, actor=actor)
+            mirix_agent = self.load_agent(
+                agent_id=agent_id, interface=interface, actor=actor
+            )
 
             if mirix_agent is None:
-                raise KeyError(f"Agent (user={actor.id}, agent={agent_id}) is not loaded")
+                raise KeyError(
+                    f"Agent (user={actor.id}, agent={agent_id}) is not loaded"
+                )
 
             # Determine whether or not to token stream based on the capability of the interface
-            token_streaming = mirix_agent.interface.streaming_mode if hasattr(mirix_agent.interface, "streaming_mode") else False
+            token_streaming = (
+                mirix_agent.interface.streaming_mode
+                if hasattr(mirix_agent.interface, "streaming_mode")
+                else False
+            )
 
-            logger.debug(f"Starting agent step")
+            logger.debug("Starting agent step")
             if interface:
-                metadata = interface.metadata if hasattr(interface, "metadata") else None
+                metadata = (
+                    interface.metadata if hasattr(interface, "metadata") else None
+                )
             else:
                 metadata = None
 
@@ -599,7 +679,7 @@ class SyncServer(Server):
                 put_inner_thoughts_first=put_inner_thoughts_first,
                 extra_messages=extra_messages,
                 message_queue=message_queue,
-                user_id=user_id
+                user_id=user_id,
             )
 
         except Exception as e:
@@ -613,7 +693,9 @@ class SyncServer(Server):
 
         return usage_stats
 
-    def _command(self, user_id: str, agent_id: str, command: str) -> MirixUsageStatistics:
+    def _command(
+        self, user_id: str, agent_id: str, command: str
+    ) -> MirixUsageStatistics:
         """Process a CLI command"""
         # TODO: Thread actor directly through this function, since the top level caller most likely already retrieved the user
         actor = self.user_manager.get_user_or_default(user_id=user_id)
@@ -638,25 +720,37 @@ class SyncServer(Server):
             if amount == 0:
                 mirix_agent.interface.print_messages(mirix_agent.messages, dump=True)
             else:
-                mirix_agent.interface.print_messages(mirix_agent.messages[-min(amount, len(mirix_agent.messages)) :], dump=True)
+                mirix_agent.interface.print_messages(
+                    mirix_agent.messages[-min(amount, len(mirix_agent.messages)) :],
+                    dump=True,
+                )
 
         elif command.lower() == "dumpraw":
             mirix_agent.interface.print_messages_raw(mirix_agent.messages)
 
         elif command.lower() == "memory":
-            ret_str = f"\nDumping memory contents:\n" + f"\n{str(mirix_agent.agent_state.memory)}"
+            ret_str = (
+                "\nDumping memory contents:\n"
+                + f"\n{str(mirix_agent.agent_state.memory)}"
+            )
             return ret_str
 
         elif command.lower() == "pop" or command.lower().startswith("pop "):
             # Check if there's an additional argument that's an integer
             command = command.strip().split()
-            pop_amount = int(command[1]) if len(command) > 1 and command[1].isdigit() else 3
+            pop_amount = (
+                int(command[1]) if len(command) > 1 and command[1].isdigit() else 3
+            )
             n_messages = len(mirix_agent.messages)
             MIN_MESSAGES = 2
             if n_messages <= MIN_MESSAGES:
-                logger.debug(f"Agent only has {n_messages} messages in stack, none left to pop")
+                logger.debug(
+                    f"Agent only has {n_messages} messages in stack, none left to pop"
+                )
             elif n_messages - pop_amount < MIN_MESSAGES:
-                logger.debug(f"Agent only has {n_messages} messages in stack, cannot pop more than {n_messages - MIN_MESSAGES}")
+                logger.debug(
+                    f"Agent only has {n_messages} messages in stack, cannot pop more than {n_messages - MIN_MESSAGES}"
+                )
             else:
                 logger.debug(f"Popping last {pop_amount} messages from stack")
                 for _ in range(min(pop_amount, len(mirix_agent.messages))):
@@ -664,7 +758,7 @@ class SyncServer(Server):
 
         elif command.lower() == "retry":
             # TODO this needs to also modify the persistence manager
-            logger.debug(f"Retrying for another answer")
+            logger.debug("Retrying for another answer")
             while len(mirix_agent.messages) > 0:
                 if mirix_agent.messages[-1].get("role") == "user":
                     # we want to pop up to the last user message and send it again
@@ -692,9 +786,15 @@ class SyncServer(Server):
                 for x in range(len(mirix_agent.messages) - 1, 0, -1):
                     if mirix_agent.messages[x].get("role") == "assistant":
                         text = command[len("rewrite ") :].strip()
-                        args = json_loads(mirix_agent.messages[x].get("function_call").get("arguments"))
+                        args = json_loads(
+                            mirix_agent.messages[x]
+                            .get("function_call")
+                            .get("arguments")
+                        )
                         args["message"] = text
-                        mirix_agent.messages[x].get("function_call").update({"arguments": json_dumps(args)})
+                        mirix_agent.messages[x].get("function_call").update(
+                            {"arguments": json_dumps(args)}
+                        )
                         break
 
         # No skip options
@@ -704,11 +804,15 @@ class SyncServer(Server):
 
         elif command.lower() == "contine_chaining":
             input_message = system.get_contine_chaining()
-            usage = self._step(actor=actor, agent_id=agent_id, input_message=input_message)
+            usage = self._step(
+                actor=actor, agent_id=agent_id, input_message=input_message
+            )
 
         elif command.lower() == "memorywarning":
             input_message = system.get_token_limit_warning()
-            usage = self._step(actor=actor, agent_id=agent_id, input_message=input_message)
+            usage = self._step(
+                actor=actor, agent_id=agent_id, input_message=input_message
+            )
 
         if not usage:
             usage = MirixUsageStatistics()
@@ -794,7 +898,9 @@ class SyncServer(Server):
             elif message.startswith("/"):
                 raise ValueError(f"Invalid input: '{message}'")
 
-            packaged_system_message = system.package_system_message(system_message=message)
+            packaged_system_message = system.package_system_message(
+                system_message=message
+            )
 
             # NOTE: eventually deprecate and only allow passing Message types
             # Convert to a Message object
@@ -842,7 +948,9 @@ class SyncServer(Server):
             raise KeyError(f"Agent (user={actor.id}, agent={agent_id}) is not loaded")
         return mirix_agent.construct_system_message(message=message)
 
-    def extract_memory_for_system_prompt(self, agent_id: str, message: str, actor: User) -> str:
+    def extract_memory_for_system_prompt(
+        self, agent_id: str, message: str, actor: User
+    ) -> str:
         """
         Construct a system message from a message.
         """
@@ -892,11 +1000,13 @@ class SyncServer(Server):
             extra_messages=extra_messages,
             message_queue=message_queue,
             retrieved_memories=retrieved_memories,
-            user_id=user_id
+            user_id=user_id,
         )
 
     # @LockingServer.agent_lock_decorator
-    def run_command(self, user_id: str, agent_id: str, command: str) -> MirixUsageStatistics:
+    def run_command(
+        self, user_id: str, agent_id: str, command: str
+    ) -> MirixUsageStatistics:
         """Run a command on the agent"""
         # If the input begins with a command prefix, attempt to process it as a command
         if command.startswith("/"):
@@ -914,13 +1024,19 @@ class SyncServer(Server):
         if request.llm_config is None:
             if request.model is None:
                 raise ValueError("Must specify either model or llm_config in request")
-            request.llm_config = self.get_llm_config_from_handle(handle=request.model, context_window_limit=request.context_window_limit)
+            request.llm_config = self.get_llm_config_from_handle(
+                handle=request.model, context_window_limit=request.context_window_limit
+            )
 
         if request.embedding_config is None:
             if request.embedding is None:
-                raise ValueError("Must specify either embedding or embedding_config in request")
+                raise ValueError(
+                    "Must specify either embedding or embedding_config in request"
+                )
             request.embedding_config = self.get_embedding_config_from_handle(
-                handle=request.embedding, embedding_chunk_size=request.embedding_chunk_size or constants.DEFAULT_EMBEDDING_CHUNK_SIZE
+                handle=request.embedding,
+                embedding_chunk_size=request.embedding_chunk_size
+                or constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
             )
 
         """Create a new agent using a config"""
@@ -937,8 +1053,12 @@ class SyncServer(Server):
         """Return the memory of an agent (core memory)"""
         return self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor).memory
 
-    def get_recall_memory_summary(self, agent_id: str, actor: User) -> RecallMemorySummary:
-        return RecallMemorySummary(size=self.message_manager.size(actor=actor, agent_id=agent_id))
+    def get_recall_memory_summary(
+        self, agent_id: str, actor: User
+    ) -> RecallMemorySummary:
+        return RecallMemorySummary(
+            size=self.message_manager.size(actor=actor, agent_id=agent_id)
+        )
 
     def get_agent_recall_cursor(
         self,
@@ -955,8 +1075,16 @@ class SyncServer(Server):
         # TODO: Thread actor directly through this function, since the top level caller most likely already retrieved the user
 
         actor = self.user_manager.get_user_or_default(user_id=user_id)
-        start_date = self.message_manager.get_message_by_id(after, actor=actor).created_at if after else None
-        end_date = self.message_manager.get_message_by_id(before, actor=actor).created_at if before else None
+        start_date = (
+            self.message_manager.get_message_by_id(after, actor=actor).created_at
+            if after
+            else None
+        )
+        end_date = (
+            self.message_manager.get_message_by_id(before, actor=actor).created_at
+            if before
+            else None
+        )
 
         records = self.message_manager.list_messages_for_agent(
             agent_id=agent_id,
@@ -989,7 +1117,9 @@ class SyncServer(Server):
             config_copy = config.copy()
             for k, v in config.items():
                 if k == "key" or "_key" in k:
-                    config_copy[k] = server_utils.shorten_key_middle(v, chars_each_side=5)
+                    config_copy[k] = server_utils.shorten_key_middle(
+                        v, chars_each_side=5
+                    )
             return config_copy
 
         # TODO: do we need a separate server config?
@@ -1005,23 +1135,35 @@ class SyncServer(Server):
 
         return response
 
-    def update_agent_core_memory(self, agent_id: str, label: str, value: str, actor: User) -> Memory:
+    def update_agent_core_memory(
+        self, agent_id: str, label: str, value: str, actor: User
+    ) -> Memory:
         """Update the value of a block in the agent's memory"""
 
         # get the block id
-        block = self.agent_manager.get_block_with_label(agent_id=agent_id, block_label=label, actor=actor)
+        block = self.agent_manager.get_block_with_label(
+            agent_id=agent_id, block_label=label, actor=actor
+        )
 
         # update the block
-        self.block_manager.update_block(block_id=block.id, block_update=BlockUpdate(value=value), actor=actor)
+        self.block_manager.update_block(
+            block_id=block.id, block_update=BlockUpdate(value=value), actor=actor
+        )
 
         # rebuild system prompt for agent, potentially changed
-        return self.agent_manager.rebuild_system_prompt(agent_id=agent_id, actor=actor).memory
+        return self.agent_manager.rebuild_system_prompt(
+            agent_id=agent_id, actor=actor
+        ).memory
 
-    def update_agent_message(self, message_id: str, request: MessageUpdate, actor: User) -> Message:
+    def update_agent_message(
+        self, message_id: str, request: MessageUpdate, actor: User
+    ) -> Message:
         """Update the details of a message associated with an agent"""
 
         # Get the current message
-        return self.message_manager.update_message_by_id(message_id=message_id, message_update=request, actor=actor)
+        return self.message_manager.update_message_by_id(
+            message_id=message_id, message_update=request, actor=actor
+        )
 
     def get_organization_or_default(self, org_id: Optional[str]) -> Organization:
         """Get the organization object for org_id if it exists, otherwise return the default organization object"""
@@ -1031,7 +1173,9 @@ class SyncServer(Server):
         try:
             return self.organization_manager.get_organization_by_id(org_id=org_id)
         except NoResultFound:
-            raise HTTPException(status_code=404, detail=f"Organization with id {org_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Organization with id {org_id} not found"
+            )
 
     def list_llm_models(self) -> List[LLMConfig]:
         """List available models"""
@@ -1041,7 +1185,9 @@ class SyncServer(Server):
             try:
                 llm_models.extend(provider.list_llm_models())
             except Exception as e:
-                warnings.warn(f"An error occurred while listing LLM models for provider {provider}: {e}")
+                warnings.warn(
+                    f"An error occurred while listing LLM models for provider {provider}: {e}"
+                )
         return llm_models
 
     def list_embedding_models(self) -> List[EmbeddingConfig]:
@@ -1051,7 +1197,9 @@ class SyncServer(Server):
             try:
                 embedding_models.extend(provider.list_embedding_models())
             except Exception as e:
-                warnings.warn(f"An error occurred while listing embedding models for provider {provider}: {e}")
+                warnings.warn(
+                    f"An error occurred while listing embedding models for provider {provider}: {e}"
+                )
         return embedding_models
 
     def get_enabled_providers(self):
@@ -1060,36 +1208,58 @@ class SyncServer(Server):
         # Merge the two dictionaries, keeping the values from providers_from_db where conflicts occur
         return {**providers_from_env, **providers_from_db}.values()
 
-    def get_llm_config_from_handle(self, handle: str, context_window_limit: Optional[int] = None) -> LLMConfig:
+    def get_llm_config_from_handle(
+        self, handle: str, context_window_limit: Optional[int] = None
+    ) -> LLMConfig:
         provider_name, model_name = handle.split("/", 1)
         provider = self.get_provider_from_name(provider_name)
 
-        llm_configs = [config for config in provider.list_llm_models() if config.model == model_name]
+        llm_configs = [
+            config
+            for config in provider.list_llm_models()
+            if config.model == model_name
+        ]
         if not llm_configs:
-            raise ValueError(f"LLM model {model_name} is not supported by {provider_name}")
+            raise ValueError(
+                f"LLM model {model_name} is not supported by {provider_name}"
+            )
         elif len(llm_configs) > 1:
-            raise ValueError(f"Multiple LLM models with name {model_name} supported by {provider_name}")
+            raise ValueError(
+                f"Multiple LLM models with name {model_name} supported by {provider_name}"
+            )
         else:
             llm_config = llm_configs[0]
 
         if context_window_limit:
             if context_window_limit > llm_config.context_window:
-                raise ValueError(f"Context window limit ({context_window_limit}) is greater than maximum of ({llm_config.context_window})")
+                raise ValueError(
+                    f"Context window limit ({context_window_limit}) is greater than maximum of ({llm_config.context_window})"
+                )
             llm_config.context_window = context_window_limit
 
         return llm_config
 
     def get_embedding_config_from_handle(
-        self, handle: str, embedding_chunk_size: int = constants.DEFAULT_EMBEDDING_CHUNK_SIZE
+        self,
+        handle: str,
+        embedding_chunk_size: int = constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
     ) -> EmbeddingConfig:
         provider_name, model_name = handle.split("/", 1)
         provider = self.get_provider_from_name(provider_name)
 
-        embedding_configs = [config for config in provider.list_embedding_models() if config.embedding_model == model_name]
+        embedding_configs = [
+            config
+            for config in provider.list_embedding_models()
+            if config.embedding_model == model_name
+        ]
         if not embedding_configs:
-            raise ValueError(f"Embedding model {model_name} is not supported by {provider_name}")
+            raise ValueError(
+                f"Embedding model {model_name} is not supported by {provider_name}"
+            )
         elif len(embedding_configs) > 1:
-            raise ValueError(f"Multiple embedding models with name {model_name} supported by {provider_name}")
+            raise ValueError(
+                f"Multiple embedding models with name {model_name} supported by {provider_name}"
+            )
         else:
             embedding_config = embedding_configs[0]
 
@@ -1099,7 +1269,11 @@ class SyncServer(Server):
         return embedding_config
 
     def get_provider_from_name(self, provider_name: str) -> Provider:
-        providers = [provider for provider in self._enabled_providers if provider.name == provider_name]
+        providers = [
+            provider
+            for provider in self._enabled_providers
+            if provider.name == provider_name
+        ]
         if not providers:
             raise ValueError(f"Provider {provider_name} is not supported")
         elif len(providers) > 1:
@@ -1115,7 +1289,9 @@ class SyncServer(Server):
     def add_embedding_model(self, request: EmbeddingConfig) -> EmbeddingConfig:
         """Add a new embedding model"""
 
-    def get_agent_context_window(self, agent_id: str, actor: User) -> ContextWindowOverview:
+    def get_agent_context_window(
+        self, agent_id: str, actor: User
+    ) -> ContextWindowOverview:
         mirix_agent = self.load_agent(agent_id=agent_id, actor=actor)
         return mirix_agent.get_context_window()
 
@@ -1144,9 +1320,9 @@ class SyncServer(Server):
 
         # Next, attempt to run the tool with the sandbox
         try:
-            sandbox_run_result = ToolExecutionSandbox(tool.name, tool_args, actor, tool_object=tool).run(
-                agent_state=agent_state, additional_env_vars=tool_env_vars
-            )
+            sandbox_run_result = ToolExecutionSandbox(
+                tool.name, tool_args, actor, tool_object=tool
+            ).run(agent_state=agent_state, additional_env_vars=tool_env_vars)
             return ToolReturnMessage(
                 id="null",
                 tool_call_id="null",
@@ -1158,7 +1334,11 @@ class SyncServer(Server):
             )
 
         except Exception as e:
-            func_return = get_friendly_error_msg(function_name=tool.name, exception_name=type(e).__name__, exception_message=str(e))
+            func_return = get_friendly_error_msg(
+                function_name=tool.name,
+                exception_name=type(e).__name__,
+                exception_message=str(e),
+            )
             return ToolReturnMessage(
                 id="null",
                 tool_call_id="null",
@@ -1215,11 +1395,13 @@ class SyncServer(Server):
         include_final_message = True
 
         if not stream_steps and stream_tokens:
-            raise HTTPException(status_code=400, detail="stream_steps must be 'true' if stream_tokens is 'true'")
+            raise HTTPException(
+                status_code=400,
+                detail="stream_steps must be 'true' if stream_tokens is 'true'",
+            )
 
         # For streaming response
         try:
-
             # TODO: move this logic into server.py
 
             # Get the generator object off of the agent's streaming interface
@@ -1229,7 +1411,10 @@ class SyncServer(Server):
             # Disable token streaming if not OpenAI
             # TODO: cleanup this logic
             llm_config = mirix_agent.agent_state.llm_config
-            if stream_tokens and (llm_config.model_endpoint_type != "openai" or "inference.memgpt.ai" in llm_config.model_endpoint):
+            if stream_tokens and (
+                llm_config.model_endpoint_type != "openai"
+                or "inference.memgpt.ai" in llm_config.model_endpoint
+            ):
                 warnings.warn(
                     "Token streaming is only supported for models with type 'openai' or `inference.memgpt.ai` in the model_endpoint: agent has endpoint type {llm_config.model_endpoint_type} and {llm_config.model_endpoint}. Setting stream_tokens to False."
                 )
@@ -1242,13 +1427,17 @@ class SyncServer(Server):
                 assistant_message_tool_name=assistant_message_tool_name,
                 assistant_message_tool_kwarg=assistant_message_tool_kwarg,
                 inner_thoughts_in_kwargs=(
-                    llm_config.put_inner_thoughts_in_kwargs if llm_config.put_inner_thoughts_in_kwargs is not None else False
+                    llm_config.put_inner_thoughts_in_kwargs
+                    if llm_config.put_inner_thoughts_in_kwargs is not None
+                    else False
                 ),
                 # inner_thoughts_kwarg=INNER_THOUGHTS_KWARG,
             )
             streaming_interface = mirix_agent.interface
             if not isinstance(streaming_interface, StreamingServerInterface):
-                raise ValueError(f"Agent has wrong type of interface: {type(streaming_interface)}")
+                raise ValueError(
+                    f"Agent has wrong type of interface: {type(streaming_interface)}"
+                )
 
             # Enable token-streaming within the request if desired
             streaming_interface.streaming_mode = stream_tokens
@@ -1306,7 +1495,11 @@ class SyncServer(Server):
                         break
 
                 # Get rid of the stream status messages
-                filtered_stream = [d for d in generated_stream if not isinstance(d, MessageStreamStatus)]
+                filtered_stream = [
+                    d
+                    for d in generated_stream
+                    if not isinstance(d, MessageStreamStatus)
+                ]
                 usage = await task
 
                 # By default the stream will be messages of type MirixMessage or MirixLegacyMessage

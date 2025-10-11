@@ -348,7 +348,7 @@ function App() {
             size="small" 
             showText={false} 
           />
-          <span className="version">v0.1.4</span>
+          <span className="version">v0.1.5</span>
         </div>
         <div className="tabs">
           <button 
@@ -449,7 +449,7 @@ function App() {
       />
 
       {/* Update Checker */}
-      <UpdateChecker currentVersion="0.1.4" />
+      <UpdateChecker currentVersion="0.1.5" />
     </div>
   );
 }

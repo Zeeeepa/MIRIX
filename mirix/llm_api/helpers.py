@@ -7,11 +7,11 @@ from typing import Any, List, Union
 import requests
 
 from mirix.constants import OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING
+from mirix.schemas.enums import MessageRole
 from mirix.schemas.message import Message
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse, Choice
 from mirix.settings import summarizer_settings
 from mirix.utils import count_tokens, json_dumps, printd
-from mirix.schemas.enums import MessageRole
 
 
 def _convert_to_structured_output_helper(property: dict) -> dict:
@@ -29,11 +29,16 @@ def _convert_to_structured_output_helper(property: dict) -> dict:
 
     if param_type == "object":
         if "properties" not in property:
-            raise ValueError(f"Property {property} of type object is missing properties")
+            raise ValueError(
+                f"Property {property} of type object is missing properties"
+            )
         properties = property["properties"]
         property_dict = {
             "type": "object",
-            "properties": {k: _convert_to_structured_output_helper(v) for k, v in properties.items()},
+            "properties": {
+                k: _convert_to_structured_output_helper(v)
+                for k, v in properties.items()
+            },
             "additionalProperties": False,
             "required": list(properties.keys()),
         }
@@ -62,12 +67,16 @@ def _convert_to_structured_output_helper(property: dict) -> dict:
         return property_dict
 
 
-def convert_to_structured_output(openai_function: dict, allow_optional: bool = False) -> dict:
+def convert_to_structured_output(
+    openai_function: dict, allow_optional: bool = False
+) -> dict:
     """Convert function call objects to structured output objects
 
     See: https://platform.openai.com/docs/guides/structured-outputs/supported-schemas
     """
-    description = openai_function["description"] if "description" in openai_function else ""
+    description = (
+        openai_function["description"] if "description" in openai_function else ""
+    )
 
     structured_output = {
         "name": openai_function["name"],
@@ -86,18 +95,22 @@ def convert_to_structured_output(openai_function: dict, allow_optional: bool = F
     # but if "type" is "object" we expected "properties", where each property has details
     # and if "type" is "array" we expect "items": <type>
     for param, details in openai_function["parameters"]["properties"].items():
-
         param_type = details["type"]
         description = details["description"]
 
         if param_type == "object":
             if "properties" not in details:
                 # Structured outputs requires the properties on dicts be specified ahead of time
-                raise ValueError(f"Property {param} of type object is missing properties")
+                raise ValueError(
+                    f"Property {param} of type object is missing properties"
+                )
             structured_output["parameters"]["properties"][param] = {
                 "type": "object",
                 "description": description,
-                "properties": {k: _convert_to_structured_output_helper(v) for k, v in details["properties"].items()},
+                "properties": {
+                    k: _convert_to_structured_output_helper(v)
+                    for k, v in details["properties"].items()
+                },
                 "additionalProperties": False,
                 "required": list(details["properties"].keys()),
             }
@@ -116,11 +129,15 @@ def convert_to_structured_output(openai_function: dict, allow_optional: bool = F
             }
 
         if "enum" in details:
-            structured_output["parameters"]["properties"][param]["enum"] = details["enum"]
+            structured_output["parameters"]["properties"][param]["enum"] = details[
+                "enum"
+            ]
 
     if not allow_optional:
         # Add all properties to required list
-        structured_output["parameters"]["required"] = list(structured_output["parameters"]["properties"].keys())
+        structured_output["parameters"]["required"] = list(
+            structured_output["parameters"]["properties"].keys()
+        )
 
     else:
         # See what parameters exist that aren't required
@@ -134,10 +151,11 @@ def convert_to_structured_output(openai_function: dict, allow_optional: bool = F
     return structured_output
 
 
-def make_post_request(url: str, headers: dict[str, str], data: dict[str, Any]) -> dict[str, Any]:
+def make_post_request(
+    url: str, headers: dict[str, str], data: dict[str, Any]
+) -> dict[str, Any]:
     printd(f"Sending request to {url}")
     try:
-
         response = requests.post(url, headers=headers, json=data)
         printd(f"Response status code: {response.status_code}")
 
@@ -250,11 +268,13 @@ def unpack_all_inner_thoughts_from_kwargs(
     """Strip the inner thoughts out of the tool call and put it in the message content"""
 
     if len(response.choices) == 0:
-        raise ValueError(f"Unpacking inner thoughts from empty response not supported")
+        raise ValueError("Unpacking inner thoughts from empty response not supported")
 
     new_choices = []
     for choice in response.choices:
-        new_choices.append(unpack_inner_thoughts_from_kwargs(choice, inner_thoughts_key))
+        new_choices.append(
+            unpack_inner_thoughts_from_kwargs(choice, inner_thoughts_key)
+        )
 
     # return an updated copy
     new_response = response.model_copy(deep=True)
@@ -262,13 +282,21 @@ def unpack_all_inner_thoughts_from_kwargs(
     return new_response
 
 
-def unpack_inner_thoughts_from_kwargs(choice: Choice, inner_thoughts_key: str) -> Choice:
+def unpack_inner_thoughts_from_kwargs(
+    choice: Choice, inner_thoughts_key: str
+) -> Choice:
     message = choice.message
     rewritten_choice = choice  # inner thoughts unpacked out of the function
 
-    if message.role == "assistant" and message.tool_calls and len(message.tool_calls) >= 1:
+    if (
+        message.role == "assistant"
+        and message.tool_calls
+        and len(message.tool_calls) >= 1
+    ):
         if len(message.tool_calls) > 1:
-            warnings.warn(f"Unpacking inner thoughts from more than one tool call ({len(message.tool_calls)}) is not supported")
+            warnings.warn(
+                f"Unpacking inner thoughts from more than one tool call ({len(message.tool_calls)}) is not supported"
+            )
         # TODO support multiple tool calls
         tool_call = message.tool_calls[0]
 
@@ -281,16 +309,22 @@ def unpack_inner_thoughts_from_kwargs(choice: Choice, inner_thoughts_key: str) -
 
                 # replace the kwargs
                 new_choice = choice.model_copy(deep=True)
-                new_choice.message.tool_calls[0].function.arguments = json_dumps(func_args)
+                new_choice.message.tool_calls[0].function.arguments = json_dumps(
+                    func_args
+                )
                 # also replace the message content
                 if new_choice.message.content is not None:
-                    warnings.warn(f"Overwriting existing inner monologue ({new_choice.message.content}) with kwarg ({inner_thoughts})")
+                    warnings.warn(
+                        f"Overwriting existing inner monologue ({new_choice.message.content}) with kwarg ({inner_thoughts})"
+                    )
                 new_choice.message.content = inner_thoughts
 
                 # update the choice object
                 rewritten_choice = new_choice
             else:
-                warnings.warn(f"Did not find inner thoughts in tool call: {str(tool_call)}")
+                warnings.warn(
+                    f"Did not find inner thoughts in tool call: {str(tool_call)}"
+                )
 
         except json.JSONDecodeError as e:
             warnings.warn(f"Failed to strip inner thoughts from kwargs: {e}")
@@ -301,7 +335,11 @@ def unpack_inner_thoughts_from_kwargs(choice: Choice, inner_thoughts_key: str) -
     return rewritten_choice
 
 
-def calculate_summarizer_cutoff(in_context_messages: List[Message], token_counts: List[int], logger: "logging.Logger") -> int:
+def calculate_summarizer_cutoff(
+    in_context_messages: List[Message],
+    token_counts: List[int],
+    logger: "logging.Logger",
+) -> int:
     if len(in_context_messages) != len(token_counts):
         raise ValueError(
             f"Given in_context_messages has different length from given token_counts: {len(in_context_messages)} != {len(token_counts)}"
@@ -316,8 +354,12 @@ def calculate_summarizer_cutoff(in_context_messages: List[Message], token_counts
         # Start at index 1 (past the system message),
         # and collect messages for summarization until we reach the desired truncation token fraction (eg 50%)
         # We do the inverse of `desired_memory_token_pressure` to get what we need to remove
-        desired_token_count_to_summarize = int(sum(token_counts) * (1 - summarizer_settings.desired_memory_token_pressure))
-        logger.info(f"desired_token_count_to_summarize={desired_token_count_to_summarize}")
+        desired_token_count_to_summarize = int(
+            sum(token_counts) * (1 - summarizer_settings.desired_memory_token_pressure)
+        )
+        logger.info(
+            f"desired_token_count_to_summarize={desired_token_count_to_summarize}"
+        )
 
         tokens_so_far = 0
         cutoff = 0
@@ -328,18 +370,24 @@ def calculate_summarizer_cutoff(in_context_messages: List[Message], token_counts
             cutoff = i
             tokens_so_far += token_counts[i]
 
-            if msg["role"] not in ["user", "tool", "function"] and tokens_so_far >= desired_token_count_to_summarize:
+            if (
+                msg["role"] not in ["user", "tool", "function"]
+                and tokens_so_far >= desired_token_count_to_summarize
+            ):
                 # Break if the role is NOT a user or tool/function and tokens_so_far is enough
                 break
-            elif len(in_context_messages) - cutoff - 1 <= summarizer_settings.keep_last_n_messages:
+            elif (
+                len(in_context_messages) - cutoff - 1
+                <= summarizer_settings.keep_last_n_messages
+            ):
                 # Also break if we reached the `keep_last_n_messages` threshold
                 # NOTE: This may be on a user, tool, or function in theory
                 logger.warning(
                     f"Breaking summary cutoff early on role={msg['role']} because we hit the `keep_last_n_messages`={summarizer_settings.keep_last_n_messages}"
                 )
                 break
-        
-        while in_context_messages_openai[cutoff + 1]['role'] == MessageRole.tool:
+
+        while in_context_messages_openai[cutoff + 1]["role"] == MessageRole.tool:
             cutoff += 1
 
         logger.info(f"Evicting {cutoff}/{len(in_context_messages)} messages...")
@@ -352,7 +400,9 @@ def get_token_counts_for_messages(in_context_messages: List[Message]) -> List[in
     return token_counts
 
 
-def is_context_overflow_error(exception: Union[requests.exceptions.RequestException, Exception]) -> bool:
+def is_context_overflow_error(
+    exception: Union[requests.exceptions.RequestException, Exception],
+) -> bool:
     """Checks if an exception is due to context overflow (based on common OpenAI response messages)"""
     from mirix.utils import printd
 
@@ -365,25 +415,38 @@ def is_context_overflow_error(exception: Union[requests.exceptions.RequestExcept
 
     # Based on python requests + OpenAI REST API (/v1)
     elif isinstance(exception, requests.exceptions.HTTPError):
-        if exception.response is not None and "application/json" in exception.response.headers.get("Content-Type", ""):
+        if (
+            exception.response is not None
+            and "application/json" in exception.response.headers.get("Content-Type", "")
+        ):
             try:
                 error_details = exception.response.json()
                 if "error" not in error_details:
-                    printd(f"HTTPError occurred, but couldn't find error field: {error_details}")
+                    printd(
+                        f"HTTPError occurred, but couldn't find error field: {error_details}"
+                    )
                     return False
                 else:
                     error_details = error_details["error"]
 
                 # Check for the specific error code
                 if error_details.get("code") == "context_length_exceeded":
-                    printd(f"HTTPError occurred, caught error code {error_details.get('code')}")
+                    printd(
+                        f"HTTPError occurred, caught error code {error_details.get('code')}"
+                    )
                     return True
                 # Soft-check for "maximum context length" inside of the message
-                elif error_details.get("message") and "maximum context length" in error_details.get("message"):
-                    printd(f"HTTPError occurred, found '{match_string}' in error message contents ({error_details})")
+                elif error_details.get(
+                    "message"
+                ) and "maximum context length" in error_details.get("message"):
+                    printd(
+                        f"HTTPError occurred, found '{match_string}' in error message contents ({error_details})"
+                    )
                     return True
                 else:
-                    printd(f"HTTPError occurred, but unknown error message: {error_details}")
+                    printd(
+                        f"HTTPError occurred, but unknown error message: {error_details}"
+                    )
                     return False
             except ValueError:
                 # JSON decoding failed

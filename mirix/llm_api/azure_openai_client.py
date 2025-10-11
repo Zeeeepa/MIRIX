@@ -27,34 +27,56 @@ class AzureOpenAIClient(OpenAIClient):
         Azure requires api_key, api_version, azure_endpoint, and azure_deployment.
         """
         # Check for custom API key in LLMConfig first (for custom models)
-        custom_api_key = getattr(self.llm_config, 'api_key', None)
+        custom_api_key = getattr(self.llm_config, "api_key", None)
         if custom_api_key:
             api_key = custom_api_key
         else:
             # Check for database-stored API key first, fall back to model_settings and environment
             override_key = ProviderManager().get_azure_openai_override_key()
-            api_key = override_key or model_settings.azure_api_key or os.environ.get("AZURE_OPENAI_API_KEY")
-            
+            api_key = (
+                override_key
+                or model_settings.azure_api_key
+                or os.environ.get("AZURE_OPENAI_API_KEY")
+            )
+
         # Get Azure-specific configurations
-        azure_endpoint = getattr(self.llm_config, 'azure_endpoint', None) or model_settings.azure_base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_version = getattr(self.llm_config, 'api_version', None) or model_settings.azure_api_version or os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-01-preview")
-        azure_deployment = getattr(self.llm_config, 'azure_deployment', None) or self.llm_config.model
-        
+        azure_endpoint = (
+            getattr(self.llm_config, "azure_endpoint", None)
+            or model_settings.azure_base_url
+            or os.environ.get("AZURE_OPENAI_ENDPOINT")
+        )
+        api_version = (
+            getattr(self.llm_config, "api_version", None)
+            or model_settings.azure_api_version
+            or os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-01-preview")
+        )
+        azure_deployment = (
+            getattr(self.llm_config, "azure_deployment", None) or self.llm_config.model
+        )
+
         # Validate required parameters
         if not api_key:
-            raise ValueError("Azure OpenAI API key is required. Set it via LLMConfig, settings, or AZURE_OPENAI_API_KEY environment variable.")
+            raise ValueError(
+                "Azure OpenAI API key is required. Set it via LLMConfig, settings, or AZURE_OPENAI_API_KEY environment variable."
+            )
         if not azure_endpoint:
-            raise ValueError("Azure OpenAI endpoint is required. Set it via LLMConfig, settings, or AZURE_OPENAI_ENDPOINT environment variable.")
+            raise ValueError(
+                "Azure OpenAI endpoint is required. Set it via LLMConfig, settings, or AZURE_OPENAI_ENDPOINT environment variable."
+            )
         if not azure_deployment:
-            raise ValueError("Azure OpenAI deployment name is required. Set it via LLMConfig or use the model name.")
-        
+            raise ValueError(
+                "Azure OpenAI deployment name is required. Set it via LLMConfig or use the model name."
+            )
+
         kwargs = {
             "api_key": api_key,
             "api_version": api_version,
             "azure_endpoint": azure_endpoint,
         }
-        
-        logger.debug(f"Azure OpenAI client initialized with endpoint: {azure_endpoint}, deployment: {azure_deployment}")
+
+        logger.debug(
+            f"Azure OpenAI client initialized with endpoint: {azure_endpoint}, deployment: {azure_deployment}"
+        )
         return kwargs
 
     def build_request_data(
@@ -77,13 +99,15 @@ class AzureOpenAIClient(OpenAIClient):
             force_tool_call=force_tool_call,
             existing_file_uris=existing_file_uris,
         )
-        
+
         # For Azure, ensure we have the model field set to the deployment name
         # The deployment name can come from azure_deployment or fall back to model
-        azure_deployment = getattr(llm_config, 'azure_deployment', None) or llm_config.model
+        azure_deployment = (
+            getattr(llm_config, "azure_deployment", None) or llm_config.model
+        )
         if azure_deployment:
-            request_data['model'] = azure_deployment
-            
+            request_data["model"] = azure_deployment
+
         return request_data
 
     def request(self, request_data: dict) -> dict:
@@ -107,13 +131,19 @@ class AzureOpenAIClient(OpenAIClient):
         Performs streaming request to Azure OpenAI API.
         """
         client = AzureOpenAI(**self._prepare_client_kwargs())
-        response_stream: Stream[ChatCompletionChunk] = client.chat.completions.create(**request_data, stream=True)
+        response_stream: Stream[ChatCompletionChunk] = client.chat.completions.create(
+            **request_data, stream=True
+        )
         return response_stream
 
-    async def stream_async(self, request_data: dict) -> AsyncStream[ChatCompletionChunk]:
+    async def stream_async(
+        self, request_data: dict
+    ) -> AsyncStream[ChatCompletionChunk]:
         """
         Performs asynchronous streaming request to Azure OpenAI API.
         """
         client = AsyncAzureOpenAI(**self._prepare_client_kwargs())
-        response_stream: AsyncStream[ChatCompletionChunk] = await client.chat.completions.create(**request_data, stream=True)
-        return response_stream 
+        response_stream: AsyncStream[
+            ChatCompletionChunk
+        ] = await client.chat.completions.create(**request_data, stream=True)
+        return response_stream

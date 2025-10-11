@@ -2,6 +2,7 @@ import os
 
 from mirix.constants import MIRIX_DIR
 
+
 def get_persona_text(key):
     filename = f"{key}.txt"
     file_path = os.path.join(os.path.dirname(__file__), "personas", filename)

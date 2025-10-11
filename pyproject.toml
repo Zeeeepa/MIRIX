@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirix"
-version = "0.1.4"
+version = "0.1.5"
 description = "Multi-Agent Personal Assistant with an Advanced Memory System"
 readme = "README.md"
 license = {text = "Apache License 2.0"}
@@ -79,6 +79,10 @@ dependencies = [
     "google-auth-oauthlib",  # Google OAuth library
     "google-auth-httplib2",  # Google HTTP library
     "google-api-python-client",  # Google API client library
+    "pytest (>=8.4.2,<9.0.0)",
+    "ruff (>=0.13.3,<0.14.0)",
+    "pyright (>=1.1.406,<2.0.0)",
+    "ipdb (>=0.13.13,<0.14.0)",
 ]
 
 [project.optional-dependencies]

@@ -23,21 +23,33 @@ class UserManager:
         self.session_maker = db_context
 
     @enforce_types
-    def create_default_user(self, org_id: str = OrganizationManager.DEFAULT_ORG_ID) -> PydanticUser:
+    def create_default_user(
+        self, org_id: str = OrganizationManager.DEFAULT_ORG_ID
+    ) -> PydanticUser:
         """Create the default user."""
         with self.session_maker() as session:
             # Make sure the org id exists
             try:
                 OrganizationModel.read(db_session=session, identifier=org_id)
             except NoResultFound:
-                raise ValueError(f"No organization with {org_id} exists in the organization table.")
+                raise ValueError(
+                    f"No organization with {org_id} exists in the organization table."
+                )
 
             # Try to retrieve the user
             try:
-                user = UserModel.read(db_session=session, identifier=self.DEFAULT_USER_ID)
+                user = UserModel.read(
+                    db_session=session, identifier=self.DEFAULT_USER_ID
+                )
             except NoResultFound:
                 # If it doesn't exist, make it
-                user = UserModel(id=self.DEFAULT_USER_ID, name=self.DEFAULT_USER_NAME, status="active", timezone=self.DEFAULT_TIME_ZONE, organization_id=org_id)
+                user = UserModel(
+                    id=self.DEFAULT_USER_ID,
+                    name=self.DEFAULT_USER_NAME,
+                    status="active",
+                    timezone=self.DEFAULT_TIME_ZONE,
+                    organization_id=org_id,
+                )
                 user.create(session)
 
             return user.to_pydantic()
@@ -55,7 +67,9 @@ class UserManager:
         """Update user details."""
         with self.session_maker() as session:
             # Retrieve the existing user by ID
-            existing_user = UserModel.read(db_session=session, identifier=user_update.id)
+            existing_user = UserModel.read(
+                db_session=session, identifier=user_update.id
+            )
 
             # Update only the fields that are provided in UserUpdate
             update_data = user_update.model_dump(exclude_unset=True, exclude_none=True)
@@ -128,7 +142,9 @@ class UserManager:
             return self.get_default_user()
 
     @enforce_types
-    def list_users(self, cursor: Optional[str] = None, limit: Optional[int] = 50) -> Tuple[Optional[str], List[PydanticUser]]:
+    def list_users(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> Tuple[Optional[str], List[PydanticUser]]:
         """List users with pagination using cursor (id) and limit."""
         with self.session_maker() as session:
             results = UserModel.list(db_session=session, cursor=cursor, limit=limit)

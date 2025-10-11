@@ -1,30 +1,53 @@
 import random
 import time
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import requests
 
-from mirix.constants import CLI_WARNING_PREFIX
+from mirix.constants import (
+    CLI_WARNING_PREFIX,
+    INNER_THOUGHTS_KWARG,
+    INNER_THOUGHTS_KWARG_DESCRIPTION,
+)
 from mirix.errors import MirixConfigurationError, RateLimitExceededError
-from mirix.llm_api.anthropic import anthropic_bedrock_chat_completions_request, anthropic_chat_completions_request
+from mirix.llm_api.anthropic import (
+    anthropic_bedrock_chat_completions_request,
+    anthropic_chat_completions_request,
+)
 from mirix.llm_api.aws_bedrock import has_valid_aws_credentials
 from mirix.llm_api.azure_openai import azure_openai_chat_completions_request
-from mirix.llm_api.google_ai import convert_tools_to_google_ai_format, google_ai_chat_completions_request
-from mirix.llm_api.helpers import add_inner_thoughts_to_functions, unpack_all_inner_thoughts_from_kwargs
+from mirix.llm_api.google_ai import (
+    convert_tools_to_google_ai_format,
+    google_ai_chat_completions_request,
+)
+from mirix.llm_api.helpers import (
+    add_inner_thoughts_to_functions,
+    unpack_all_inner_thoughts_from_kwargs,
+)
 from mirix.llm_api.openai import (
     build_openai_chat_completions_request,
-    openai_chat_completions_process_stream,
     openai_chat_completions_request,
 )
-from mirix.constants import INNER_THOUGHTS_KWARG, INNER_THOUGHTS_KWARG_DESCRIPTION
-from mirix.utils import num_tokens_from_functions, num_tokens_from_messages
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.message import Message
-from mirix.schemas.openai.chat_completion_request import ChatCompletionRequest, Tool, cast_message_to_subtype
+from mirix.schemas.openai.chat_completion_request import (
+    ChatCompletionRequest,
+    Tool,
+    cast_message_to_subtype,
+)
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 from mirix.settings import ModelSettings
+from mirix.utils import num_tokens_from_functions, num_tokens_from_messages
 
-LLM_API_PROVIDER_OPTIONS = ["openai", "azure", "anthropic", "google_ai", "cohere", "local", "groq"]
+LLM_API_PROVIDER_OPTIONS = [
+    "openai",
+    "azure",
+    "anthropic",
+    "google_ai",
+    "cohere",
+    "local",
+    "groq",
+]
 
 
 def retry_with_exponential_backoff(
@@ -52,7 +75,6 @@ def retry_with_exponential_backoff(
                 return func(*args, **kwargs)
 
             except requests.exceptions.HTTPError as http_err:
-
                 if not hasattr(http_err, "response") or not http_err.response:
                     raise
 
@@ -63,7 +85,10 @@ def retry_with_exponential_backoff(
 
                     # Check if max retries has been reached
                     if num_retries > max_retries:
-                        raise RateLimitExceededError("Maximum number of retries exceeded", max_retries=max_retries)
+                        raise RateLimitExceededError(
+                            "Maximum number of retries exceeded",
+                            max_retries=max_retries,
+                        )
 
                     # Increment the delay
                     delay *= exponential_base * (1 + jitter * random.random())
@@ -92,7 +117,9 @@ def create(
     messages: List[Message],
     functions: Optional[list] = None,
     functions_python: Optional[dict] = None,
-    function_call: Optional[str] = None,  # see: https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
+    function_call: Optional[
+        str
+    ] = None,  # see: https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
     # hint
     first_message: bool = False,
     force_tool_call: Optional[str] = None,  # Force a specific tool to be called
@@ -101,11 +128,11 @@ def create(
     use_tool_naming: bool = True,
     # streaming?
     stream: bool = False,
-    stream_interface = None,
+    stream_interface=None,
     max_tokens: Optional[int] = None,
     summarizing: bool = False,
     model_settings: Optional[dict] = None,  # TODO: eventually pass from server
-    image_uris: Optional[List[str]] = None, # TODO: inside messages
+    image_uris: Optional[List[str]] = None,  # TODO: inside messages
     extra_messages: Optional[List[Message]] = None,
     get_input_data_for_debugging: bool = False,
 ) -> ChatCompletionResponse:
@@ -115,10 +142,18 @@ def create(
     # Count the tokens first, if there's an overflow exit early by throwing an error up the stack
     # NOTE: we want to include a specific substring in the error message to trigger summarization
     messages_oai_format = [m.to_openai_dict() for m in messages]
-    prompt_tokens = num_tokens_from_messages(messages=messages_oai_format, model=llm_config.model)
-    function_tokens = num_tokens_from_functions(functions=functions, model=llm_config.model) if functions else 0
+    prompt_tokens = num_tokens_from_messages(
+        messages=messages_oai_format, model=llm_config.model
+    )
+    function_tokens = (
+        num_tokens_from_functions(functions=functions, model=llm_config.model)
+        if functions
+        else 0
+    )
     if prompt_tokens + function_tokens > llm_config.context_window:
-        raise Exception(f"Request exceeds maximum context length ({prompt_tokens + function_tokens} > {llm_config.context_window} tokens)")
+        raise Exception(
+            f"Request exceeds maximum context length ({prompt_tokens + function_tokens} > {llm_config.context_window} tokens)"
+        )
 
     if not model_settings:
         from mirix.settings import model_settings
@@ -126,7 +161,9 @@ def create(
         model_settings = model_settings
         assert isinstance(model_settings, ModelSettings)
 
-    printd(f"Using model {llm_config.model_endpoint_type}, endpoint: {llm_config.model_endpoint}")
+    printd(
+        f"Using model {llm_config.model_endpoint_type}, endpoint: {llm_config.model_endpoint}"
+    )
 
     if function_call and not functions:
         printd("unsetting function_call because functions is None")
@@ -134,25 +171,35 @@ def create(
 
     # openai
     if llm_config.model_endpoint_type == "openai":
-
         # Check for database-stored API key first, fall back to model_settings
         from mirix.services.provider_manager import ProviderManager
+
         openai_override_key = ProviderManager().get_openai_override_key()
         has_openai_key = openai_override_key or model_settings.openai_api_key
-        
-        if has_openai_key is None and llm_config.model_endpoint == "https://api.openai.com/v1":
+
+        if (
+            has_openai_key is None
+            and llm_config.model_endpoint == "https://api.openai.com/v1"
+        ):
             # only is a problem if we are *not* using an openai proxy
-            raise MirixConfigurationError(message="OpenAI key is missing from mirix config file", missing_fields=["openai_api_key"])
+            raise MirixConfigurationError(
+                message="OpenAI key is missing from mirix config file",
+                missing_fields=["openai_api_key"],
+            )
 
         if function_call is None and functions is not None and len(functions) > 0:
             # force function calling for reliability, see https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
             # TODO(matt) move into LLMConfig
             if llm_config.model_endpoint == "https://inference.memgpt.ai":
-                function_call = "auto"  # TODO change to "required" once proxy supports it
+                function_call = (
+                    "auto"  # TODO change to "required" once proxy supports it
+                )
             else:
                 function_call = "required"
 
-        data = build_openai_chat_completions_request(llm_config, messages, functions, function_call, use_tool_naming, max_tokens)
+        data = build_openai_chat_completions_request(
+            llm_config, messages, functions, function_call, use_tool_naming, max_tokens
+        )
         # if stream:  # Client requested token streaming
         #     data.stream = True
         #     assert isinstance(stream_interface, AgentChunkStreamingInterface) or isinstance(
@@ -176,35 +223,48 @@ def create(
             return response
 
         if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG)
+            response = unpack_all_inner_thoughts_from_kwargs(
+                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
+            )
 
         return response
 
     # azure
     elif llm_config.model_endpoint_type == "azure":
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for {llm_config.model_endpoint_type}")
+            raise NotImplementedError(
+                f"Streaming not yet implemented for {llm_config.model_endpoint_type}"
+            )
 
         if model_settings.azure_api_key is None:
             raise MirixConfigurationError(
-                message="Azure API key is missing. Did you set AZURE_API_KEY in your env?", missing_fields=["azure_api_key"]
+                message="Azure API key is missing. Did you set AZURE_API_KEY in your env?",
+                missing_fields=["azure_api_key"],
             )
 
         if model_settings.azure_base_url is None:
             raise MirixConfigurationError(
-                message="Azure base url is missing. Did you set AZURE_BASE_URL in your env?", missing_fields=["azure_base_url"]
+                message="Azure base url is missing. Did you set AZURE_BASE_URL in your env?",
+                missing_fields=["azure_base_url"],
             )
 
         if model_settings.azure_api_version is None:
             raise MirixConfigurationError(
-                message="Azure API version is missing. Did you set AZURE_API_VERSION in your env?", missing_fields=["azure_api_version"]
+                message="Azure API version is missing. Did you set AZURE_API_VERSION in your env?",
+                missing_fields=["azure_api_version"],
             )
 
         # Set the llm config model_endpoint from model_settings
         # For Azure, this model_endpoint is required to be configured via env variable, so users don't need to provide it in the LLM config
         llm_config.model_endpoint = model_settings.azure_base_url
         chat_completion_request = build_openai_chat_completions_request(
-            llm_config, messages, user_id, functions, function_call, use_tool_naming, max_tokens
+            llm_config,
+            messages,
+            user_id,
+            functions,
+            function_call,
+            use_tool_naming,
+            max_tokens,
         )
 
         response = azure_openai_chat_completions_request(
@@ -215,26 +275,33 @@ def create(
         )
 
         if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG)
+            response = unpack_all_inner_thoughts_from_kwargs(
+                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
+            )
 
         return response
 
     elif llm_config.model_endpoint_type == "google_ai":
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for {llm_config.model_endpoint_type}")
+            raise NotImplementedError(
+                f"Streaming not yet implemented for {llm_config.model_endpoint_type}"
+            )
         if not use_tool_naming:
-            raise NotImplementedError("Only tool calling supported on Google AI API requests")
+            raise NotImplementedError(
+                "Only tool calling supported on Google AI API requests"
+            )
 
         if functions is not None:
             tools = [{"type": "function", "function": f} for f in functions]
             tools = [Tool(**t) for t in tools]
-            tools = convert_tools_to_google_ai_format(tools, inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs)
+            tools = convert_tools_to_google_ai_format(
+                tools, inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs
+            )
         else:
             tools = None
 
         # we should insert extra_messages here
         if extra_messages is not None:
-
             ## Choice 1: insert at the end:
             # messages.extend(extra_messages)
 
@@ -243,40 +310,64 @@ def create(
 
             last_message_type = None
             while len(messages) > 0 or len(extra_messages) > 0:
-
                 if len(extra_messages) == 0 and len(messages) > 0:
                     new_messages.append(messages.pop(0))
-                    last_message_type = 'chat'
+                    last_message_type = "chat"
 
                 elif len(messages) == 0 and len(extra_messages) > 0:
-                    if last_message_type is not None and last_message_type == 'extra':
+                    if last_message_type is not None and last_message_type == "extra":
                         # It means two extra messages in a row. Then we need to put them into one message:
                         m = extra_messages.pop(0)
-                        new_messages[-1].text += "\n" + "Timestamp: " + m.created_at.strftime('%Y-%m-%d %H:%M:%S') + "\tScreenshot:" + m.text
+                        new_messages[-1].text += (
+                            "\n"
+                            + "Timestamp: "
+                            + m.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                            + "\tScreenshot:"
+                            + m.text
+                        )
 
                     else:
                         m = extra_messages.pop(0)
-                        m.text = "Timestamp: " + m.created_at.strftime('%Y-%m-%d %H:%M:%S') + "\tScreenshot:" + m.text
+                        m.text = (
+                            "Timestamp: "
+                            + m.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                            + "\tScreenshot:"
+                            + m.text
+                        )
                         new_messages.append(m)
 
-                    last_message_type = 'extra'
-                
-                elif (messages[0].created_at.timestamp() < extra_messages[0].created_at.timestamp()):
+                    last_message_type = "extra"
+
+                elif (
+                    messages[0].created_at.timestamp()
+                    < extra_messages[0].created_at.timestamp()
+                ):
                     new_messages.append(messages.pop(0))
-                    last_message_type = 'chat'
-                
+                    last_message_type = "chat"
+
                 else:
-                    if last_message_type is not None and last_message_type == 'extra':
+                    if last_message_type is not None and last_message_type == "extra":
                         # It means two extra messages in a row. Then we need to put them into one message:
                         m = extra_messages.pop(0)
-                        new_messages[-1].text += "\n" + "Timestamp: " + m.created_at.strftime('%Y-%m-%d %H:%M:%S') + "\tScreenshot:" + m.text
+                        new_messages[-1].text += (
+                            "\n"
+                            + "Timestamp: "
+                            + m.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                            + "\tScreenshot:"
+                            + m.text
+                        )
 
                     else:
                         m = extra_messages.pop(0)
-                        m.text = "Timestamp: " + m.created_at.strftime('%Y-%m-%d %H:%M:%S') + "\tScreenshot:" + m.text
+                        m.text = (
+                            "Timestamp: "
+                            + m.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                            + "\tScreenshot:"
+                            + m.text
+                        )
                         new_messages.append(m)
 
-                    last_message_type = 'extra'
+                    last_message_type = "extra"
 
             messages = new_messages
 
@@ -284,6 +375,7 @@ def create(
 
         # Check for database-stored API key first, fall back to model_settings
         from mirix.services.provider_manager import ProviderManager
+
         override_key = ProviderManager().get_gemini_override_key()
         api_key = override_key if override_key else model_settings.gemini_api_key
 
@@ -298,14 +390,18 @@ def create(
             ),
             inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs,
             image_uris=image_uris,
-            get_input_data_for_debugging=get_input_data_for_debugging
+            get_input_data_for_debugging=get_input_data_for_debugging,
         )
 
     elif llm_config.model_endpoint_type == "anthropic":
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for {llm_config.model_endpoint_type}")
+            raise NotImplementedError(
+                f"Streaming not yet implemented for {llm_config.model_endpoint_type}"
+            )
         if not use_tool_naming:
-            raise NotImplementedError("Only tool calling supported on Anthropic API requests")
+            raise NotImplementedError(
+                "Only tool calling supported on Anthropic API requests"
+            )
 
         tool_call = None
         if force_tool_call is not None:
@@ -315,13 +411,17 @@ def create(
         return anthropic_chat_completions_request(
             data=ChatCompletionRequest(
                 model=llm_config.model,
-                messages=[cast_message_to_subtype(m.to_openai_dict()) for m in messages],
-                tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                messages=[
+                    cast_message_to_subtype(m.to_openai_dict()) for m in messages
+                ],
+                tools=[{"type": "function", "function": f} for f in functions]
+                if functions
+                else None,
                 tool_choice=tool_call,
                 # user=str(user_id),
                 # NOTE: max_tokens is required for Anthropic API
                 max_tokens=4096,  # TODO make dynamic
-                image_uris=image_uris['image_uris'],
+                image_uris=image_uris["image_uris"],
             ),
         )
 
@@ -354,10 +454,17 @@ def create(
 
     elif llm_config.model_endpoint_type == "groq":
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for Groq.")
+            raise NotImplementedError("Streaming not yet implemented for Groq.")
 
-        if model_settings.groq_api_key is None and llm_config.model_endpoint == "https://api.groq.com/openai/v1/chat/completions":
-            raise MirixConfigurationError(message="Groq key is missing from mirix config file", missing_fields=["groq_api_key"])
+        if (
+            model_settings.groq_api_key is None
+            and llm_config.model_endpoint
+            == "https://api.groq.com/openai/v1/chat/completions"
+        ):
+            raise MirixConfigurationError(
+                message="Groq key is missing from mirix config file",
+                missing_fields=["groq_api_key"],
+            )
 
         # force to true for groq, since they don't support 'content' is non-null
         if llm_config.put_inner_thoughts_in_kwargs:
@@ -367,10 +474,19 @@ def create(
                 inner_thoughts_description=INNER_THOUGHTS_KWARG_DESCRIPTION,
             )
 
-        tools = [{"type": "function", "function": f} for f in functions] if functions is not None else None
+        tools = (
+            [{"type": "function", "function": f} for f in functions]
+            if functions is not None
+            else None
+        )
         data = ChatCompletionRequest(
             model=llm_config.model,
-            messages=[m.to_openai_dict(put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs) for m in messages],
+            messages=[
+                m.to_openai_dict(
+                    put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs
+                )
+                for m in messages
+            ],
             tools=tools,
             tool_choice=function_call,
             user=str(user_id),
@@ -399,7 +515,9 @@ def create(
                 stream_interface.stream_end()
 
         if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG)
+            response = unpack_all_inner_thoughts_from_kwargs(
+                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
+            )
 
         return response
 
@@ -407,12 +525,18 @@ def create(
         """Anthropic endpoint that goes via /embeddings instead of /chat/completions"""
 
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for Anthropic (via the /embeddings endpoint).")
+            raise NotImplementedError(
+                "Streaming not yet implemented for Anthropic (via the /embeddings endpoint)."
+            )
         if not use_tool_naming:
-            raise NotImplementedError("Only tool calling supported on Anthropic API requests")
+            raise NotImplementedError(
+                "Only tool calling supported on Anthropic API requests"
+            )
 
         if not has_valid_aws_credentials():
-            raise MirixConfigurationError(message="Invalid or missing AWS credentials. Please configure valid AWS credentials.")
+            raise MirixConfigurationError(
+                message="Invalid or missing AWS credentials. Please configure valid AWS credentials."
+            )
 
         tool_call = None
         if force_tool_call is not None:
@@ -422,8 +546,12 @@ def create(
         return anthropic_bedrock_chat_completions_request(
             data=ChatCompletionRequest(
                 model=llm_config.model,
-                messages=[cast_message_to_subtype(m.to_openai_dict()) for m in messages],
-                tools=[{"type": "function", "function": f} for f in functions] if functions else None,
+                messages=[
+                    cast_message_to_subtype(m.to_openai_dict()) for m in messages
+                ],
+                tools=[{"type": "function", "function": f} for f in functions]
+                if functions
+                else None,
                 tool_choice=tool_call,
                 # user=str(user_id),
                 # NOTE: max_tokens is required for Anthropic API
@@ -434,7 +562,9 @@ def create(
     # local model
     else:
         if stream:
-            raise NotImplementedError(f"Streaming not yet implemented for {llm_config.model_endpoint_type}")
+            raise NotImplementedError(
+                f"Streaming not yet implemented for {llm_config.model_endpoint_type}"
+            )
         return get_chat_completion(
             model=llm_config.model,
             messages=messages,

@@ -14,13 +14,18 @@ from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.tool_rule import ToolRule
 from mirix.schemas.user import User
-from mirix.system import get_initial_boot_messages, get_login_event
 from mirix.utils import get_local_time
 
 
 # Static methods
 def _process_relationship(
-    session, agent: AgentModel, relationship_name: str, model_class, item_ids: List[str], allow_partial=False, replace=True
+    session,
+    agent: AgentModel,
+    relationship_name: str,
+    model_class,
+    item_ids: List[str],
+    allow_partial=False,
+    replace=True,
 ):
     """
     Generalized function to handle relationships like tools, sources, and blocks using item IDs.
@@ -115,10 +120,14 @@ def derive_system_message(agent_type: AgentType, system: Optional[str] = None):
 
 # TODO: This code is kind of wonky and deserves a rewrite
 def compile_memory_metadata_block(
-    memory_edit_timestamp: datetime.datetime, previous_message_count: int = 0, archival_memory_size: int = 0
+    memory_edit_timestamp: datetime.datetime,
+    previous_message_count: int = 0,
+    archival_memory_size: int = 0,
 ) -> str:
     # Put the timestamp in the local timezone (mimicking get_local_time())
-    timestamp_str = memory_edit_timestamp.astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z%z").strip()
+    timestamp_str = (
+        memory_edit_timestamp.astimezone().strftime("%Y-%m-%d %I:%M:%S %p %Z%z").strip()
+    )
 
     # Create a metadata block of info so the agent knows about the metadata of out-of-context memories
     memory_metadata_block = "\n".join(
@@ -158,7 +167,9 @@ def compile_system_message(
 
     # Add the protected memory variable
     if IN_CONTEXT_MEMORY_KEYWORD in variables:
-        raise ValueError(f"Found protected variable '{IN_CONTEXT_MEMORY_KEYWORD}' in user-defined vars: {str(user_defined_variables)}")
+        raise ValueError(
+            f"Found protected variable '{IN_CONTEXT_MEMORY_KEYWORD}' in user-defined vars: {str(user_defined_variables)}"
+        )
     else:
         # TODO should this all put into the memory.__repr__ function?
         memory_metadata_string = compile_memory_metadata_block(
@@ -172,7 +183,6 @@ def compile_system_message(
         variables[IN_CONTEXT_MEMORY_KEYWORD] = full_memory_string
 
     if template_format == "f-string":
-
         # Catch the special case where the system prompt is unformatted
         if append_icm_if_missing:
             memory_variable_string = "{" + IN_CONTEXT_MEMORY_KEYWORD + "}"
@@ -185,7 +195,9 @@ def compile_system_message(
         try:
             formatted_prompt = system_prompt.format_map(variables)
         except Exception as e:
-            raise ValueError(f"Failed to format system prompt - {str(e)}. System prompt value:\n{system_prompt}")
+            raise ValueError(
+                f"Failed to format system prompt - {str(e)}. System prompt value:\n{system_prompt}"
+            )
 
     else:
         # TODO support for mustache and jinja2
@@ -238,6 +250,7 @@ def compile_system_message(
 
 #     return messages
 
+
 def initialize_message_sequence(
     agent_state: AgentState,
     memory_edit_timestamp: Optional[datetime.datetime] = None,
@@ -245,7 +258,6 @@ def initialize_message_sequence(
     previous_message_count: int = 0,
     archival_memory_size: int = 0,
 ) -> List[dict]:
-    
     if memory_edit_timestamp is None:
         memory_edit_timestamp = get_local_time()
 
@@ -255,13 +267,16 @@ def initialize_message_sequence(
 
     return messages
 
+
 def package_initial_message_sequence(
-    agent_id: str, initial_message_sequence: List[MessageCreate], model: str, actor: User
+    agent_id: str,
+    initial_message_sequence: List[MessageCreate],
+    model: str,
+    actor: User,
 ) -> List[Message]:
     # create the agent object
     init_messages = []
     for message_create in initial_message_sequence:
-
         if message_create.role == MessageRole.user:
             packed_message = system.package_user_message(
                 user_message=message_create.text,
@@ -274,7 +289,14 @@ def package_initial_message_sequence(
             raise ValueError(f"Invalid message role: {message_create.role}")
 
         init_messages.append(
-            Message(role=message_create.role, text=packed_message, organization_id=actor.organization_id, user_id=actor.id, agent_id=agent_id, model=model)
+            Message(
+                role=message_create.role,
+                text=packed_message,
+                organization_id=actor.organization_id,
+                user_id=actor.id,
+                agent_id=agent_id,
+                model=model,
+            )
         )
     return init_messages
 
@@ -282,7 +304,9 @@ def package_initial_message_sequence(
 def check_supports_structured_output(model: str, tool_rules: List[ToolRule]) -> bool:
     if model not in STRUCTURED_OUTPUT_MODELS:
         if len(ToolRulesSolver(tool_rules=tool_rules).init_tool_rules) > 1:
-            raise ValueError("Multiple initial tools are not supported for non-structured models. Please use only one initial tool rule.")
+            raise ValueError(
+                "Multiple initial tools are not supported for non-structured models. Please use only one initial tool rule."
+            )
         return False
     else:
         return True

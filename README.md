@@ -4,8 +4,8 @@
 
 Your personal AI that builds memory through screen observation and natural conversation
 
-| 🌐 [Website](https://mirix.io) | 📚 [Documentation](https://docs.mirix.io) | 📄 [Paper](https://arxiv.org/abs/2507.07957) |
-<!-- | [Twitter/X](https://twitter.com/mirix_ai) | [Discord](https://discord.gg/mirix) | -->
+| 🌐 [Website](https://mirix.io) | 📚 [Documentation](https://docs.mirix.io) | 📄 [Paper](https://arxiv.org/abs/2507.07957) | 💬 [Discord](https://discord.gg/S6CeHNrJ) 
+<!-- | [Twitter/X](https://twitter.com/mirix_ai) | [Discord](https://discord.gg/S6CeHNrJ) | -->
 
 ---
 
@@ -49,9 +49,9 @@ For more details, please refer to [Backend Usage](https://docs.mirix.io/user-gui
 
 ## Python SDK (NEW!) 🎉
 
-We've created a simple Python SDK that makes it incredibly easy to integrate Mirix's memory capabilities into your applications:
+We've created a simple [Python SDK](https://pypi.org/project/mirix/0.1.5/) that makes it incredibly easy to integrate Mirix's memory capabilities into your applications:
 
-### Installation
+### Installationhttps://pypi.org/project/mirix/0.1.5/
 ```bash
 pip install mirix
 ```
@@ -89,7 +89,7 @@ Connect with other Mirix users, share your thoughts, and get support:
 
 ### 💬 Discord Community
 Join our Discord server for real-time discussions, support, and community updates:
-**[https://discord.gg/5HWyxJrh](https://discord.gg/5HWyxJrh)**
+**[https://discord.gg/S6CeHNrJ](https://discord.gg/S6CeHNrJ)**
 
 ### 🎯 Weekly Discussion Sessions
 We host weekly discussion sessions where you can:
@@ -103,7 +103,7 @@ We host weekly discussion sessions where you can:
 
 ### 📱 WeChat Group
 <div align="center">
-<img src="frontend/public/wechat-qr.png" alt="WeChat QR Code" width="200"/><br/>
+<img src="frontend/public/wechat-qr.jpg" alt="WeChat QR Code" width="200"/><br/>
 <strong>WeChat Group</strong>
 </div>
 
