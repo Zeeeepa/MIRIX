@@ -1290,6 +1290,7 @@ class LocalClient(AbstractClient):
         message_queue: Optional[any] = None,
         retrieved_memories: Optional[dict] = None,
         user_id: Optional[str] = None,
+        verbose: Optional[bool] = None,
     ) -> MirixResponse:
         """
         Send a message to an agent
@@ -1302,11 +1303,12 @@ class LocalClient(AbstractClient):
             stream (bool): Stream the response (default: `False`)
             extra_message (str): Extra message to send. It will be inserted before the last message
             chaining (bool): Whether to enable chaining for this message
+            verbose (bool): Whether to print verbose logging (default: `None`, which inherits from MIRIX_VERBOSE env var)
 
         Returns:
             response (MirixResponse): Response from the agent
         """
-
+        
         if not agent_id:
             # lookup agent by name
             assert agent_name, "Either agent_id or agent_name must be provided"
@@ -1442,6 +1444,7 @@ class LocalClient(AbstractClient):
             extra_messages=extra_messages,
             message_queue=message_queue,
             user_id=user_id,
+            verbose=verbose,
         )
 
         # format messages
@@ -2488,3 +2491,215 @@ class LocalClient(AbstractClient):
             limit=limit,
             query_text=query_text,
         )
+
+    def retrieve_memory(
+        self,
+        agent_id: str,
+        query: str,
+        memory_type: str = "all",
+        search_field: str = "null",
+        search_method: str = "embedding",
+        timezone_str: str = "UTC",
+        limit: int = 10,
+    ) -> dict:
+        """
+        Retrieve memories by searching across different memory types.
+
+        Args:
+            agent_id (str): ID of the agent to retrieve memories for
+            query (str): The keywords/query used to search in the memory
+            memory_type (str): The type of memory to search in. Options: "episodic", "resource", "procedural", 
+                              "knowledge_vault", "semantic", "all". Defaults to "all".
+            search_field (str): The field to search in the memory. For "episodic": 'summary', 'details'; 
+                               for "resource": 'summary', 'content'; for "procedural": 'summary', 'steps'; 
+                               for "knowledge_vault": 'secret_value', 'caption'; for "semantic": 'name', 'summary', 'details'.
+                               Use "null" for default fields. Defaults to "null".
+            search_method (str): The method to search. Options: 'bm25' (keyword-based), 'embedding' (semantic). 
+                                Defaults to "embedding".
+            timezone_str (str): Timezone string for time-based operations. Defaults to "UTC".
+            limit (int): Maximum number of results to return per memory type. Defaults to 10.
+
+        Returns:
+            dict: Dictionary containing 'results' (list of memories) and 'count' (total number of results)
+        """
+        # Import here to avoid circular imports
+        from mirix.utils import convert_timezone_to_utc
+
+        # Validate inputs
+        if (
+            memory_type == "resource"
+            and search_field == "content"
+            and search_method == "embedding"
+        ):
+            raise ValueError(
+                "embedding is not supported for resource memory's 'content' field."
+            )
+        if (
+            memory_type == "knowledge_vault"
+            and search_field == "secret_value"
+            and search_method == "embedding"
+        ):
+            raise ValueError(
+                "embedding is not supported for knowledge_vault memory's 'secret_value' field."
+            )
+
+        # Get the agent to access its memory managers
+        agent_state = self.server.agent_manager.get_agent_by_id(
+            agent_id=agent_id,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
+        )
+
+        if memory_type == "all":
+            search_field = "null"
+
+        # Initialize result lists
+        formatted_results = []
+
+        # Search episodic memory
+        if memory_type == "episodic" or memory_type == "all":
+            episodic_memory = self.server.episodic_memory_manager.list_episodic_memory(
+                actor=self.user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            formatted_results_episodic = [
+                {
+                    "memory_type": "episodic",
+                    "id": x.id,
+                    "timestamp": x.occurred_at,
+                    "event_type": x.event_type,
+                    "actor": x.actor,
+                    "summary": x.summary,
+                    "details": x.details,
+                }
+                for x in episodic_memory
+            ]
+            if memory_type == "episodic":
+                return {
+                    "results": formatted_results_episodic,
+                    "count": len(formatted_results_episodic),
+                }
+            formatted_results.extend(formatted_results_episodic)
+
+        # Search resource memory
+        if memory_type == "resource" or memory_type == "all":
+            resource_memories = self.server.resource_memory_manager.list_resources(
+                actor=self.user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field
+                if search_field != "null"
+                else ("summary" if search_method == "embedding" else "content"),
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            formatted_results_resource = [
+                {
+                    "memory_type": "resource",
+                    "id": x.id,
+                    "resource_type": x.resource_type,
+                    "summary": x.summary,
+                    "content": x.content,
+                }
+                for x in resource_memories
+            ]
+            if memory_type == "resource":
+                return {
+                    "results": formatted_results_resource,
+                    "count": len(formatted_results_resource),
+                }
+            formatted_results.extend(formatted_results_resource)
+
+        # Search procedural memory
+        if memory_type == "procedural" or memory_type == "all":
+            procedural_memories = self.server.procedural_memory_manager.list_procedures(
+                actor=self.user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            formatted_results_procedural = [
+                {
+                    "memory_type": "procedural",
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "summary": x.summary,
+                    "steps": x.steps,
+                }
+                for x in procedural_memories
+            ]
+            if memory_type == "procedural":
+                return {
+                    "results": formatted_results_procedural,
+                    "count": len(formatted_results_procedural),
+                }
+            formatted_results.extend(formatted_results_procedural)
+
+        # Search knowledge vault
+        if memory_type == "knowledge_vault" or memory_type == "all":
+            knowledge_vault_memories = self.server.knowledge_vault_manager.list_knowledge(
+                actor=self.user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "caption",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            formatted_results_knowledge_vault = [
+                {
+                    "memory_type": "knowledge_vault",
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "source": x.source,
+                    "sensitivity": x.sensitivity,
+                    "secret_value": x.secret_value,
+                    "caption": x.caption,
+                }
+                for x in knowledge_vault_memories
+            ]
+            if memory_type == "knowledge_vault":
+                return {
+                    "results": formatted_results_knowledge_vault,
+                    "count": len(formatted_results_knowledge_vault),
+                }
+            formatted_results.extend(formatted_results_knowledge_vault)
+
+        # Search semantic memory
+        if memory_type == "semantic" or memory_type == "all":
+            semantic_memories = self.server.semantic_memory_manager.list_semantic_items(
+                actor=self.user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            formatted_results_semantic = [
+                {
+                    "memory_type": "semantic",
+                    "id": x.id,
+                    "name": x.name,
+                    "summary": x.summary,
+                    "details": x.details,
+                    "source": x.source,
+                }
+                for x in semantic_memories
+            ]
+            if memory_type == "semantic":
+                return {
+                    "results": formatted_results_semantic,
+                    "count": len(formatted_results_semantic),
+                }
+            formatted_results.extend(formatted_results_semantic)
+
+        return {"results": formatted_results, "count": len(formatted_results)}

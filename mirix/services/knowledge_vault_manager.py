@@ -509,6 +509,7 @@ class KnowledgeVaultManager:
         self,
         actor: PydanticUser,
         agent_state: AgentState,
+        agent_id: str,
         entry_type: str,
         source: str,
         sensitivity: str,
@@ -530,6 +531,7 @@ class KnowledgeVaultManager:
             knowledge = self.create_item(
                 PydanticKnowledgeVaultItem(
                     user_id=actor.id,
+                    agent_id=agent_id,
                     entry_type=entry_type,
                     source=source,
                     caption=caption,
@@ -641,6 +643,7 @@ class KnowledgeVaultManager:
                     KnowledgeVaultItem.organization_id.label("organization_id"),
                     KnowledgeVaultItem.last_modify.label("last_modify"),
                     KnowledgeVaultItem.user_id.label("user_id"),
+                    KnowledgeVaultItem.agent_id.label("agent_id"),
                 ).where(KnowledgeVaultItem.user_id == actor.id)
 
                 # Add sensitivity filter to base query if provided

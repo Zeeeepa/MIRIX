@@ -604,6 +604,7 @@ class SemanticMemoryManager:
                     SemanticMemoryItem.last_modify.label("last_modify"),
                     SemanticMemoryItem.tree_path.label("tree_path"),
                     SemanticMemoryItem.user_id.label("user_id"),
+                    SemanticMemoryItem.agent_id.label("agent_id"),
                 ).where(SemanticMemoryItem.user_id == actor.id)
 
                 if search_method == "embedding":
@@ -741,6 +742,7 @@ class SemanticMemoryManager:
         self,
         actor: PydanticUser,
         agent_state: AgentState,
+        agent_id: str,
         name: str,
         summary: str,
         details: Optional[str],
@@ -769,6 +771,7 @@ class SemanticMemoryManager:
             semantic_item = self.create_item(
                 item_data=PydanticSemanticMemoryItem(
                     user_id=actor.id,
+                    agent_id=agent_id,
                     name=name,
                     summary=summary,
                     details=details,

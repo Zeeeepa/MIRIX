@@ -982,30 +982,48 @@ class SyncServer(Server):
         message_queue: Optional[any] = None,
         retrieved_memories: Optional[dict] = None,
         user_id: Optional[str] = None,
+        verbose: Optional[bool] = None,
     ) -> MirixUsageStatistics:
         """Send a list of messages to the agent."""
 
-        # Store metadata in interface if provided
-        if metadata and hasattr(interface, "metadata"):
-            interface.metadata = metadata
+        # Set VERBOSE flag based on parameter (on server side)
+        old_verbose = None
+        if verbose is not None:
+            import mirix.utils
+            # Save the old VERBOSE state to restore later
+            old_verbose = mirix.utils.VERBOSE
+            # Set the new VERBOSE state
+            mirix.utils.VERBOSE = verbose
+            os.environ["MIRIX_VERBOSE"] = "true" if verbose else "false"
 
-        # Run the agent state forward
-        return self._step(
-            actor=actor,
-            agent_id=agent_id,
-            input_messages=input_messages,
-            interface=interface,
-            force_response=force_response,
-            put_inner_thoughts_first=put_inner_thoughts_first,
-            display_intermediate_message=display_intermediate_message,
-            request_user_confirmation=request_user_confirmation,
-            chaining=chaining,
-            existing_file_uris=existing_file_uris,
-            extra_messages=extra_messages,
-            message_queue=message_queue,
-            retrieved_memories=retrieved_memories,
-            user_id=user_id,
-        )
+        try:
+            # Store metadata in interface if provided
+            if metadata and hasattr(interface, "metadata"):
+                interface.metadata = metadata
+
+            # Run the agent state forward
+            return self._step(
+                actor=actor,
+                agent_id=agent_id,
+                input_messages=input_messages,
+                interface=interface,
+                force_response=force_response,
+                put_inner_thoughts_first=put_inner_thoughts_first,
+                display_intermediate_message=display_intermediate_message,
+                request_user_confirmation=request_user_confirmation,
+                chaining=chaining,
+                existing_file_uris=existing_file_uris,
+                extra_messages=extra_messages,
+                message_queue=message_queue,
+                retrieved_memories=retrieved_memories,
+                user_id=user_id,
+            )
+        finally:
+            # Restore the old VERBOSE state if it was modified
+            if old_verbose is not None:
+                import mirix.utils
+                mirix.utils.VERBOSE = old_verbose
+                os.environ["MIRIX_VERBOSE"] = "true" if old_verbose else "false"
 
     # @LockingServer.agent_lock_decorator
     def run_command(

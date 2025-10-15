@@ -246,6 +246,7 @@ class EpisodicMemoryManager:
         self,
         actor: PydanticUser,
         agent_state: AgentState,
+        agent_id: str,
         event_type: str,
         timestamp: datetime,
         event_actor: str,
@@ -272,6 +273,7 @@ class EpisodicMemoryManager:
                     occurred_at=timestamp,
                     event_type=event_type,
                     user_id=actor.id,
+                    agent_id=agent_id,
                     actor=event_actor,
                     summary=summary,
                     details=details,
@@ -406,6 +408,7 @@ class EpisodicMemoryManager:
                     EpisodicEvent.last_modify.label("last_modify"),
                     EpisodicEvent.tree_path.label("tree_path"),
                     EpisodicEvent.user_id.label("user_id"),
+                    EpisodicEvent.agent_id.label("agent_id"),
                 ).where(EpisodicEvent.user_id == actor.id)
 
                 if search_method == "embedding":

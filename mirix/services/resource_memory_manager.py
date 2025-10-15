@@ -543,6 +543,7 @@ class ResourceMemoryManager:
                 ResourceMemoryItem.last_modify.label("last_modify"),
                 ResourceMemoryItem.tree_path.label("tree_path"),
                 ResourceMemoryItem.user_id.label("user_id"),
+                ResourceMemoryItem.agent_id.label("agent_id"),
             ).where(ResourceMemoryItem.user_id == actor.id)
 
             if search_method == "string_match":
@@ -657,6 +658,7 @@ class ResourceMemoryManager:
         self,
         actor: PydanticUser,
         agent_state: AgentState,
+        agent_id: str,
         title: str,
         summary: str,
         resource_type: str,
@@ -678,6 +680,7 @@ class ResourceMemoryManager:
             resource = self.create_item(
                 item_data=PydanticResourceMemoryItem(
                     user_id=actor.id,
+                    agent_id=agent_id,
                     title=title,
                     summary=summary,
                     content=content,

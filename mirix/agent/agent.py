@@ -105,6 +105,7 @@ from mirix.utils import (
     num_tokens_from_functions,
     num_tokens_from_messages,
     parse_json,
+    printv,
     validate_function_response,
 )
 
@@ -155,8 +156,8 @@ class Agent(BaseAgent):
             # if there are tool rules, log a warning
             for rule in agent_state.tool_rules:
                 if not isinstance(rule, TerminalToolRule):
-                    self.logger.warning(
-                        "Tool rules only work reliably for the latest OpenAI models that support structured outputs."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Tool rules only work reliably for the latest OpenAI models that support structured outputs."
                     )
                     break
         # add default rule for having send_message be a terminal tool
@@ -272,8 +273,8 @@ class Agent(BaseAgent):
                         actor=self.user,
                     )
                     assert block.user_id == self.user.id
-                    self.logger.info(
-                        f"Updated block {label} with value {updated_value} and user {self.user.id}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated block {label} with value {updated_value} and user {self.user.id}"
                     )
 
             # refresh memory from DB (using block ids)
@@ -355,7 +356,7 @@ class Agent(BaseAgent):
 
         except Exception as e:
             error_msg = f"Error executing MCP tool '{function_name}': {str(e)}"
-            self.logger.error(error_msg)
+            printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: {error_msg}")
             return error_msg
 
     def execute_tool_and_persist_state(
@@ -622,8 +623,8 @@ class Agent(BaseAgent):
                             delay = min(
                                 backoff_factor * (2 ** (attempt - 1)), max_delay
                             )
-                            self.logger.warning(
-                                f"Attempt {attempt} failed: {response.choices[0].finish_reason}. Retrying in {delay} seconds..."
+                            printv(
+                                f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {response.choices[0].finish_reason}. Retrying in {delay} seconds..."
                             )
                             time.sleep(delay)
                             continue
@@ -635,15 +636,15 @@ class Agent(BaseAgent):
 
             except ValueError as ve:
                 if attempt >= empty_response_retry_limit:
-                    self.logger.error(f"Retry limit reached. Final error: {ve}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ve}")
                     log_telemetry(self.logger, "_handle_ai_response finish ValueError")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ve}"
                     )
                 else:
                     delay = min(backoff_factor * (2 ** (attempt - 1)), max_delay)
-                    self.logger.warning(
-                        f"Attempt {attempt} failed: {ve}. Retrying in {delay} seconds..."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {ve}. Retrying in {delay} seconds..."
                     )
                     time.sleep(delay)
                     continue
@@ -652,22 +653,22 @@ class Agent(BaseAgent):
                 # Gemini api sometimes can yield empty response
                 # This is a retryable error
                 if attempt >= empty_response_retry_limit:
-                    self.logger.error(f"Retry limit reached. Final error: {ke}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ke}")
                     log_telemetry(self.logger, "_handle_ai_response finish KeyError")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ke}"
                     )
                 else:
                     delay = min(backoff_factor * (2 ** (attempt - 1)), max_delay)
-                    self.logger.warning(
-                        f"Attempt {attempt} failed: {ke}. Retrying in {delay} seconds..."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {ke}. Retrying in {delay} seconds..."
                     )
                     time.sleep(delay)
                     continue
 
             except LLMError as llm_error:
                 if attempt >= empty_response_retry_limit:
-                    self.logger.error(f"Retry limit reached. Final error: {llm_error}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {llm_error}")
                     log_telemetry(self.logger, "_handle_ai_response finish LLMError")
                     log_telemetry(
                         self.logger, "_get_ai_reply_last_message_hacking start"
@@ -693,36 +694,36 @@ class Agent(BaseAgent):
 
                 else:
                     delay = min(backoff_factor * (2 ** (attempt - 1)), max_delay)
-                    self.logger.warning(
-                        f"Attempt {attempt} failed: {llm_error}. Retrying in {delay} seconds..."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {llm_error}. Retrying in {delay} seconds..."
                     )
                     time.sleep(delay)
                     continue
 
             except AssertionError as ae:
                 if attempt >= empty_response_retry_limit:
-                    self.logger.error(f"Retry limit reached. Final error: {ae}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ae}")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ae}"
                     )
                 else:
                     delay = min(backoff_factor * (2 ** (attempt - 1)), max_delay)
-                    self.logger.warning(
-                        f"Attempt {attempt} failed: {ae}. Retrying in {delay} seconds..."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {ae}. Retrying in {delay} seconds..."
                     )
                     time.sleep(delay)
                     continue
 
             except requests.exceptions.HTTPError as he:
                 if attempt >= empty_response_retry_limit:
-                    self.logger.error(f"Retry limit reached. Final error: {he}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {he}")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {he}"
                     )
                 else:
                     delay = min(backoff_factor * (2 ** (attempt - 1)), max_delay)
-                    self.logger.warning(
-                        f"Attempt {attempt} failed: {he}. Retrying in {delay} seconds..."
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Attempt {attempt} failed: {he}. Retrying in {delay} seconds..."
                     )
                     time.sleep(delay)
 
@@ -791,8 +792,8 @@ class Agent(BaseAgent):
 
             # Generate UUIDs for tool calls if needed
             if override_tool_call_id or response_message.function_call:
-                self.logger.warning(
-                    "Overriding the tool call can result in inconsistent tool call IDs during streaming"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] WARNING: Overriding the tool call can result in inconsistent tool call IDs during streaming"
                 )
                 for tool_call in response_message.tool_calls:
                     tool_call.id = get_tool_call_id()  # needs to be a string for JSON
@@ -819,7 +820,7 @@ class Agent(BaseAgent):
                     response_message.content, msg_obj=messages[-1]
                 )
                 # Log inner thoughts for debugging and analysis
-                self.logger.info(f"Inner thoughts: {response_message.content}")
+                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts: {response_message.content}")
                 # Flag to avoid printing a duplicate if inner thoughts get popped from the function call
                 nonnull_content = True
 
@@ -829,8 +830,8 @@ class Agent(BaseAgent):
             any_message_added = False
             executed_function_names = []  # Track which functions were executed
 
-            self.logger.info(
-                f"Processing {len(response_message.tool_calls)} tool call(s)"
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Processing {len(response_message.tool_calls)} tool call(s)"
             )
 
             for tool_call_idx, tool_call in enumerate(response_message.tool_calls):
@@ -838,8 +839,8 @@ class Agent(BaseAgent):
                 function_call = tool_call.function
                 function_name = function_call.name
 
-                self.logger.info(
-                    f"Processing tool call {tool_call_idx + 1}/{len(response_message.tool_calls)}: {function_name} with tool_call_id: {tool_call_id}"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Processing tool call {tool_call_idx + 1}/{len(response_message.tool_calls)}: {function_name} with tool_call_id: {tool_call_id}"
                 )
 
                 # Failure case 1: function name is wrong (not in agent_state.tools)
@@ -913,16 +914,16 @@ class Agent(BaseAgent):
                 # Check if inner thoughts is in the function call arguments (possible apparently if you are using Azure)
                 if "inner_thoughts" in function_args:
                     response_message.content = function_args.pop("inner_thoughts")
-                    self.logger.info(
-                        f"Inner thoughts extracted from function args: {response_message.content}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts extracted from function args: {response_message.content}"
                     )
                 # The content if then internal monologue, not chat
                 if response_message.content and not nonnull_content:
                     self.interface.internal_monologue(
                         response_message.content, msg_obj=messages[-1]
                     )
-                    self.logger.info(
-                        f"Inner thoughts (from function call): {response_message.content}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts (from function call): {response_message.content}"
                     )
 
                 continue_chaining = True
@@ -1002,7 +1003,7 @@ class Agent(BaseAgent):
                         exception_message=str(e),
                     )
                     error_msg_user = f"{error_msg}\n{traceback.format_exc()}"
-                    self.logger.error(error_msg_user)
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: {error_msg_user}")
                     function_response = package_function_response(False, error_msg)
                     self.last_function_response = function_response
                     # TODO: truncate error message somehow
@@ -1428,8 +1429,8 @@ class Agent(BaseAgent):
                 response_message.content, msg_obj=messages[-1]
             )
             # Log inner thoughts for debugging and analysis
-            self.logger.info(
-                f"Inner thoughts (no function call): {response_message.content}"
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts (no function call): {response_message.content}"
             )
             continue_chaining = True
             function_failed = False
@@ -1535,11 +1536,11 @@ class Agent(BaseAgent):
                         kwargs["topics"] = topics
                         self.update_topic_if_changed(topics)
                     else:
-                        self.logger.warning("No topics extracted from screenshots")
+                        printv(f"[Mirix.Agent.{self.agent_state.name}] WARNING: No topics extracted from screenshots")
 
                 except Exception as e:
-                    self.logger.info(
-                        f"Error in extracting the topic from the screenshots: {e}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Error in extracting the topic from the screenshots: {e}"
                     )
                     pass
 
@@ -1568,7 +1569,7 @@ class Agent(BaseAgent):
 
             # Chain stops
             if not chaining and (not function_failed):
-                self.logger.info("No chaining, stopping after one step")
+                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: No chaining, stopping after one step")
                 break
             elif max_chaining_steps is not None and counter == max_chaining_steps:
                 # Add warning message based on agent type
@@ -1586,8 +1587,8 @@ class Agent(BaseAgent):
                 )
                 continue  # give agent one more chance to respond
             elif max_chaining_steps is not None and counter > max_chaining_steps:
-                self.logger.info(
-                    f"Hit max chaining steps, stopping after {counter} steps"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Hit max chaining steps, stopping after {counter} steps"
                 )
                 break
             # Chain handlers
@@ -2170,16 +2171,16 @@ These keywords have been used to retrieve relevant memories from the database.
                             choice.message.tool_calls[0].function.arguments
                         )
                         topics = function_args.get("topic")
-                        self.logger.info(f"Extracted topics: {topics}")
+                        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}")
                         return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
-                        self.logger.warning(
-                            f"Failed to parse topic extraction response: {parse_error}"
+                        printv(
+                            f"[Mirix.Agent.{self.agent_state.name}] WARNING: Failed to parse topic extraction response: {parse_error}"
                         )
                         continue
 
         except Exception as e:
-            self.logger.info(f"Error in extracting the topic from the messages: {e}")
+            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Error in extracting the topic from the messages: {e}")
 
         return None
 
@@ -2263,11 +2264,11 @@ These keywords have been used to retrieve relevant memories from the database.
 
         try:
             # Log the start of each reasoning step
-            self.logger.info(
-                f"Starting agent step - step_count: {step_count}, chaining: {chaining}"
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Starting agent step - step_count: {step_count}, chaining: {chaining}"
             )
             if topics:
-                self.logger.info(f"Step topics: {topics}")
+                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Step topics: {topics}")
 
             # Step 0: get in-context messages and get the raw system prompt
             in_context_messages = self.agent_manager.get_in_context_messages(
@@ -2310,8 +2311,8 @@ These keywords have been used to retrieve relevant memories from the database.
                 len(input_message_sequence) > 1
                 and input_message_sequence[-1].role != "user"
             ):
-                self.logger.warning(
-                    f"{CLI_WARNING_PREFIX}Attempting to run ChatCompletion without user as the last message in the queue"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] WARNING: {CLI_WARNING_PREFIX}Attempting to run ChatCompletion without user as the last message in the queue"
                 )
 
             # Step 2: send the conversation and available functions to the LLM
@@ -2325,19 +2326,19 @@ These keywords have been used to retrieve relevant memories from the database.
             )
 
             # Log the raw AI response for debugging and analysis
-            self.logger.info(f"AI response received - choices: {len(response.choices)}")
+            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: AI response received - choices: {len(response.choices)}")
             for i, choice in enumerate(response.choices):
                 if choice.message.content:
-                    self.logger.info(
-                        f"Choice {i} reasoning content: {choice.message.content}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Choice {i} reasoning content: {choice.message.content}"
                     )
                 if choice.message.tool_calls:
-                    self.logger.info(
-                        f"Choice {i} has {len(choice.message.tool_calls)} tool calls"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Choice {i} has {len(choice.message.tool_calls)} tool calls"
                     )
                     for j, tool_call in enumerate(choice.message.tool_calls):
-                        self.logger.info(
-                            f"Tool call {j}: {tool_call.function.name} with args: {tool_call.function.arguments}"
+                        printv(
+                            f"[Mirix.Agent.{self.agent_state.name}] INFO: Tool call {j}: {tool_call.function.name} with args: {tool_call.function.arguments}"
                         )
 
             # Step 3: check if LLM wanted to call a function
@@ -2366,8 +2367,8 @@ These keywords have been used to retrieve relevant memories from the database.
                 all_response_messages.extend(tmp_response_messages)
 
             if function_failed:
-                self.logger.info(
-                    f"Function failed with error: {all_response_messages[-1].content[0].text if all_response_messages else 'Unknown error'}"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Function failed with error: {all_response_messages[-1].content[0].text if all_response_messages else 'Unknown error'}"
                 )
 
             # if function_failed:
@@ -2415,10 +2416,10 @@ These keywords have been used to retrieve relevant memories from the database.
             # We can't do summarize logic properly if context_window is undefined
             if self.agent_state.llm_config.context_window is None:
                 # Fallback if for some reason context_window is missing, just set to the default
-                self.logger.warning(
-                    f"Could not find context_window in config, setting to default {LLM_MAX_TOKENS['DEFAULT']}"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] WARNING: Could not find context_window in config, setting to default {LLM_MAX_TOKENS['DEFAULT']}"
                 )
-                self.logger.debug(f"Agent state: {self.agent_state}")
+                printv(f"[Mirix.Agent.{self.agent_state.name}] DEBUG: Agent state: {self.agent_state}")
                 self.agent_state.llm_config.context_window = (
                     LLM_MAX_TOKENS[self.model]
                     if (self.model is not None and self.model in LLM_MAX_TOKENS)
@@ -2430,8 +2431,8 @@ These keywords have been used to retrieve relevant memories from the database.
                 > summarizer_settings.memory_warning_threshold
                 * int(self.agent_state.llm_config.context_window)
             ):
-                self.logger.info(
-                    f"Memory pressure detected: last response total_tokens ({current_total_tokens}) > {summarizer_settings.memory_warning_threshold * int(self.agent_state.llm_config.context_window)}"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Memory pressure detected: last response total_tokens ({current_total_tokens}) > {summarizer_settings.memory_warning_threshold * int(self.agent_state.llm_config.context_window)}"
                 )
 
                 # Only deliver the alert if we haven't already (this period)
@@ -2445,8 +2446,8 @@ These keywords have been used to retrieve relevant memories from the database.
                 self.summarize_messages_inplace(existing_file_uris=existing_file_uris)
 
             else:
-                self.logger.debug(
-                    f"Memory usage acceptable: last response total_tokens ({current_total_tokens}) < {summarizer_settings.memory_warning_threshold * int(self.agent_state.llm_config.context_window)}"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] DEBUG: Memory usage acceptable: last response total_tokens ({current_total_tokens}) < {summarizer_settings.memory_warning_threshold * int(self.agent_state.llm_config.context_window)}"
                 )
 
             # Log step - this must happen before messages are persisted
@@ -2466,8 +2467,8 @@ These keywords have been used to retrieve relevant memories from the database.
             )
 
             # Log step completion and results
-            self.logger.info(
-                f"Agent step completed - continue_chaining: {continue_chaining}, function_failed: {function_failed}, messages_generated: {len(all_new_messages)}"
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Agent step completed - continue_chaining: {continue_chaining}, function_failed: {function_failed}, messages_generated: {len(all_new_messages)}"
             )
 
             return AgentStepResponse(
@@ -2479,7 +2480,7 @@ These keywords have been used to retrieve relevant memories from the database.
             )
 
         except Exception as e:
-            self.logger.error(f"step() failed\nmessages = {messages}\nerror = {e}")
+            printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: step() failed\nmessages = {messages}\nerror = {e}")
 
             # If we got a context alert, try trimming the messages length, then try again
             if is_context_overflow_error(e):
@@ -2491,8 +2492,8 @@ These keywords have been used to retrieve relevant memories from the database.
                     summarize_attempt_count
                     <= summarizer_settings.max_summarizer_retries
                 ):
-                    self.logger.warning(
-                        f"context window exceeded with limit {self.agent_state.llm_config.context_window}, attempting to summarize ({summarize_attempt_count}/{summarizer_settings.max_summarizer_retries}"
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: context window exceeded with limit {self.agent_state.llm_config.context_window}, attempting to summarize ({summarize_attempt_count}/{summarizer_settings.max_summarizer_retries}"
                     )
                     # A separate API call to run a summarizer
                     self.summarize_messages_inplace(
@@ -2525,11 +2526,11 @@ These keywords have been used to retrieve relevant memories from the database.
                 else:
                     err_msg = f"Ran summarizer {summarize_attempt_count - 1} times for agent id={self.agent_state.id}, but messages are still overflowing the context window."
                     token_counts = (get_token_counts_for_messages(in_context_messages),)
-                    self.logger.error(err_msg)
-                    self.logger.error(
-                        f"num_in_context_messages: {len(self.agent_state.message_ids)}"
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: {err_msg}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: num_in_context_messages: {len(self.agent_state.message_ids)}"
                     )
-                    self.logger.error(f"token_counts: {token_counts}")
+                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: token_counts: {token_counts}")
                     raise ContextWindowExceededError(
                         err_msg,
                         details={
@@ -2544,8 +2545,8 @@ These keywords have been used to retrieve relevant memories from the database.
                     )
 
             else:
-                self.logger.error(
-                    f"step() failed with an unrecognized exception: '{str(e)}'"
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] ERROR: step() failed with an unrecognized exception: '{str(e)}'"
                 )
                 raise e
 

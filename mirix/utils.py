@@ -43,6 +43,10 @@ if "LOG_LEVEL" in os.environ:
     if os.environ["LOG_LEVEL"] == "DEBUG":
         DEBUG = True
 
+VERBOSE = True  # Default to True to show logs unless explicitly disabled
+if "MIRIX_VERBOSE" in os.environ:
+    VERBOSE = os.environ["MIRIX_VERBOSE"].lower() in ("true", "1", "yes")
+
 ADJECTIVE_BANK = [
     "beautiful",
     "gentle",
@@ -856,6 +860,12 @@ def count_tokens(s: str, model: str = "gpt-4") -> int:
 
 def printd(*args, **kwargs):
     if DEBUG:
+        print(*args, **kwargs)
+
+
+def printv(*args, **kwargs):
+    """Print verbose logging output. Controlled by MIRIX_VERBOSE environment variable."""
+    if VERBOSE:
         print(*args, **kwargs)
 
 

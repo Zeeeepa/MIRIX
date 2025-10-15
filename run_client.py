@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 import yaml
-from mirix.schemas.agent import CreateMetaAgent
+from mirix.schemas.agent import CreateMetaAgent, AgentType
 
 # Configure logging
 logging.basicConfig(
@@ -26,21 +26,11 @@ def load_config() -> dict:
 
 def initialize_client():
     """Initialize Mirix client with configuration."""
-    print("DEBUG: About to import mirix modules...")
     from mirix import create_client, LLMConfig, EmbeddingConfig
-    print("DEBUG: Imports complete")
     
-    # Load configuration
-    print("DEBUG: Loading config...")
     config = load_config()
-    print("DEBUG: Config loaded")
-    
-    # Initialize Mirix client
-    print("DEBUG: About to create client...")
     client = create_client()
-    print("DEBUG: Client created")
-    logger.info("Mirix client initialized")
-    
+
     # Set LLM config from config file or use default
     llm_config_data = config.get("llm_config")
     if llm_config_data and isinstance(llm_config_data, dict):
@@ -187,8 +177,15 @@ def main():
         embedding_config=embedding_config,
     )
     
-    # Initialize MetaAgent using client method
-    meta_agent = client.create_meta_agent(request=create_request)
+    meta_agent = None
+    agents = client.list_agents()
+    for agent in agents:
+        if agent.agent_type == AgentType.meta_memory_agent:
+            meta_agent = agent
+            break
+    
+    if not meta_agent:
+        meta_agent = client.create_meta_agent(request=create_request)
     print("✓ MetaAgent set up\n")
 
     # 3. Example: Add memories
@@ -197,33 +194,25 @@ def main():
     response = client.send_message(
         role='user',
         agent_id=meta_agent.id,
-        message='[User] I need to remember that my project deadline is November 15th, 2025. The client prefers communication via email and their budget is $50,000.\n\n[Assistant] I\'ve noted the key information: Project deadline is November 15th, 2025, client prefers email communication, and the budget is $50,000. I\'ll help you keep track of these important details.'
+        message='[User] I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes. We decided to go with the blue theme and scheduled a follow-up meeting for next Wednesday.\n\n[Assistant] I\'ve recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday.',
+        verbose=False
     )
 
-    # # 4. Example: Retrieve memories
-    # print("Step 4: Retrieving memories...")
-    # print("-" * 70)
+    # 4. Example: Retrieve memories
+    print("Step 4: Retrieving memories...")
+    print("-" * 70)
     
-    # # Retrieve using meta_memory_agent (queries across all memory types)
-    # query = "What do you know about Python programming?"
-    # print(f"Query: {query}")
-    # retrieve_response = retrieve_memory(client, query=query, memory_type="meta_memory")
-    # if retrieve_response and retrieve_response.messages:
-    #     print(f"Retrieved: {retrieve_response.messages[-1].content[:500]}...")
-    # print()
+    results = client.retrieve_memory(
+        agent_id=meta_agent.id,
+        query="meeting with Sarah",
+        memory_type="all",  # Search all memory types
+        search_method="embedding",  # Use semantic search
+    )
     
-    # query2 = "What meetings did I have recently?"
-    # print(f"Query: {query2}")
-    # retrieve_response = retrieve_memory(client, query=query2, memory_type="episodic")
-    # if retrieve_response and retrieve_response.messages:
-    #     print(f"Retrieved: {retrieve_response.messages[-1].content[:500]}...")
-    # print()
-    
-    # print("✓ Memory retrieval completed\n")
-    
-    # print("="*70)
-    # print("Demo completed successfully!")
-    # print("="*70 + "\n")
+    print(f"Found {results['count']} memories related to 'meeting with Sarah':")
+    for memory in results['results']:
+        print(f"  - [{memory['memory_type']}] {memory.get('summary', memory.get('name', 'N/A'))}")
+    print()
 
 
 if __name__ == "__main__":

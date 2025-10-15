@@ -576,6 +576,7 @@ class ProceduralMemoryManager:
                     ProceduralMemoryItem.last_modify.label("last_modify"),
                     ProceduralMemoryItem.tree_path.label("tree_path"),
                     ProceduralMemoryItem.user_id.label("user_id"),
+                    ProceduralMemoryItem.agent_id.label("agent_id"),
                 ).where(ProceduralMemoryItem.user_id == actor.id)
 
                 if search_method == "embedding":
@@ -741,6 +742,7 @@ class ProceduralMemoryManager:
     def insert_procedure(
         self,
         agent_state: AgentState,
+        agent_id: str,
         entry_type: str,
         summary: Optional[str],
         steps: List[str],
@@ -767,6 +769,7 @@ class ProceduralMemoryManager:
                     summary=summary,
                     steps=steps,
                     user_id=actor.id,
+                    agent_id=agent_id,
                     tree_path=tree_path or [],
                     organization_id=organization_id,
                     summary_embedding=summary_embedding,

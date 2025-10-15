@@ -20,6 +20,7 @@ from mirix.schemas.agent import AgentState, AgentType
 from mirix.schemas.memory import ChatMemory, Memory
 from mirix.schemas.message import Message
 from mirix.schemas.usage import MirixUsageStatistics
+from mirix.utils import printv
 
 if TYPE_CHECKING:
     from mirix.server.server import SyncServer
@@ -216,7 +217,7 @@ class MetaAgent(BaseAgent):
         # Initialize individual Agent instances for each sub-agent
         self._initialize_agent_instances()
 
-        self.logger.info(f"MetaAgent initialized with {len(MEMORY_AGENT_CONFIGS)} memory sub-agents")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: MetaAgent initialized with {len(MEMORY_AGENT_CONFIGS)} memory sub-agents")
 
     def _initialize_memory_agents(self):
         """
@@ -227,7 +228,7 @@ class MetaAgent(BaseAgent):
         existing_agents = self.server.agent_manager.list_agents(actor=self.user)
         existing_agent_names = {agent.name for agent in existing_agents}
 
-        self.logger.info(f"Found {len(existing_agents)} existing agents")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Found {len(existing_agents)} existing agents")
 
         if existing_agents:
             # Load existing agents
@@ -262,11 +263,11 @@ class MetaAgent(BaseAgent):
             elif agent_state.name == "background_agent":
                 self.memory_agent_states.background_agent_state = agent_state
 
-        self.logger.info("Loaded existing memory agent states")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Loaded existing memory agent states")
 
     def _create_new_agents(self):
         """Create new memory agent states."""
-        self.logger.info("Creating new memory agents...")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Creating new memory agents...")
 
         # Ensure base tools are available
         self.server.tool_manager.upsert_base_tools(self.user)
@@ -291,7 +292,7 @@ class MetaAgent(BaseAgent):
             # Store the agent state
             setattr(self.memory_agent_states, config["attr_name"], agent_state)
 
-            self.logger.info(f"Created memory agent: {config['name']}")
+            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Created memory agent: {config['name']}")
 
     def _get_system_prompt_for_agent(self, agent_name: str) -> str:
         """
@@ -341,7 +342,7 @@ class MetaAgent(BaseAgent):
                 actor=self.user,
             )
 
-        self.logger.info("Updated all memory agent configurations")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated all memory agent configurations")
 
     def _initialize_agent_instances(self):
         """
@@ -360,7 +361,7 @@ class MetaAgent(BaseAgent):
                 )
                 self.agents[config["name"]] = agent_instance
 
-        self.logger.info(f"Initialized {len(self.agents)} Agent instances for sub-agents")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Initialized {len(self.agents)} Agent instances for sub-agents")
 
     def step(
         self,
@@ -464,7 +465,7 @@ class MetaAgent(BaseAgent):
                     actor=self.user,
                 )
 
-        self.logger.info(f"Updated LLM config for all memory agents to model: {llm_config.model}")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated LLM config for all memory agents to model: {llm_config.model}")
 
     def update_embedding_config(self, embedding_config: EmbeddingConfig):
         """
@@ -484,7 +485,7 @@ class MetaAgent(BaseAgent):
                     # For now, this is a placeholder
                 )
 
-        self.logger.info(f"Updated embedding config for all memory agents")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated embedding config for all memory agents")
 
     def get_agent_state(self, agent_name: str) -> Optional[AgentState]:
         """
@@ -515,7 +516,7 @@ class MetaAgent(BaseAgent):
         existing_agents = self.server.agent_manager.list_agents(actor=self.user)
         self._load_existing_agents(existing_agents)
         self._initialize_agent_instances()
-        self.logger.info("Refreshed all memory agent states")
+        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Refreshed all memory agent states")
 
     def __repr__(self) -> str:
         agent_count = len([s for s in self.memory_agent_states.get_all_agent_states_list() if s is not None])
