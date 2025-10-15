@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Column, DateTime, Index, String, text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from mirix.constants import MAX_EMBEDDING_DIM
@@ -13,6 +13,7 @@ from mirix.schemas.episodic_memory import EpisodicEvent as PydanticEpisodicEvent
 from mirix.settings import settings
 
 if TYPE_CHECKING:
+    from mirix.orm.agent import Agent
     from mirix.orm.organization import Organization
     from mirix.orm.user import User
 
@@ -32,6 +33,14 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
         String,
         primary_key=True,
         doc="Unique ID for the episodic event",
+    )
+
+    # Foreign key to agent
+    agent_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="ID of the agent this episodic event belongs to",
     )
 
     # When did this event occur? (You can store creation time or an explicit event time.)
@@ -137,6 +146,13 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
             ],
         )
     )
+
+    @declared_attr
+    def agent(cls) -> Mapped[Optional["Agent"]]:
+        """
+        Relationship to the Agent that owns this episodic event.
+        """
+        return relationship("Agent", lazy="selectin")
 
     @declared_attr
     def organization(cls) -> Mapped["Organization"]:

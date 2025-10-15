@@ -39,6 +39,9 @@ class ResourceMemoryItem(ResourceMemoryItemBase):
     id: Optional[str] = Field(
         None, description="Unique identifier for the resource memory item"
     )
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this resource memory item belongs to"
+    )
     user_id: str = Field(
         ..., description="The id of the user who generated the resource"
     )
@@ -88,6 +91,9 @@ class ResourceMemoryItemUpdate(MirixBase):
     """Schema for updating an existing resource memory item."""
 
     id: str = Field(..., description="Unique ID for this resource memory entry")
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this resource memory item belongs to"
+    )
     title: Optional[str] = Field(None, description="Short name/title of the resource")
     summary: Optional[str] = Field(
         None, description="Short description or summary of the resource"

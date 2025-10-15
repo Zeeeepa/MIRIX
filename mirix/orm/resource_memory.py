@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Column, String
+from sqlalchemy import JSON, Column, ForeignKey, String
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from mirix.constants import MAX_EMBEDDING_DIM
@@ -15,6 +15,7 @@ from mirix.schemas.resource_memory import (
 from mirix.settings import settings
 
 if TYPE_CHECKING:
+    from mirix.orm.agent import Agent
     from mirix.orm.organization import Organization
     from mirix.orm.user import User
 
@@ -38,6 +39,14 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         String,
         primary_key=True,
         doc="Unique ID for this resource memory entry",
+    )
+
+    # Foreign key to agent
+    agent_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="ID of the agent this resource memory item belongs to",
     )
 
     title: Mapped[str] = mapped_column(
@@ -94,6 +103,13 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         summary_embedding = mapped_column(Vector(MAX_EMBEDDING_DIM), nullable=True)
     else:
         summary_embedding = Column(CommonVector, nullable=True)
+
+    @declared_attr
+    def agent(cls) -> Mapped[Optional["Agent"]]:
+        """
+        Relationship to the Agent that owns this resource memory item.
+        """
+        return relationship("Agent", lazy="selectin")
 
     @declared_attr
     def organization(cls) -> Mapped["Organization"]:

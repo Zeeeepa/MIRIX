@@ -42,6 +42,9 @@ class KnowledgeVaultItem(KnowledgeVaultItemBase):
     id: Optional[str] = Field(
         None, description="Unique identifier for the knowledge vault item"
     )
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this knowledge vault item belongs to"
+    )
     user_id: str = Field(
         ..., description="The id of the user who generated the knowledge vault item"
     )
@@ -108,6 +111,9 @@ class KnowledgeVaultItemUpdate(MirixBase):
     """
 
     id: str = Field(..., description="Unique ID for this knowledge vault entry")
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this knowledge vault item belongs to"
+    )
     entry_type: Optional[str] = Field(
         None, description="Category (e.g., 'credential', 'bookmark', 'api_key')"
     )

@@ -57,6 +57,10 @@ class EpisodicEvent(EpisodicEventBase):
         None, description="Unique identifier for the episodic event"
     )
 
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this episodic event belongs to"
+    )
+
     user_id: str = Field(
         ..., description="The id of the user who generated the episodic event"
     )
@@ -121,6 +125,9 @@ class EpisodicEventUpdate(MirixBase):
     """
 
     id: str = Field(..., description="Unique ID for this episodic memory record")
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this episodic event belongs to"
+    )
     event_type: Optional[str] = Field(None, description="Type/category of the event")
     summary: Optional[str] = Field(
         None, description="Short textual summary of the event"

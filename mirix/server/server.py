@@ -667,7 +667,7 @@ class SyncServer(Server):
             effective_chaining = chaining if chaining is not None else self.chaining
 
             if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
-                input_messages.append(MessageCreate(role='user', content='The above is the conversation between the user and the assistant. Please analyze the conversation and update the memories accordingly.'))
+                input_messages.append(MessageCreate(role='user', content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)"))
 
             usage_stats = mirix_agent.step(
                 input_messages=input_messages,

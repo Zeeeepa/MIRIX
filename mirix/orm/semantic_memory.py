@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Column, DateTime, String
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from mirix.constants import MAX_EMBEDDING_DIM
@@ -15,6 +15,7 @@ from mirix.schemas.semantic_memory import (
 from mirix.settings import settings
 
 if TYPE_CHECKING:
+    from mirix.orm.agent import Agent
     from mirix.orm.organization import Organization
     from mirix.orm.user import User
 
@@ -41,6 +42,14 @@ class SemanticMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     # Primary key
     id: Mapped[str] = mapped_column(
         String, primary_key=True, doc="Unique ID for this semantic memory entry"
+    )
+
+    # Foreign key to agent
+    agent_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="ID of the agent this semantic memory item belongs to",
     )
 
     # The name of the concept or the object
@@ -114,6 +123,13 @@ class SemanticMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         details_embedding = Column(CommonVector, nullable=True)
         name_embedding = Column(CommonVector, nullable=True)
         summary_embedding = Column(CommonVector, nullable=True)
+
+    @declared_attr
+    def agent(cls) -> Mapped[Optional["Agent"]]:
+        """
+        Relationship to the Agent that owns this semantic memory item.
+        """
+        return relationship("Agent", lazy="selectin")
 
     @declared_attr
     def organization(cls) -> Mapped["Organization"]:

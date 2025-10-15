@@ -42,6 +42,9 @@ class SemanticMemoryItem(SemanticMemoryItemBase):
     id: Optional[str] = Field(
         None, description="Unique identifier for the semantic memory item"
     )
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this semantic memory item belongs to"
+    )
     user_id: str = Field(
         ..., description="The id of the user who generated the semantic memory"
     )
@@ -100,6 +103,9 @@ class SemanticMemoryItemUpdate(MirixBase):
     """
 
     id: str = Field(..., description="Unique ID for this semantic memory entry")
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this semantic memory item belongs to"
+    )
     name: Optional[str] = Field(
         None, description="The name or main concept for the knowledge entry"
     )

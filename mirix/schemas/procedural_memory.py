@@ -36,6 +36,9 @@ class ProceduralMemoryItem(ProceduralMemoryItemBase):
     id: Optional[str] = Field(
         None, description="Unique identifier for the procedural memory item"
     )
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this procedural memory item belongs to"
+    )
     user_id: str = Field(
         ..., description="The id of the user who generated the procedure"
     )
@@ -88,6 +91,9 @@ class ProceduralMemoryItemUpdate(MirixBase):
     """Schema for updating an existing procedural memory item."""
 
     id: str = Field(..., description="Unique ID for this procedural memory entry")
+    agent_id: Optional[str] = Field(
+        None, description="The id of the agent this procedural memory item belongs to"
+    )
     entry_type: Optional[str] = Field(
         None, description="Category (e.g., 'workflow', 'guide', 'script')"
     )

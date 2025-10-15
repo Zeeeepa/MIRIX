@@ -63,10 +63,13 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for item in items:
         self.episodic_memory_manager.insert_event(
             actor=self.user,
             agent_state=self.agent_state,
+            agent_id=agent_id,
             timestamp=item["occurred_at"],
             event_type=item["event_type"],
             event_actor=item["actor"],
@@ -127,6 +130,7 @@ def episodic_memory_replace(
         event_ids (str): The ids of the episodic events to be deleted (or replaced).
         new_items (array): List of new episodic memory items to insert. If this is an empty list, then it means that the items are being deleted.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
 
     for event_id in event_ids:
         # It will raise an error if the event_id is not found in the episodic memory.
@@ -141,6 +145,7 @@ def episodic_memory_replace(
         self.episodic_memory_manager.insert_event(
             actor=self.user,
             agent_state=self.agent_state,
+            agent_id=agent_id,
             timestamp=new_item["occurred_at"],
             event_type=new_item["event_type"],
             event_actor=new_item["actor"],
@@ -196,10 +201,12 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
 
     for item in items:
         self.resource_memory_manager.insert_resource(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             title=item["title"],
             summary=item["summary"],
             resource_type=item["resource_type"],
@@ -220,6 +227,7 @@ def resource_memory_update(
         old_ids (array): List of ids of the items to be deleted (or updated).
         new_items (array): List of new resource memory items to insert. If this is an empty list, then it means that the items are being deleted.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
 
     for old_id in old_ids:
         self.resource_memory_manager.delete_resource_by_id(
@@ -229,6 +237,7 @@ def resource_memory_update(
     for item in new_items:
         self.resource_memory_manager.insert_resource(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             title=item["title"],
             summary=item["summary"],
             resource_type=item["resource_type"],
@@ -249,9 +258,12 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for item in items:
         self.procedural_memory_manager.insert_procedure(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             entry_type=item["entry_type"],
             summary=item["summary"],
             steps=item["steps"],
@@ -274,6 +286,8 @@ def procedural_memory_update(
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for old_id in old_ids:
         self.procedural_memory_manager.delete_procedure_by_id(
             procedure_id=old_id, actor=self.user
@@ -282,6 +296,7 @@ def procedural_memory_update(
     for item in new_items:
         self.procedural_memory_manager.insert_procedure(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             entry_type=item["entry_type"],
             summary=item["summary"],
             steps=item["steps"],
@@ -335,9 +350,12 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for item in items:
         self.semantic_memory_manager.insert_semantic_item(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             name=item["name"],
             summary=item["summary"],
             details=item["details"],
@@ -363,6 +381,7 @@ def semantic_memory_update(
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
 
     for old_id in old_semantic_item_ids:
         self.semantic_memory_manager.delete_semantic_item_by_id(
@@ -373,6 +392,7 @@ def semantic_memory_update(
     for item in new_items:
         inserted_item = self.semantic_memory_manager.insert_semantic_item(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             name=item["name"],
             summary=item["summary"],
             details=item["details"],
@@ -401,9 +421,12 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for item in items:
         self.knowledge_vault_manager.insert_knowledge(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             entry_type=item["entry_type"],
             source=item["source"],
             sensitivity=item["sensitivity"],
@@ -427,6 +450,8 @@ def knowledge_vault_update(
     Returns:
         Optional[str]: None is always returned as this function does not produce a response
     """
+    agent_id = self.agent_state.parent_id if self.agent_state.parent_id is not None else self.agent_state.id
+    
     for old_id in old_ids:
         self.knowledge_vault_manager.delete_knowledge_by_id(
             knowledge_vault_item_id=old_id, actor=self.user
@@ -435,6 +460,7 @@ def knowledge_vault_update(
     for item in new_items:
         self.knowledge_vault_manager.insert_knowledge(
             agent_state=self.agent_state,
+            agent_id=agent_id,
             entry_type=item["entry_type"],
             source=item["source"],
             sensitivity=item["sensitivity"],
