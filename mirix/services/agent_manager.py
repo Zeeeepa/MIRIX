@@ -26,7 +26,7 @@ from mirix.orm.sandbox_config import (
     AgentEnvironmentVariable as AgentEnvironmentVariableModel,
 )
 from mirix.schemas.agent import AgentState as PydanticAgentState
-from mirix.schemas.agent import AgentType, CreateAgent, UpdateAgent
+from mirix.schemas.agent import AgentType, CreateAgent, CreateMetaAgent, UpdateAgent
 from mirix.schemas.block import Block as PydanticBlock
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.llm_config import LLMConfig
@@ -153,6 +153,7 @@ class AgentManager:
             description=agent_create.description,
             metadata_=agent_create.metadata_,
             tool_rules=agent_create.tool_rules,
+            parent_id=agent_create.parent_id,
             actor=actor,
         )
 
@@ -167,6 +168,123 @@ class AgentManager:
         return self.append_initial_message_sequence_to_in_context_messages(
             actor, agent_state, agent_create.initial_message_sequence
         )
+
+    def create_meta_agent(
+        self,
+        meta_agent_create: CreateMetaAgent,
+        actor: PydanticUser,
+    ) -> Dict[str, PydanticAgentState]:
+        """
+        Create a meta agent by first creating a meta_memory_agent as the parent,
+        then creating all the sub-agents specified in the meta_agent_create.agents list
+        with their parent_id set to the meta_memory_agent.
+        
+        Args:
+            meta_agent_create: CreateMetaAgent schema with configuration for all sub-agents
+            actor: User performing the action
+            
+        Returns:
+            Dict[str, PydanticAgentState]: Dictionary mapping agent names to their agent states,
+                                           including the "meta_memory_agent" parent
+        """
+        
+        if not meta_agent_create.llm_config or not meta_agent_create.embedding_config:
+            raise ValueError("llm_config and embedding_config are required")
+
+        # Create blocks if provided (these will be shared across agents)
+        block_ids = []
+        if meta_agent_create.memory_blocks:
+            for create_block in meta_agent_create.memory_blocks:
+                block = self.block_manager.create_or_update_block(
+                    PydanticBlock(**create_block.model_dump()), actor=actor
+                )
+                block_ids.append(block.id)
+
+        # Map agent names to their corresponding AgentType
+        agent_name_to_type = {
+            "core_memory_agent": AgentType.core_memory_agent,
+            "resource_memory_agent": AgentType.resource_memory_agent,
+            "semantic_memory_agent": AgentType.semantic_memory_agent,
+            "episodic_memory_agent": AgentType.episodic_memory_agent,
+            "procedural_memory_agent": AgentType.procedural_memory_agent,
+            "knowledge_vault_agent": AgentType.knowledge_vault_agent,
+            "meta_memory_agent": AgentType.meta_memory_agent,
+            "reflexion_agent": AgentType.reflexion_agent,
+            "background_agent": AgentType.background_agent,
+            "chat_agent": AgentType.chat_agent,
+        }
+
+        # First, create the meta_memory_agent as the parent
+        meta_agent_name = meta_agent_create.name or "meta_memory_agent"
+        meta_system_prompt = None
+        if meta_agent_create.system_prompts and "meta_memory_agent" in meta_agent_create.system_prompts:
+            meta_system_prompt = meta_agent_create.system_prompts["meta_memory_agent"]
+        
+        meta_agent_create_schema = CreateAgent(
+            name=meta_agent_name,
+            agent_type=AgentType.meta_memory_agent,
+            system=meta_system_prompt,
+            llm_config=meta_agent_create.llm_config,
+            embedding_config=meta_agent_create.embedding_config,
+            block_ids=block_ids.copy() if block_ids else None,
+            include_base_tools=True,
+            description=meta_agent_create.description or "Meta memory agent coordinating sub-agents",
+            metadata_=meta_agent_create.metadata_,
+        )
+        
+        meta_agent_state = self.create_agent(
+            agent_create=meta_agent_create_schema,
+            actor=actor,
+        )
+        logger.info(f"Created meta_memory_agent: {meta_agent_name} with id: {meta_agent_state.id}")
+
+        # Store the parent agent
+        created_agents = {"meta_memory_agent": meta_agent_state}
+        
+        # Now create all sub-agents with parent_id set to the meta_memory_agent
+        for agent_name in meta_agent_create.agents:
+            # Skip meta_memory_agent since we already created it as the parent
+            if agent_name == "meta_memory_agent":
+                continue
+                
+            # Get the agent type
+            agent_type = agent_name_to_type.get(agent_name)
+            if not agent_type:
+                logger.warning(f"Unknown agent type: {agent_name}, skipping...")
+                continue
+
+            # Get custom system prompt if provided
+            custom_system = None
+            if meta_agent_create.system_prompts and agent_name in meta_agent_create.system_prompts:
+                custom_system = meta_agent_create.system_prompts[agent_name]
+
+            # Create the agent using CreateAgent schema with parent_id
+            agent_create = CreateAgent(
+                name=f"{meta_agent_name}_{agent_name}",
+                agent_type=agent_type,
+                system=custom_system,  # Will use default if None
+                llm_config=meta_agent_create.llm_config,
+                embedding_config=meta_agent_create.embedding_config,
+                block_ids=block_ids.copy() if block_ids else None,
+                include_base_tools=True,
+                description=f"Sub-agent of meta agent: {meta_agent_name}",
+                metadata_=meta_agent_create.metadata_,
+                parent_id=meta_agent_state.id,  # Set the parent_id
+            )
+
+            # Create the agent
+            try:
+                agent_state = self.create_agent(
+                    agent_create=agent_create,
+                    actor=actor,
+                )
+                created_agents[agent_name] = agent_state
+                logger.info(f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}")
+            except Exception as e:
+                logger.error(f"Failed to create agent {agent_name}: {str(e)}")
+                raise
+
+        return meta_agent_state
 
     def update_agent_tools_and_system_prompts(
         self,
@@ -344,6 +462,7 @@ class AgentManager:
         description: Optional[str] = None,
         metadata_: Optional[Dict] = None,
         tool_rules: Optional[List[PydanticToolRule]] = None,
+        parent_id: Optional[str] = None,
     ) -> PydanticAgentState:
         """Create a new agent."""
         with self.session_maker() as session:
@@ -359,6 +478,7 @@ class AgentManager:
                 "description": description,
                 "metadata_": metadata_,
                 "tool_rules": tool_rules,
+                "parent_id": parent_id,
             }
 
             # Create the new agent using SqlalchemyBase.create
@@ -500,6 +620,7 @@ class AgentManager:
                 "description",
                 "metadata_",
                 "mcp_tools",
+                "parent_id",
             }
             for field in scalar_fields:
                 value = getattr(agent_update, field, None)
@@ -543,12 +664,16 @@ class AgentManager:
         cursor: Optional[str] = None,
         limit: Optional[int] = 50,
         query_text: Optional[str] = None,
+        parent_id: Optional[str] = None,
         **kwargs,
     ) -> List[PydanticAgentState]:
         """
         List agents that have the specified tags.
+        By default, only returns top-level agents (parent_id is None) with their children populated.
+        If parent_id is provided, only returns agents with that parent_id.
         """
         with self.session_maker() as session:
+            # Get agents filtered by parent_id (None for top-level agents, or specific parent_id)
             agents = AgentModel.list(
                 db_session=session,
                 tags=tags,
@@ -557,10 +682,39 @@ class AgentManager:
                 limit=limit,
                 organization_id=actor.organization_id if actor else None,
                 query_text=query_text,
+                parent_id=parent_id,
                 **kwargs,
             )
 
-            return [agent.to_pydantic() for agent in agents]
+            # Convert to Pydantic
+            agent_states = [agent.to_pydantic() for agent in agents]
+            
+            # If there are no agents, return early
+            if not agent_states:
+                return agent_states
+            
+            # Only populate children if we're listing top-level agents (parent_id is None)
+            if parent_id is None:
+                # Get all children for these agents in one query
+                parent_ids = [agent.id for agent in agent_states]
+                children = AgentModel.list(
+                    db_session=session,
+                    organization_id=actor.organization_id if actor else None,
+                )
+                
+                # Filter children by parent_id and group them
+                children_by_parent = {}
+                for child in children:
+                    if child.parent_id in parent_ids:
+                        if child.parent_id not in children_by_parent:
+                            children_by_parent[child.parent_id] = []
+                        children_by_parent[child.parent_id].append(child.to_pydantic())
+                
+                # Assign children to their parent agents
+                for agent_state in agent_states:
+                    agent_state.children = children_by_parent.get(agent_state.id, [])
+
+            return agent_states
 
     @enforce_types
     def get_agent_by_id(self, agent_id: str, actor: PydanticUser) -> PydanticAgentState:

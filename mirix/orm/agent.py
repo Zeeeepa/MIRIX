@@ -50,6 +50,9 @@ class Agent(SqlalchemyBase, OrganizationMixin):
     description: Mapped[Optional[str]] = mapped_column(
         String, nullable=True, doc="The description of the agent."
     )
+    parent_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, doc="The parent agent ID (for sub-agents in a meta-agent)."
+    )
 
     # System prompt
     system: Mapped[Optional[str]] = mapped_column(
@@ -134,6 +137,8 @@ class Agent(SqlalchemyBase, OrganizationMixin):
             "organization_id": self.organization_id,
             "name": self.name,
             "description": self.description,
+            "parent_id": self.parent_id,
+            "children": None,  # Children are populated separately when needed
             "message_ids": self.message_ids,
             "tools": self.tools,
             "tags": [t.tag for t in self.tags],

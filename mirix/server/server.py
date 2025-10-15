@@ -21,6 +21,7 @@ from mirix.agent import (
     CoreMemoryAgent,
     EpisodicMemoryAgent,
     KnowledgeVaultAgent,
+    MetaAgent,
     MetaMemoryAgent,
     ProceduralMemoryAgent,
     ReflexionAgent,
@@ -37,7 +38,7 @@ from mirix.interface import (
 from mirix.log import get_logger
 from mirix.orm import Base
 from mirix.orm.errors import NoResultFound
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent
+from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent
 from mirix.schemas.block import BlockUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 
@@ -665,6 +666,9 @@ class SyncServer(Server):
             # Use provided chaining value or fall back to server default
             effective_chaining = chaining if chaining is not None else self.chaining
 
+            if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
+                input_messages.append(MessageCreate(role='user', content='The above is the conversation between the user and the assistant. Please analyze the conversation and update the memories accordingly.'))
+
             usage_stats = mirix_agent.step(
                 input_messages=input_messages,
                 chaining=effective_chaining,
@@ -1046,7 +1050,50 @@ class SyncServer(Server):
             actor=actor,
         )
 
-    # convert name->id
+    def create_meta_agent(
+        self,
+        request: CreateMetaAgent,
+        actor: User,
+        interface: Union[AgentInterface, None] = None,
+    ) -> MetaAgent:
+        """Create a new MetaAgent for memory management operations.
+
+        Args:
+            request (CreateMetaAgent): Configuration for creating the MetaAgent
+            actor (User): The user creating the meta agent
+            interface (AgentInterface): Optional interface for agent interactions
+
+        Returns:
+            MetaAgent: The initialized MetaAgent instance
+        """
+
+        from mirix.schemas.memory import ChatMemory
+
+        # Handle LLM config
+        if request.llm_config is None:
+            raise ValueError("Must specify llm_config in CreateMetaAgent request")
+
+        # Handle embedding config
+        if request.embedding_config is None:
+            raise ValueError("Must specify embedding_config in CreateMetaAgent request")
+
+        # Create default memory
+        memory = ChatMemory(
+            human="",
+            persona="You are a memory management system that processes and stores information efficiently.",
+            actor=actor,
+        )
+
+        request.memory_blocks = memory.get_blocks()
+        
+        # Create or update memory blocks through block_manager
+        for block in memory.get_blocks():
+            self.block_manager.create_or_update_block(block, actor=actor)
+
+        return self.agent_manager.create_meta_agent(
+            meta_agent_create=request,
+            actor=actor,
+        )
 
     # TODO: These can be moved to agent_manager
     def get_agent_memory(self, agent_id: str, actor: User) -> Memory:

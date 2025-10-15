@@ -374,7 +374,7 @@ class Agent(BaseAgent):
         self.agent_state.memory = Memory(
             blocks=[
                 self.block_manager.get_block_by_id(block.id, actor=self.user)
-                for block in self.block_manager.get_blocks(actor=self.user)
+                for block in self.block_manager.get_blocks(actor=self.user, agent_id=self.agent_state.id)
             ]
         )
 
@@ -1464,7 +1464,7 @@ class Agent(BaseAgent):
             self.agent_state.memory = Memory(
                 blocks=[
                     self.block_manager.get_block_by_id(block.id, actor=self.user)
-                    for block in self.block_manager.get_blocks(actor=self.user)
+                    for block in self.block_manager.get_blocks(actor=self.user, agent_id=self.agent_state.id)
                 ]
             )
 

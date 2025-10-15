@@ -20,7 +20,7 @@ from mirix.constants import (
 from mirix.functions.functions import parse_source_code
 from mirix.interface import QueuingInterface
 from mirix.orm.errors import NoResultFound
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent, UpdateAgent
+from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent, UpdateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
 
@@ -758,6 +758,7 @@ class LocalClient(AbstractClient):
         tags: Optional[List[str]] = None,
         limit: int = 100,
         cursor: Optional[str] = None,
+        parent_id: Optional[str] = None,
     ) -> List[AgentState]:
         self.interface.clear()
 
@@ -767,6 +768,7 @@ class LocalClient(AbstractClient):
             query_text=query_text,
             limit=limit,
             cursor=cursor,
+            parent_id=parent_id,
         )
 
     def agent_exists(
@@ -899,6 +901,31 @@ class LocalClient(AbstractClient):
         # TODO: get full agent state
         return self.server.agent_manager.get_agent_by_id(
             agent_state.id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+        )
+
+    def create_meta_agent(
+        self,
+        request: CreateMetaAgent,
+    ):
+        """Create a MetaAgent for memory management operations.
+
+        Args:
+            request (CreateMetaAgent): Configuration for creating the MetaAgent including
+                agents list, system prompts, llm_config, embedding_config, etc.
+
+        Returns:
+            MetaAgent: The initialized MetaAgent instance
+        """
+        # Use client defaults if configs not provided in request
+        if request.llm_config is None:
+            request.llm_config = self._default_llm_config
+        if request.embedding_config is None:
+            request.embedding_config = self._default_embedding_config
+
+        # Create MetaAgent through server
+        return self.server.create_meta_agent(
+            request=request,
+            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def update_message(

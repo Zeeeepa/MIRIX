@@ -100,6 +100,12 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     metadata_: Optional[Dict] = Field(
         None, description="The metadata of the agent.", alias="metadata_"
     )
+    parent_id: Optional[str] = Field(
+        None, description="The parent agent ID (for sub-agents in a meta-agent)."
+    )
+    children: Optional[List['AgentState']] = Field(
+        default=None, description="Child agents (sub-agents) if this is a parent agent."
+    )
 
     memory: Memory = Field(..., description="The in-context memory of the agent.")
     tools: List[Tool] = Field(..., description="The tools used by the agent.")
@@ -181,6 +187,9 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     )
     metadata_: Optional[Dict] = Field(
         None, description="The metadata of the agent.", alias="metadata_"
+    )
+    parent_id: Optional[str] = Field(
+        None, description="The parent agent ID (for sub-agents in a meta-agent)."
     )
     model: Optional[str] = Field(
         None,
@@ -305,6 +314,9 @@ class UpdateAgent(BaseModel):
     metadata_: Optional[Dict] = Field(
         None, description="The metadata of the agent.", alias="metadata_"
     )
+    parent_id: Optional[str] = Field(
+        None, description="The parent agent ID (for sub-agents in a meta-agent)."
+    )
     tool_exec_environment_variables: Optional[Dict[str, str]] = Field(
         None,
         description="The environment variables for tool execution specific to this agent.",
@@ -315,6 +327,92 @@ class UpdateAgent(BaseModel):
 
     class Config:
         extra = "ignore"  # Ignores extra fields
+
+
+class CreateMetaAgent(BaseModel):
+    """Request schema for creating a MetaAgent."""
+    
+    name: Optional[str] = Field(
+        None,
+        description="Optional name for the MetaAgent. If None, a random name will be generated."
+    )
+    agents: List[str] = Field(
+        default_factory=lambda: [
+            "core_memory_agent",
+            "resource_memory_agent",
+            "semantic_memory_agent",
+            "episodic_memory_agent",
+            "procedural_memory_agent",
+            "knowledge_vault_agent",
+            "meta_memory_agent",
+            "reflexion_agent",
+            "background_agent",
+        ],
+        description="List of memory agent names to initialize in MetaAgent."
+    )
+    system_prompts_folder: Optional[str] = Field(
+        None,
+        description="Custom folder path for system prompts. If None, uses default prompts."
+    )
+    system_prompts: Optional[Dict[str, str]] = Field(
+        None,
+        description="Dictionary mapping agent names to their system prompt text. Takes precedence over system_prompts_folder."
+    )
+    llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="LLM configuration for memory agents. Required if no default is set."
+    )
+    embedding_config: Optional[EmbeddingConfig] = Field(
+        None,
+        description="Embedding configuration for memory agents. Required if no default is set."
+    )
+    memory_blocks: Optional[List[CreateBlock]] = Field(
+        None,
+        description="Optional memory blocks to initialize the MetaAgent with."
+    )
+    description: Optional[str] = Field(
+        None,
+        description="Description of the MetaAgent."
+    )
+    metadata_: Optional[Dict] = Field(
+        None,
+        description="Metadata for the MetaAgent.",
+        alias="metadata_"
+    )
+    
+    def model_post_init(self, __context):
+        """Load system prompts from folder after initialization."""
+        if self.system_prompts_folder is not None and self.system_prompts is None:
+            self.system_prompts = self._load_system_prompts()
+    
+    def _load_system_prompts(self) -> Dict[str, str]:
+        """Load all system prompts from the system_prompts_folder.
+        
+        Returns:
+            Dict mapping agent names to their prompt text
+        """
+        import os
+        
+        prompts = {}
+        
+        if not self.system_prompts_folder:
+            return prompts
+        
+        # Load prompts for each agent
+        for agent_name in self.agents:
+            prompt_file = os.path.join(self.system_prompts_folder, f"{agent_name}.txt")
+            
+            if os.path.exists(prompt_file):
+                try:
+                    with open(prompt_file, "r", encoding="utf-8") as f:
+                        prompts[agent_name] = f.read()
+                except Exception as e:
+                    # Log warning but continue
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to load system prompt for {agent_name} from {prompt_file}: {e}")
+        
+        return prompts
 
 
 class AgentStepResponse(BaseModel):
@@ -370,3 +468,7 @@ def get_prompt_template_for_agent_type(agent_type: Optional[AgentType] = None):
         "{% if not loop.last %}\n{% endif %}"
         "{% endfor %}"
     )
+
+
+# Rebuild model to support forward references (children field)
+AgentState.model_rebuild()

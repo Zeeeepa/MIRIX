@@ -533,7 +533,7 @@ def trigger_memory_update(
     from mirix import create_client
 
     client = create_client()
-    agents = client.list_agents()
+    agents = client.list_agents(parent_id=self.agent_state.id)
 
     # Validate that user_message is a dictionary
     if not isinstance(user_message, dict):
