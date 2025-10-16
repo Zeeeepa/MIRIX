@@ -83,17 +83,17 @@ class BlockManager:
                     BlocksAgents.agent_id == agent_id
                 )
                 block_ids = [row[0] for row in block_ids_query.all()]
-                
+
                 if not block_ids:
                     return []  # No blocks associated with this agent
-                
+
                 # Now query blocks with the extracted block_ids
                 query = session.query(BlockModel).filter(
                     BlockModel.id.in_(block_ids),
                     BlockModel.organization_id == actor.organization_id,
-                    BlockModel.user_id == actor.id
+                    BlockModel.user_id == actor.id,
                 )
-                
+
                 # Apply additional filters
                 if label:
                     query = query.filter(BlockModel.label == label)
@@ -105,13 +105,16 @@ class BlockManager:
                     query = query.filter(BlockModel.id == id)
                 if cursor:
                     query = query.filter(BlockModel.id > cursor)
-                
+
                 query = query.limit(limit)
                 blocks = query.all()
-                
+
             else:
                 # Use the standard list method when no agent_id filter
-                filters = {"organization_id": actor.organization_id, "user_id": actor.id}
+                filters = {
+                    "organization_id": actor.organization_id,
+                    "user_id": actor.id,
+                }
                 if label:
                     filters["label"] = label
                 if is_template is not None:

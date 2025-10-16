@@ -201,7 +201,7 @@ def trace_method(func):
             for name, value in param_items:
                 # Convert value to string to avoid serialization issues
                 span.set_attribute(f"parameter.{name}", str(value))
-        except:
+        except Exception:
             pass
 
     @wraps(func)

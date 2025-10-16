@@ -4,6 +4,7 @@ import os
 import traceback
 import warnings
 from abc import abstractmethod
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Union
 
@@ -11,6 +12,11 @@ from typing import Callable, Dict, List, Optional, Union
 # from composio.client.collections import ActionModel, AppModel
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 import mirix.constants as constants
 import mirix.server.utils as server_utils
@@ -34,7 +40,9 @@ from mirix.agent import (
 from mirix.interface import (
     AgentInterface,  # abstract
     CLIInterface,  # for printing to terminal
+    QueuingInterface,  # for message queuing
 )
+from mirix.config import MirixConfig
 from mirix.log import get_logger
 from mirix.orm import Base
 from mirix.orm.errors import NoResultFound
@@ -161,18 +169,8 @@ class Server(object):
         raise NotImplementedError
 
 
-from contextlib import contextmanager
-
-from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from mirix.config import MirixConfig
-
 # NOTE: hack to see if single session management works
-from mirix.settings import model_settings, settings, tool_settings
+from mirix.settings import model_settings, settings, tool_settings  # noqa: E402
 
 config = MirixConfig.load()
 
@@ -384,9 +382,16 @@ def get_db():
         db.close()
 
 
-from contextlib import contextmanager
-
 db_context = contextmanager(get_db)
+
+
+async def sse_async_generator(generator, usage_task=None, finish_message=True):
+    """Simple SSE async generator wrapper"""
+    # TODO: Implement proper SSE generation
+    async for item in generator:
+        yield item
+    if usage_task:
+        await usage_task
 
 
 class SyncServer(Server):
@@ -667,7 +672,12 @@ class SyncServer(Server):
             effective_chaining = chaining if chaining is not None else self.chaining
 
             if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
-                input_messages.append(MessageCreate(role='user', content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)"))
+                input_messages.append(
+                    MessageCreate(
+                        role="user",
+                        content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)",
+                    )
+                )
 
             usage_stats = mirix_agent.step(
                 input_messages=input_messages,
@@ -837,7 +847,7 @@ class SyncServer(Server):
             raise ValueError(f"User user_id={user_id} does not exist")
 
         try:
-            agent = self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor)
+            self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor)
         except NoResultFound:
             raise ValueError(f"Agent agent_id={agent_id} does not exist")
 
@@ -889,7 +899,7 @@ class SyncServer(Server):
             raise ValueError(f"User user_id={user_id} does not exist")
 
         try:
-            agent = self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor)
+            self.agent_manager.get_agent_by_id(agent_id=agent_id, actor=actor)
         except NoResultFound:
             raise ValueError(f"Agent agent_id={agent_id} does not exist")
 
@@ -990,6 +1000,7 @@ class SyncServer(Server):
         old_verbose = None
         if verbose is not None:
             import mirix.utils
+
             # Save the old VERBOSE state to restore later
             old_verbose = mirix.utils.VERBOSE
             # Set the new VERBOSE state
@@ -1022,6 +1033,7 @@ class SyncServer(Server):
             # Restore the old VERBOSE state if it was modified
             if old_verbose is not None:
                 import mirix.utils
+
                 mirix.utils.VERBOSE = old_verbose
                 os.environ["MIRIX_VERBOSE"] = "true" if old_verbose else "false"
 
@@ -1103,7 +1115,7 @@ class SyncServer(Server):
         )
 
         request.memory_blocks = memory.get_blocks()
-        
+
         # Create or update memory blocks through block_manager
         for block in memory.get_blocks():
             self.block_manager.create_or_update_block(block, actor=actor)
@@ -1486,22 +1498,21 @@ class SyncServer(Server):
                 stream_tokens = False
 
             # Create a new interface per request
-            mirix_agent.interface = StreamingServerInterface(
-                # multi_step=True,  # would we ever want to disable this?
-                use_assistant_message=use_assistant_message,
-                assistant_message_tool_name=assistant_message_tool_name,
-                assistant_message_tool_kwarg=assistant_message_tool_kwarg,
-                inner_thoughts_in_kwargs=(
+            # TODO: StreamingServerInterface is not defined, using QueuingInterface instead
+            mirix_agent.interface = QueuingInterface(debug=False)
+            streaming_interface = mirix_agent.interface
+            # Set attributes if they exist
+            if hasattr(streaming_interface, 'use_assistant_message'):
+                streaming_interface.use_assistant_message = use_assistant_message
+            if hasattr(streaming_interface, 'assistant_message_tool_name'):
+                streaming_interface.assistant_message_tool_name = assistant_message_tool_name
+            if hasattr(streaming_interface, 'assistant_message_tool_kwarg'):
+                streaming_interface.assistant_message_tool_kwarg = assistant_message_tool_kwarg
+            if hasattr(streaming_interface, 'inner_thoughts_in_kwargs'):
+                streaming_interface.inner_thoughts_in_kwargs = (
                     llm_config.put_inner_thoughts_in_kwargs
                     if llm_config.put_inner_thoughts_in_kwargs is not None
                     else False
-                ),
-                # inner_thoughts_kwarg=INNER_THOUGHTS_KWARG,
-            )
-            streaming_interface = mirix_agent.interface
-            if not isinstance(streaming_interface, StreamingServerInterface):
-                raise ValueError(
-                    f"Agent has wrong type of interface: {type(streaming_interface)}"
                 )
 
             # Enable token-streaming within the request if desired

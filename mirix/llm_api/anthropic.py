@@ -1,6 +1,6 @@
 import json
 import re
-from typing import List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
 
 import anthropic
 from anthropic import PermissionDeniedError
@@ -21,6 +21,9 @@ from mirix.schemas.openai.chat_completion_response import (
 )
 from mirix.settings import model_settings
 from mirix.utils import get_utc_time, smart_urljoin
+
+if TYPE_CHECKING:
+    pass
 
 BASE_URL = "https://api.anthropic.com/v1"
 
@@ -422,6 +425,8 @@ def anthropic_chat_completions_request(
     image_uris: Optional[List[str]] = None,
 ) -> ChatCompletionResponse:
     """https://docs.anthropic.com/claude/docs/tool-use"""
+    from mirix.services.provider_manager import ProviderManager
+
     anthropic_client = None
     anthropic_override_key = ProviderManager().get_anthropic_override_key()
     if anthropic_override_key:

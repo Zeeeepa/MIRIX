@@ -6,7 +6,7 @@ from .agent_configs import AGENT_CONFIGS
 from .agent_states import AgentStates
 from .agent_wrapper import AgentWrapper
 from .message_queue import MessageQueue
-from .meta_agent import MetaAgent, MemoryAgentStates, MEMORY_AGENT_CONFIGS
+from .meta_agent import MEMORY_AGENT_CONFIGS, MemoryAgentStates, MetaAgent
 from .temporary_message_accumulator import TemporaryMessageAccumulator
 from .upload_manager import UploadManager
 
@@ -22,6 +22,18 @@ __all__ = [
     "UploadManager",
     "app_constants",
     "app_utils",
+    "Agent",
+    "AgentState",
+    "save_agent",
+    "BackgroundAgent",
+    "CoreMemoryAgent",
+    "EpisodicMemoryAgent",
+    "KnowledgeVaultAgent",
+    "MetaMemoryAgent",
+    "ProceduralMemoryAgent",
+    "ReflexionAgent",
+    "ResourceMemoryAgent",
+    "SemanticMemoryAgent",
 ]
 
 from mirix.agent.agent import Agent, AgentState, save_agent

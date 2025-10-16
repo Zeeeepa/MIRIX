@@ -6,7 +6,6 @@ This module extracts the database schema from SQLAlchemy models and generates DD
 import os
 import sys
 
-from sqlalchemy import create_engine
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
@@ -19,9 +18,6 @@ def extract_schema_ddl():
 
     # Import all the ORM models to ensure they're registered
     from mirix.orm.sqlalchemy_base import SqlalchemyBase
-
-    # Create a PostgreSQL engine for DDL generation (PGlite uses PostgreSQL dialect)
-    engine = create_engine("postgresql://user:pass@localhost/db")
 
     # Get all tables from the base metadata
     metadata = SqlalchemyBase.metadata

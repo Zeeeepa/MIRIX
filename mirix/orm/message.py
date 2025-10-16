@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import ForeignKey, Index
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
@@ -15,6 +15,12 @@ from mirix.schemas.message import ToolReturn
 from mirix.schemas.mirix_message_content import MessageContent
 from mirix.schemas.mirix_message_content import TextContent as PydanticTextContent
 from mirix.schemas.openai.openai import ToolCall as OpenAIToolCall
+
+if TYPE_CHECKING:
+    from mirix.orm.agent import Agent
+    from mirix.orm.organization import Organization
+    from mirix.orm.step import Step
+    from mirix.orm.user import User
 
 
 class Message(SqlalchemyBase, OrganizationMixin, UserMixin, AgentMixin):

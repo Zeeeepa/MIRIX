@@ -816,10 +816,17 @@ class Mirix:
             # Get core memory
             try:
                 core_memory = Memory(
-                    blocks=[self._agent.client.server.block_manager.get_block_by_id(block.id, actor=target_user) for block in self._agent.client.server.block_manager.get_blocks(actor=target_user)]
+                    blocks=[
+                        self._agent.client.server.block_manager.get_block_by_id(
+                            block.id, actor=target_user
+                        )
+                        for block in self._agent.client.server.block_manager.get_blocks(
+                            actor=target_user
+                        )
+                    ]
                 )
 
-                memories['core'] = []
+                memories["core"] = []
                 total_characters = 0
 
                 for block in core_memory.blocks:

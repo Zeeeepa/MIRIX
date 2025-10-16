@@ -65,7 +65,7 @@ def conversation_search(
         page = 0
     try:
         page = int(page)
-    except:
+    except (ValueError, TypeError):
         raise ValueError("'page' argument must be an integer")
     count = RETRIEVAL_QUERY_DEFAULT_PAGE_SIZE
     # TODO: add paging by page number. currently cursor only works with strings.

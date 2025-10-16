@@ -1,6 +1,6 @@
 import random
 import time
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import requests
 
@@ -9,6 +9,9 @@ from mirix.constants import (
     INNER_THOUGHTS_KWARG,
     INNER_THOUGHTS_KWARG_DESCRIPTION,
 )
+
+if TYPE_CHECKING:
+    from mirix.interface import AgentChunkStreamingInterface
 from mirix.errors import MirixConfigurationError, RateLimitExceededError
 from mirix.llm_api.anthropic import (
     anthropic_bedrock_chat_completions_request,
@@ -260,7 +263,6 @@ def create(
         chat_completion_request = build_openai_chat_completions_request(
             llm_config,
             messages,
-            user_id,
             functions,
             function_call,
             use_tool_naming,
@@ -489,14 +491,13 @@ def create(
             ],
             tools=tools,
             tool_choice=function_call,
-            user=str(user_id),
         )
 
         # https://console.groq.com/docs/openai
         # "The following fields are currently not supported and will result in a 400 error (yikes) if they are supplied:"
         assert data.top_logprobs is None
         assert data.logit_bias is None
-        assert data.logprobs == False
+        assert not data.logprobs
         assert data.n == 1
         # They mention that none of the messages can have names, but it seems to not error out (for now)
 
@@ -561,24 +562,6 @@ def create(
 
     # local model
     else:
-        if stream:
-            raise NotImplementedError(
-                f"Streaming not yet implemented for {llm_config.model_endpoint_type}"
-            )
-        return get_chat_completion(
-            model=llm_config.model,
-            messages=messages,
-            functions=functions,
-            functions_python=functions_python,
-            function_call=function_call,
-            context_window=llm_config.context_window,
-            endpoint=llm_config.model_endpoint,
-            endpoint_type=llm_config.model_endpoint_type,
-            wrapper=llm_config.model_wrapper,
-            user=str(user_id),
-            # hint
-            first_message=first_message,
-            # auth-related
-            auth_type=model_settings.openllm_auth_type,
-            auth_key=model_settings.openllm_api_key,
+        raise NotImplementedError(
+            f"Model endpoint type '{llm_config.model_endpoint_type}' is not yet supported"
         )

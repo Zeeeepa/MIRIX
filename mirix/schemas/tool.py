@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import Field, model_validator
 
@@ -17,6 +17,12 @@ from mirix.functions.helpers import generate_langchain_tool_wrapper
 from mirix.functions.schema_generator import generate_schema_from_args_schema_v2
 from mirix.orm.enums import ToolType
 from mirix.schemas.mirix_base import MirixBase
+
+if TYPE_CHECKING:
+    try:
+        from langchain_core.tools import BaseTool as LangChainBaseTool
+    except ImportError:
+        LangChainBaseTool = Any  # type: ignore
 
 
 class BaseTool(MirixBase):

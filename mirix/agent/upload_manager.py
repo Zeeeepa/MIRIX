@@ -115,7 +115,7 @@ class UploadManager:
                 try:
                     os.remove(compressed_file)
                     # self.logger.info(f"Removed compressed file: {compressed_file}")
-                except:
+                except Exception:
                     pass  # Ignore cleanup errors
 
             # Mark as completed
@@ -139,7 +139,7 @@ class UploadManager:
             ):
                 try:
                     os.remove(compressed_file)
-                except:
+                except Exception:
                     pass
 
     def upload_file_async(self, filename, timestamp, compress=True):
@@ -249,7 +249,7 @@ class UploadManager:
         """Gracefully shut down the thread pool"""
         try:
             self._executor.shutdown(wait=True, timeout=10)
-        except:
+        except Exception:
             pass  # Ignore shutdown errors
 
     def get_upload_status_summary(self):

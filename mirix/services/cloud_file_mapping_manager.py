@@ -140,19 +140,15 @@ class CloudFileMappingManager:
         with self.session_maker() as session:
             if cloud_file_id is not None:
                 try:
-                    mapping = CloudFileMapping.read(
-                        session, cloud_file_id=cloud_file_id
-                    )
+                    CloudFileMapping.read(session, cloud_file_id=cloud_file_id)
                     return True
-                except:
+                except Exception:
                     pass
             elif local_file_id is not None:
                 try:
-                    mapping = CloudFileMapping.read(
-                        session, local_file_id=local_file_id
-                    )
+                    CloudFileMapping.read(session, local_file_id=local_file_id)
                     return True
-                except:
+                except Exception:
                     pass
         return False
 
@@ -167,14 +163,14 @@ class CloudFileMappingManager:
                     mapping = CloudFileMapping.read(
                         session, cloud_file_id=cloud_file_id
                     )
-                except:
+                except Exception:
                     pass
             elif local_file_id is not None:
                 try:
                     mapping = CloudFileMapping.read(
                         session, local_file_id=local_file_id
                     )
-                except:
+                except Exception:
                     pass
             if mapping is None:
                 raise ValueError("File Not Found")

@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import os
@@ -38,11 +37,6 @@ from mirix.utils import parse_json
 from .app_utils import encode_image
 
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
-
-
-def encode_image(image_path):
-    with open(image_path, "rb") as img_file:
-        return base64.b64encode(img_file.read()).decode("utf-8")
 
 
 def get_image_mime_type(image_path):
@@ -104,7 +98,9 @@ class AgentWrapper:
         self.model_name = agent_config["model_name"]
         self.model_provider = agent_config.get("model_provider", None)
         self.is_screen_monitor = agent_config.get("is_screen_monitor", False)
-        self.system_prompt_folder = agent_config.get("system_prompt_folder", "mirix/prompts/system/base")
+        self.system_prompt_folder = agent_config.get(
+            "system_prompt_folder", "mirix/prompts/system/base"
+        )
         self.chat_agent_standalone = True
 
         # Initialize logger early
@@ -148,8 +144,12 @@ class AgentWrapper:
                 elif agent_state.name == "background_agent":
                     self.agent_states.background_agent_state = agent_state
 
-                if self.system_prompt_folder is not None and os.path.exists(os.path.join(self.system_prompt_folder, agent_state.name + ".txt")):
-                    system_prompt = gpt_system.get_system_text(os.path.join(self.system_prompt_folder, agent_state.name))
+                if self.system_prompt_folder is not None and os.path.exists(
+                    os.path.join(self.system_prompt_folder, agent_state.name + ".txt")
+                ):
+                    system_prompt = gpt_system.get_system_text(
+                        os.path.join(self.system_prompt_folder, agent_state.name)
+                    )
                 else:
                     system_prompt = (
                         gpt_system.get_system_text("base/" + agent_state.name)
@@ -166,13 +166,17 @@ class AgentWrapper:
                 )
 
             if self.agent_states.reflexion_agent_state is None:
-                if self.system_prompt_folder is not None and os.path.exists(os.path.join(self.system_prompt_folder, "reflexion_agent.txt")):
+                if self.system_prompt_folder is not None and os.path.exists(
+                    os.path.join(self.system_prompt_folder, "reflexion_agent.txt")
+                ):
                     reflexion_system_prompt = gpt_system.get_system_text(
                         os.path.join(self.system_prompt_folder, "reflexion_agent")
                     )
                 else:
-                    reflexion_system_prompt = gpt_system.get_system_text("base/reflexion_agent")
-                
+                    reflexion_system_prompt = gpt_system.get_system_text(
+                        "base/reflexion_agent"
+                    )
+
                 reflexion_agent_state = self.client.create_agent(
                     name="reflexion_agent",
                     memory=self.agent_states.agent_state.memory,
@@ -184,13 +188,17 @@ class AgentWrapper:
                 )
 
             if self.agent_states.background_agent_state is None:
-                if self.system_prompt_folder is not None and os.path.exists(os.path.join(self.system_prompt_folder, "background_agent.txt")):
+                if self.system_prompt_folder is not None and os.path.exists(
+                    os.path.join(self.system_prompt_folder, "background_agent.txt")
+                ):
                     background_system_prompt = gpt_system.get_system_text(
                         os.path.join(self.system_prompt_folder, "background_agent")
                     )
                 else:
-                    background_system_prompt = gpt_system.get_system_text("base/background_agent")
-                
+                    background_system_prompt = gpt_system.get_system_text(
+                        "base/background_agent"
+                    )
+
                 background_agent_state = self.client.create_agent(
                     name="background_agent",
                     agent_type=AgentType.background_agent,
@@ -211,15 +219,19 @@ class AgentWrapper:
             # Create agents in a loop using imported configuration
             for config in AGENT_CONFIGS:
                 # Determine system prompt based on priority: custom folder > screen_monitor > base
-                if self.system_prompt_folder is not None and os.path.exists(os.path.join(self.system_prompt_folder, config["name"] + ".txt")):
+                if self.system_prompt_folder is not None and os.path.exists(
+                    os.path.join(self.system_prompt_folder, config["name"] + ".txt")
+                ):
                     system_prompt = gpt_system.get_system_text(
                         os.path.join(self.system_prompt_folder, config["name"])
                     )
                 elif self.is_screen_monitor:
-                    system_prompt = gpt_system.get_system_text("screen_monitor/" + config["name"])
+                    system_prompt = gpt_system.get_system_text(
+                        "screen_monitor/" + config["name"]
+                    )
                 else:
                     system_prompt = gpt_system.get_system_text("base/" + config["name"])
-                
+
                 if config["name"] == "chat_agent":
                     # chat_agent has different parameters
                     agent_state = self.client.create_agent(
@@ -824,7 +836,7 @@ class AgentWrapper:
                 self.client.server.cloud_file_mapping_manager.delete_mapping(
                     cloud_file_id=file_name
                 )
-            except:
+            except Exception:
                 continue
 
     def set_timezone(self, timezone_str):

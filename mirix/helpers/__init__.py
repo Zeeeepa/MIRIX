@@ -1,1 +1,1 @@
-from mirix.helpers.tool_rule_solver import ToolRulesSolver
+from mirix.helpers.tool_rule_solver import ToolRulesSolver as ToolRulesSolver

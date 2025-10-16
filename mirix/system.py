@@ -233,7 +233,7 @@ def unpack_message(packed_message) -> str:
 
     try:
         message_json = json.loads(packed_message)
-    except:
+    except (ValueError, TypeError):
         warnings.warn(
             f"Was unable to load message as JSON to unpack: '{packed_message}'"
         )

@@ -1,6 +1,5 @@
 from typing import Optional
 
-
 # def message_chatgpt(self, message: str):
 #     """
 #     Send a message to a more basic AI, ChatGPT. A useful resource for asking questions. ChatGPT does not retain memory of previous interactions.

@@ -2,7 +2,6 @@ import uuid
 from typing import List, Optional, Tuple
 
 import requests
-import tiktoken
 
 from mirix.constants import MAX_IMAGES_TO_PROCESS, NON_USER_MSG_PREFIX
 from mirix.llm_api.helpers import make_post_request
@@ -198,6 +197,7 @@ def to_google_ai(openai_message_dict: dict) -> dict:
         raise ValueError(
             f"Unsupported conversion (OpenAI -> Google AI) from role {openai_message_dict['role']}"
         )
+    return google_ai_message_dict
 
 
 # TODO convert return type to pydantic
@@ -577,8 +577,3 @@ def google_ai_chat_completions_request(
         input_messages=data["contents"],
         pull_inner_thoughts_from_args=inner_thoughts_in_kwargs,
     )
-
-
-def count_tokens(s: str, model: str = "gpt-4") -> int:
-    encoding = tiktoken.encoding_for_model(model)
-    return len(encoding.encode(s))

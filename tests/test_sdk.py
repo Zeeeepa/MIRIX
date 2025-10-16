@@ -1,14 +1,14 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
+from mirix import Mirix
 
 # Add the project root to Python path so we can import mirix
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from dotenv import load_dotenv
-
-from mirix import Mirix
 
 load_dotenv()
 

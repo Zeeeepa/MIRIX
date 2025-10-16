@@ -9,15 +9,14 @@ memory operations across them. It does NOT include the chat_agent.
 import logging
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-from mirix import LLMConfig, EmbeddingConfig
-from mirix.agent.agent import BaseAgent, Agent
-from mirix.agent.agent_configs import AGENT_CONFIGS
+from mirix import EmbeddingConfig, LLMConfig
+from mirix.agent.agent import Agent, BaseAgent
 from mirix.agent.message_queue import MessageQueue
 from mirix.interface import AgentInterface
 from mirix.orm import User
 from mirix.prompts import gpt_system
 from mirix.schemas.agent import AgentState, AgentType
-from mirix.schemas.memory import ChatMemory, Memory
+from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message
 from mirix.schemas.usage import MirixUsageStatistics
 from mirix.utils import printv
@@ -148,7 +147,7 @@ MEMORY_AGENT_CONFIGS = [
 class MetaAgent(BaseAgent):
     """
     MetaAgent manages all memory-related sub-agents for coordinated memory operations.
-    
+
     This agent follows the pattern of Agent in agent.py but is specialized for
     memory management. It orchestrates operations across:
     - Episodic Memory Agent
@@ -160,7 +159,7 @@ class MetaAgent(BaseAgent):
     - Resource Memory Agent
     - Reflexion Agent
     - Background Agent
-    
+
     It does NOT include the chat_agent as that is handled separately.
     """
 
@@ -217,7 +216,9 @@ class MetaAgent(BaseAgent):
         # Initialize individual Agent instances for each sub-agent
         self._initialize_agent_instances()
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: MetaAgent initialized with {len(MEMORY_AGENT_CONFIGS)} memory sub-agents")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: MetaAgent initialized with {len(MEMORY_AGENT_CONFIGS)} memory sub-agents"
+        )
 
     def _initialize_memory_agents(self):
         """
@@ -226,9 +227,10 @@ class MetaAgent(BaseAgent):
         """
         # Check if agents already exist
         existing_agents = self.server.agent_manager.list_agents(actor=self.user)
-        existing_agent_names = {agent.name for agent in existing_agents}
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Found {len(existing_agents)} existing agents")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Found {len(existing_agents)} existing agents"
+        )
 
         if existing_agents:
             # Load existing agents
@@ -263,11 +265,15 @@ class MetaAgent(BaseAgent):
             elif agent_state.name == "background_agent":
                 self.memory_agent_states.background_agent_state = agent_state
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Loaded existing memory agent states")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Loaded existing memory agent states"
+        )
 
     def _create_new_agents(self):
         """Create new memory agent states."""
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Creating new memory agents...")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Creating new memory agents..."
+        )
 
         # Ensure base tools are available
         self.server.tool_manager.upsert_base_tools(self.user)
@@ -292,7 +298,9 @@ class MetaAgent(BaseAgent):
             # Store the agent state
             setattr(self.memory_agent_states, config["attr_name"], agent_state)
 
-            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Created memory agent: {config['name']}")
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Created memory agent: {config['name']}"
+            )
 
     def _get_system_prompt_for_agent(self, agent_name: str) -> str:
         """
@@ -314,7 +322,9 @@ class MetaAgent(BaseAgent):
         if self.system_prompt_folder is not None:
             custom_path = os.path.join(self.system_prompt_folder, f"{agent_name}.txt")
             if os.path.exists(custom_path):
-                return gpt_system.get_system_text(os.path.join(self.system_prompt_folder, agent_name))
+                return gpt_system.get_system_text(
+                    os.path.join(self.system_prompt_folder, agent_name)
+                )
 
         # Priority 3: Fallback to base system prompts
         return gpt_system.get_system_text(f"base/{agent_name}")
@@ -342,7 +352,9 @@ class MetaAgent(BaseAgent):
                 actor=self.user,
             )
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated all memory agent configurations")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated all memory agent configurations"
+        )
 
     def _initialize_agent_instances(self):
         """
@@ -361,13 +373,15 @@ class MetaAgent(BaseAgent):
                 )
                 self.agents[config["name"]] = agent_instance
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Initialized {len(self.agents)} Agent instances for sub-agents")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Initialized {len(self.agents)} Agent instances for sub-agents"
+        )
 
     def step(
         self,
         messages: Union[Message, List[Message]],
         agent_name: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> MirixUsageStatistics:
         """
         Execute a step with a specific memory agent or all agents.
@@ -384,7 +398,7 @@ class MetaAgent(BaseAgent):
             # Route to specific agent
             if agent_name not in self.agents:
                 raise ValueError(f"Unknown memory agent: {agent_name}")
-            
+
             agent = self.agents[agent_name]
             return agent.step(messages, **kwargs)
         else:
@@ -395,10 +409,7 @@ class MetaAgent(BaseAgent):
                 raise RuntimeError("No meta_memory_agent available for coordination")
 
     def send_message_to_agent(
-        self,
-        agent_name: str,
-        message: Union[str, dict],
-        **kwargs
+        self, agent_name: str, message: Union[str, dict], **kwargs
     ) -> tuple:
         """
         Send a message to a specific memory agent through the message queue.
@@ -443,7 +454,7 @@ class MetaAgent(BaseAgent):
             agent_id=agent_state.id,
             message_data=message_data,
             agent_type=agent_type,
-            **kwargs
+            **kwargs,
         )
 
         return response, usage
@@ -465,7 +476,9 @@ class MetaAgent(BaseAgent):
                     actor=self.user,
                 )
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated LLM config for all memory agents to model: {llm_config.model}")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated LLM config for all memory agents to model: {llm_config.model}"
+        )
 
     def update_embedding_config(self, embedding_config: EmbeddingConfig):
         """
@@ -485,7 +498,9 @@ class MetaAgent(BaseAgent):
                     # For now, this is a placeholder
                 )
 
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated embedding config for all memory agents")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Updated embedding config for all memory agents"
+        )
 
     def get_agent_state(self, agent_name: str) -> Optional[AgentState]:
         """
@@ -516,9 +531,16 @@ class MetaAgent(BaseAgent):
         existing_agents = self.server.agent_manager.list_agents(actor=self.user)
         self._load_existing_agents(existing_agents)
         self._initialize_agent_instances()
-        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Refreshed all memory agent states")
+        printv(
+            f"[Mirix.Agent.{self.agent_state.name}] INFO: Refreshed all memory agent states"
+        )
 
     def __repr__(self) -> str:
-        agent_count = len([s for s in self.memory_agent_states.get_all_agent_states_list() if s is not None])
+        agent_count = len(
+            [
+                s
+                for s in self.memory_agent_states.get_all_agent_states_list()
+                if s is not None
+            ]
+        )
         return f"MetaAgent(user={self.user.name}, memory_agents={agent_count}, model={self.llm_config.model})"
-

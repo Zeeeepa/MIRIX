@@ -32,31 +32,26 @@ class ProviderManager:
         self, name: str, api_key: str, organization_id: str, actor: PydanticUser
     ) -> PydanticProvider:
         """Insert or update a provider in the database. Updates if exists, creates if not."""
-        with self.session_maker() as session:
-            # Check if provider already exists for this organization
-            existing_providers = [
-                p for p in self.list_providers(actor=actor) if p.name == name
-            ]
+        # Check if provider already exists for this organization
+        existing_providers = [
+            p for p in self.list_providers(actor=actor) if p.name == name
+        ]
 
-            if existing_providers:
-                # Update existing provider
-                existing_provider = existing_providers[0]
-                provider_update = ProviderUpdate(
-                    id=existing_provider.id, api_key=api_key
-                )
-                return self.update_provider(
-                    existing_provider.id, provider_update, actor
-                )
-            else:
-                # Create new provider
-                return self.create_provider(
-                    PydanticProvider(
-                        name=name,
-                        api_key=api_key,
-                        organization_id=organization_id,
-                    ),
-                    actor=actor,
-                )
+        if existing_providers:
+            # Update existing provider
+            existing_provider = existing_providers[0]
+            provider_update = ProviderUpdate(id=existing_provider.id, api_key=api_key)
+            return self.update_provider(existing_provider.id, provider_update, actor)
+        else:
+            # Create new provider
+            return self.create_provider(
+                PydanticProvider(
+                    name=name,
+                    api_key=api_key,
+                    organization_id=organization_id,
+                ),
+                actor=actor,
+            )
 
     @enforce_types
     def create_provider(

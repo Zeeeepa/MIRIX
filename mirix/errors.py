@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List, Optional, Union
 # Avoid circular imports
 if TYPE_CHECKING:
     from mirix.schemas.message import Message
+    from mirix.schemas.mirix_message import MirixMessage
 
 
 class ErrorCode(Enum):

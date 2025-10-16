@@ -4,12 +4,26 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import requests
 
 import mirix.utils
+
+if TYPE_CHECKING:
+    try:
+        from composio import ActionType
+    except ImportError:
+        ActionType = Any  # type: ignore
+    try:
+        from crewai_tools import BaseTool as CrewAIBaseTool
+    except ImportError:
+        CrewAIBaseTool = Any  # type: ignore
+    try:
+        from langchain_core.tools import BaseTool as LangChainBaseTool
+    except ImportError:
+        LangChainBaseTool = Any  # type: ignore
 from mirix.constants import (
     BASE_TOOLS,
     DEFAULT_HUMAN,
@@ -20,7 +34,13 @@ from mirix.constants import (
 from mirix.functions.functions import parse_source_code
 from mirix.interface import QueuingInterface
 from mirix.orm.errors import NoResultFound
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent, UpdateAgent
+from mirix.schemas.agent import (
+    AgentState,
+    AgentType,
+    CreateAgent,
+    CreateMetaAgent,
+    UpdateAgent,
+)
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
 
@@ -1308,7 +1328,7 @@ class LocalClient(AbstractClient):
         Returns:
             response (MirixResponse): Response from the agent
         """
-        
+
         if not agent_id:
             # lookup agent by name
             assert agent_name, "Either agent_id or agent_name must be provided"
@@ -1577,7 +1597,7 @@ class LocalClient(AbstractClient):
 
         return self.server.block_manager.update_block(
             block_id=human_id,
-            block_update=UpdateHuman(value=text, is_template=True),
+            block_update=BlockUpdate(value=text, is_template=True),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
@@ -2005,34 +2025,6 @@ class LocalClient(AbstractClient):
         #     block.limit = limit
         return self.server.block_manager.create_or_update_block(
             block, actor=self.server.user_manager.get_user_by_id(self.user.id)
-        )
-
-    def update_block(
-        self,
-        block_id: str,
-        name: Optional[str] = None,
-        text: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> Block:
-        """
-        Update a block
-
-        Args:
-            block_id (str): ID of the block
-            name (str): Name of the block
-            text (str): Text of the block
-
-        Returns:
-            block (Block): Updated block
-        """
-        return self.server.block_manager.update_block(
-            block_id=block_id,
-            block_update=BlockUpdate(
-                template_name=name,
-                value=text,
-                limit=limit if limit else self.get_block(block_id).limit,
-            ),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
     def get_block(self, block_id: str) -> Block:
@@ -2508,13 +2500,13 @@ class LocalClient(AbstractClient):
         Args:
             agent_id (str): ID of the agent to retrieve memories for
             query (str): The keywords/query used to search in the memory
-            memory_type (str): The type of memory to search in. Options: "episodic", "resource", "procedural", 
+            memory_type (str): The type of memory to search in. Options: "episodic", "resource", "procedural",
                               "knowledge_vault", "semantic", "all". Defaults to "all".
-            search_field (str): The field to search in the memory. For "episodic": 'summary', 'details'; 
-                               for "resource": 'summary', 'content'; for "procedural": 'summary', 'steps'; 
+            search_field (str): The field to search in the memory. For "episodic": 'summary', 'details';
+                               for "resource": 'summary', 'content'; for "procedural": 'summary', 'steps';
                                for "knowledge_vault": 'secret_value', 'caption'; for "semantic": 'name', 'summary', 'details'.
                                Use "null" for default fields. Defaults to "null".
-            search_method (str): The method to search. Options: 'bm25' (keyword-based), 'embedding' (semantic). 
+            search_method (str): The method to search. Options: 'bm25' (keyword-based), 'embedding' (semantic).
                                 Defaults to "embedding".
             timezone_str (str): Timezone string for time-based operations. Defaults to "UTC".
             limit (int): Maximum number of results to return per memory type. Defaults to 10.
@@ -2523,7 +2515,6 @@ class LocalClient(AbstractClient):
             dict: Dictionary containing 'results' (list of memories) and 'count' (total number of results)
         """
         # Import here to avoid circular imports
-        from mirix.utils import convert_timezone_to_utc
 
         # Validate inputs
         if (
@@ -2645,14 +2636,16 @@ class LocalClient(AbstractClient):
 
         # Search knowledge vault
         if memory_type == "knowledge_vault" or memory_type == "all":
-            knowledge_vault_memories = self.server.knowledge_vault_manager.list_knowledge(
-                actor=self.user,
-                agent_state=agent_state,
-                query=query,
-                search_field=search_field if search_field != "null" else "caption",
-                search_method=search_method,
-                limit=limit,
-                timezone_str=timezone_str,
+            knowledge_vault_memories = (
+                self.server.knowledge_vault_manager.list_knowledge(
+                    actor=self.user,
+                    agent_state=agent_state,
+                    query=query,
+                    search_field=search_field if search_field != "null" else "caption",
+                    search_method=search_method,
+                    limit=limit,
+                    timezone_str=timezone_str,
+                )
             )
             formatted_results_knowledge_vault = [
                 {

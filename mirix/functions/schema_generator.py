@@ -45,7 +45,7 @@ def type_to_json_schema_type(py_type) -> dict:
 
     # Handle array types
     origin = get_origin(py_type)
-    if py_type == list or origin in (list, List):
+    if py_type is list or origin in (list, List):
         args = get_args(py_type)
         if len(args) == 0:
             # is this correct
@@ -70,7 +70,7 @@ def type_to_json_schema_type(py_type) -> dict:
         }
 
     # Handle object types
-    if py_type == dict or origin in (dict, Dict):
+    if py_type is dict or origin in (dict, Dict):
         args = get_args(py_type)
         if not args:
             # Generic dict without type arguments

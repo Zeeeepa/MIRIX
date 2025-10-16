@@ -16,7 +16,7 @@ def parse_database_uri(uri):
     parsed = urlparse(uri)
 
     # Remove the driver part (postgresql+pg8000 -> postgresql)
-    #scheme = parsed.scheme.split("+")[0]
+    # scheme = parsed.scheme.split("+")[0]
 
     return {
         "host": parsed.hostname,

@@ -13,6 +13,7 @@ import string
 import subprocess
 import sys
 import uuid
+import warnings
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
@@ -995,7 +996,7 @@ def validate_function_response(
             try:
                 # TODO find a better way to do this that won't result in double escapes
                 function_response_string = json_dumps(function_response_string)
-            except:
+            except Exception:
                 raise ValueError(function_response_string)
 
         else:
@@ -1006,7 +1007,7 @@ def validate_function_response(
             # Try to convert to a string, but throw a warning to alert the user
             try:
                 function_response_string = str(function_response_string)
-            except:
+            except Exception:
                 raise ValueError(function_response_string)
 
     # Now check the length and make sure it doesn't go over the limit
@@ -1472,7 +1473,7 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
 def convert_timezone_to_utc(timestamp_str, timezone):
     try:
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S.%f")
-    except:
+    except ValueError:
         timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
     # timezone is something like "Asia/Shanghai (UTC+08:00)"
@@ -1509,23 +1510,6 @@ def log_telemetry(logger: Logger, event: str, **kwargs):
             f"{key}={value}" for key, value in kwargs.items() if value is not None
         )
         logger.info(f"[{timestamp}] EVENT: {event} | {extra_data}")
-
-
-def clean_json_string_extra_backslash(s):
-    """Clean extra backslashes out from stringified JSON
-
-    NOTE: Google AI Gemini API likes to include these
-    """
-    # Strip slashes that are used to escape single quotes and other backslashes
-    # Use json.loads to parse it correctly
-    while "\\\\" in s:
-        s = s.replace("\\\\", "\\")
-    return s
-
-
-def count_tokens(s: str, model: str = "gpt-4") -> int:
-    encoding = tiktoken.encoding_for_model(model)
-    return len(encoding.encode(s))
 
 
 def generate_short_id(prefix="id", length=4):

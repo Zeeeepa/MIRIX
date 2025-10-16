@@ -2,14 +2,14 @@ import os
 
 # Load .env BEFORE importing mirix - this is critical!
 # The database engine is initialized at module import time
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 mirix_root = os.path.dirname(current_dir)
 load_dotenv(os.path.join(mirix_root, ".env"))
 
 # Now import mirix after environment variables are loaded
-from mirix import Mirix
+from mirix import Mirix  # noqa: E402
 
 # Initialize LangChain and Mirix
 API_KEY = os.getenv("GEMINI_API_KEY")

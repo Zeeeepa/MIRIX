@@ -10,9 +10,16 @@ import tempfile
 import traceback
 import uuid
 import venv
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from mirix.log import get_logger
+
+if TYPE_CHECKING:
+    try:
+        from e2b_code_interpreter import Execution, Sandbox
+    except ImportError:
+        Execution = Any  # type: ignore
+        Sandbox = Any  # type: ignore
 from mirix.schemas.agent import AgentState
 from mirix.schemas.sandbox_config import SandboxConfig, SandboxRunResult, SandboxType
 from mirix.schemas.tool import Tool
@@ -267,7 +274,7 @@ class ToolExecutionSandbox:
         self, sbx_config: SandboxConfig, env: Dict[str, str], temp_file_path: str
     ) -> SandboxRunResult:
         status = "success"
-        agent_state, stderr = None, None
+        agent_state = None
 
         # Redirect stdout and stderr to capture script output
         old_stdout = sys.stdout

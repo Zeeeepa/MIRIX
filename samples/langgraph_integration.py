@@ -8,18 +8,18 @@ sys.path.insert(0, mirix_root)
 
 # Load .env BEFORE importing mirix - this is critical!
 # The database engine is initialized at module import time
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(mirix_root, ".env"))
 
-from typing import Annotated, List, TypedDict
+from typing import Annotated, List, TypedDict  # noqa: E402
 
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.graph import START, StateGraph
-from langgraph.graph.message import add_messages
+from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
+from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: E402
+from langgraph.graph import START, StateGraph  # noqa: E402
+from langgraph.graph.message import add_messages  # noqa: E402
 
-from mirix import Mirix
+from mirix import Mirix  # noqa: E402
 
 # Initialize LangChain and Mirix
 API_KEY = os.getenv("GEMINI_API_KEY")

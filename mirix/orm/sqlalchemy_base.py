@@ -21,7 +21,10 @@ from mirix.orm.sqlite_functions import adapt_array
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+    from sqlalchemy import Select
     from sqlalchemy.orm import Session
+
+    from mirix.orm.user import User
 
 
 logger = get_logger(__name__)
@@ -366,7 +369,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
 
             # Handle soft deletes
             if hasattr(cls, "is_deleted"):
-                query = query.where(cls.is_deleted == False)
+                query = query.where(~cls.is_deleted)
 
             # Apply ordering
             if not is_ordered:
@@ -426,7 +429,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             query_conditions.append(f"access level in {access} for actor='{actor}'")
 
         if hasattr(cls, "is_deleted"):
-            query = query.where(cls.is_deleted == False)
+            query = query.where(~cls.is_deleted)
             query_conditions.append("is_deleted=False")
         if found := db_session.execute(query).scalar():
             return found
@@ -584,7 +587,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
 
             # Handle soft deletes if the class has the 'is_deleted' attribute
             if hasattr(cls, "is_deleted"):
-                query = query.where(cls.is_deleted == False)
+                query = query.where(~cls.is_deleted)
 
             try:
                 count = session.execute(query).scalar()
@@ -617,12 +620,12 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             org_id = getattr(actor, "organization_id", None)
             if not org_id:
                 raise ValueError(f"object {actor} has no organization accessor")
-            return query.where(cls.organization_id == org_id, cls.is_deleted == False)
+            return query.where(cls.organization_id == org_id, ~cls.is_deleted)
         elif access_type == AccessType.USER:
             user_id = getattr(actor, "id", None)
             if not user_id:
                 raise ValueError(f"object {actor} has no user accessor")
-            return query.where(cls.user_id == user_id, cls.is_deleted == False)
+            return query.where(cls.user_id == user_id, ~cls.is_deleted)
         else:
             raise ValueError(f"unknown access_type: {access_type}")
 

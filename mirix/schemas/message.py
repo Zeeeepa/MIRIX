@@ -1129,11 +1129,10 @@ class Message(BaseMessage):
                     try:
                         # NOTE: Google AI wants actual JSON objects, not strings
                         function_args = parse_json(function_args)
-                    except:
+                    except Exception:
                         raise UserWarning(
                             f"Failed to parse JSON function args: {function_args}"
                         )
-                        function_args = {"args": function_args}
 
                     # if put_inner_thoughts_in_kwargs and text_content is not None:
                     #     assert "inner_thoughts" not in function_args, function_args
@@ -1170,7 +1169,7 @@ class Message(BaseMessage):
             # NOTE: Google AI API wants the function response as JSON only, no string
             try:
                 function_response = parse_json(text_content)
-            except:
+            except Exception:
                 function_response = {"function_response": text_content}
 
             google_ai_message = {

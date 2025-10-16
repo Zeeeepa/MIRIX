@@ -71,7 +71,6 @@ from mirix.schemas.usage import MirixUsageStatistics
 from mirix.services.agent_manager import AgentManager
 from mirix.services.block_manager import BlockManager
 from mirix.services.episodic_memory_manager import EpisodicMemoryManager
-from mirix.services.file_manager import FileManager
 from mirix.services.helpers.agent_manager_helper import (
     check_supports_structured_output,
     compile_memory_metadata_block,
@@ -375,7 +374,9 @@ class Agent(BaseAgent):
         self.agent_state.memory = Memory(
             blocks=[
                 self.block_manager.get_block_by_id(block.id, actor=self.user)
-                for block in self.block_manager.get_blocks(actor=self.user, agent_id=self.agent_state.id)
+                for block in self.block_manager.get_blocks(
+                    actor=self.user, agent_id=self.agent_state.id
+                )
             ]
         )
 
@@ -636,7 +637,9 @@ class Agent(BaseAgent):
 
             except ValueError as ve:
                 if attempt >= empty_response_retry_limit:
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ve}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ve}"
+                    )
                     log_telemetry(self.logger, "_handle_ai_response finish ValueError")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ve}"
@@ -653,7 +656,9 @@ class Agent(BaseAgent):
                 # Gemini api sometimes can yield empty response
                 # This is a retryable error
                 if attempt >= empty_response_retry_limit:
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ke}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ke}"
+                    )
                     log_telemetry(self.logger, "_handle_ai_response finish KeyError")
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ke}"
@@ -668,7 +673,9 @@ class Agent(BaseAgent):
 
             except LLMError as llm_error:
                 if attempt >= empty_response_retry_limit:
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {llm_error}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {llm_error}"
+                    )
                     log_telemetry(self.logger, "_handle_ai_response finish LLMError")
                     log_telemetry(
                         self.logger, "_get_ai_reply_last_message_hacking start"
@@ -702,7 +709,9 @@ class Agent(BaseAgent):
 
             except AssertionError as ae:
                 if attempt >= empty_response_retry_limit:
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ae}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ae}"
+                    )
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {ae}"
                     )
@@ -716,7 +725,9 @@ class Agent(BaseAgent):
 
             except requests.exceptions.HTTPError as he:
                 if attempt >= empty_response_retry_limit:
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {he}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {he}"
+                    )
                     raise Exception(
                         f"Retries exhausted and no valid response received. Final error: {he}"
                     )
@@ -775,7 +786,6 @@ class Agent(BaseAgent):
 
         messages = []  # append these to the history when done
         function_name = None
-        message_added = False
 
         # Step 2: check if LLM wanted to call a function
         if response_message.function_call or (
@@ -820,14 +830,15 @@ class Agent(BaseAgent):
                     response_message.content, msg_obj=messages[-1]
                 )
                 # Log inner thoughts for debugging and analysis
-                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts: {response_message.content}")
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts: {response_message.content}"
+                )
                 # Flag to avoid printing a duplicate if inner thoughts get popped from the function call
                 nonnull_content = True
 
             # Step 3: Process each tool call
             continue_chaining = True
             overall_function_failed = False
-            any_message_added = False
             executed_function_names = []  # Track which functions were executed
 
             printv(
@@ -1003,7 +1014,9 @@ class Agent(BaseAgent):
                         exception_message=str(e),
                     )
                     error_msg_user = f"{error_msg}\n{traceback.format_exc()}"
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: {error_msg_user}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: {error_msg_user}"
+                    )
                     function_response = package_function_response(False, error_msg)
                     self.last_function_response = function_response
                     # TODO: truncate error message somehow
@@ -1382,10 +1395,8 @@ class Agent(BaseAgent):
                         )
 
                         # delete the detached messages
-                        deleted_count = (
-                            self.message_manager.delete_detached_messages_for_agent(
-                                agent_id=self.agent_state.id, actor=self.user
-                            )
+                        self.message_manager.delete_detached_messages_for_agent(
+                            agent_id=self.agent_state.id, actor=self.user
                         )
 
                     if self.agent_state.name == "meta_memory_agent":
@@ -1394,10 +1405,8 @@ class Agent(BaseAgent):
                             message_ids=message_ids,
                             actor=self.user,
                         )
-                        deleted_count = (
-                            self.message_manager.delete_detached_messages_for_agent(
-                                agent_id=self.agent_state.id, actor=self.user
-                            )
+                        self.message_manager.delete_detached_messages_for_agent(
+                            agent_id=self.agent_state.id, actor=self.user
                         )
 
                     if self.agent_state.name == "reflexion_agent":
@@ -1406,10 +1415,8 @@ class Agent(BaseAgent):
                             message_ids=message_ids,
                             actor=self.user,
                         )
-                        deleted_count = (
-                            self.message_manager.delete_detached_messages_for_agent(
-                                agent_id=self.agent_state.id, actor=self.user
-                            )
+                        self.message_manager.delete_detached_messages_for_agent(
+                            agent_id=self.agent_state.id, actor=self.user
                         )
 
                     # Clear all messages since they were manually added to the conversation history
@@ -1465,7 +1472,9 @@ class Agent(BaseAgent):
             self.agent_state.memory = Memory(
                 blocks=[
                     self.block_manager.get_block_by_id(block.id, actor=self.user)
-                    for block in self.block_manager.get_blocks(actor=self.user, agent_id=self.agent_state.id)
+                    for block in self.block_manager.get_blocks(
+                        actor=self.user, agent_id=self.agent_state.id
+                    )
                 ]
             )
 
@@ -1536,7 +1545,9 @@ class Agent(BaseAgent):
                         kwargs["topics"] = topics
                         self.update_topic_if_changed(topics)
                     else:
-                        printv(f"[Mirix.Agent.{self.agent_state.name}] WARNING: No topics extracted from screenshots")
+                        printv(
+                            f"[Mirix.Agent.{self.agent_state.name}] WARNING: No topics extracted from screenshots"
+                        )
 
                 except Exception as e:
                     printv(
@@ -1569,7 +1580,9 @@ class Agent(BaseAgent):
 
             # Chain stops
             if not chaining and (not function_failed):
-                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: No chaining, stopping after one step")
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: No chaining, stopping after one step"
+                )
                 break
             elif max_chaining_steps is not None and counter == max_chaining_steps:
                 # Add warning message based on agent type
@@ -2171,7 +2184,9 @@ These keywords have been used to retrieve relevant memories from the database.
                             choice.message.tool_calls[0].function.arguments
                         )
                         topics = function_args.get("topic")
-                        printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}")
+                        printv(
+                            f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}"
+                        )
                         return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
                         printv(
@@ -2180,7 +2195,9 @@ These keywords have been used to retrieve relevant memories from the database.
                         continue
 
         except Exception as e:
-            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Error in extracting the topic from the messages: {e}")
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Error in extracting the topic from the messages: {e}"
+            )
 
         return None
 
@@ -2268,7 +2285,9 @@ These keywords have been used to retrieve relevant memories from the database.
                 f"[Mirix.Agent.{self.agent_state.name}] INFO: Starting agent step - step_count: {step_count}, chaining: {chaining}"
             )
             if topics:
-                printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: Step topics: {topics}")
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Step topics: {topics}"
+                )
 
             # Step 0: get in-context messages and get the raw system prompt
             in_context_messages = self.agent_manager.get_in_context_messages(
@@ -2326,7 +2345,9 @@ These keywords have been used to retrieve relevant memories from the database.
             )
 
             # Log the raw AI response for debugging and analysis
-            printv(f"[Mirix.Agent.{self.agent_state.name}] INFO: AI response received - choices: {len(response.choices)}")
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: AI response received - choices: {len(response.choices)}"
+            )
             for i, choice in enumerate(response.choices):
                 if choice.message.content:
                     printv(
@@ -2419,7 +2440,9 @@ These keywords have been used to retrieve relevant memories from the database.
                 printv(
                     f"[Mirix.Agent.{self.agent_state.name}] WARNING: Could not find context_window in config, setting to default {LLM_MAX_TOKENS['DEFAULT']}"
                 )
-                printv(f"[Mirix.Agent.{self.agent_state.name}] DEBUG: Agent state: {self.agent_state}")
+                printv(
+                    f"[Mirix.Agent.{self.agent_state.name}] DEBUG: Agent state: {self.agent_state}"
+                )
                 self.agent_state.llm_config.context_window = (
                     LLM_MAX_TOKENS[self.model]
                     if (self.model is not None and self.model in LLM_MAX_TOKENS)
@@ -2480,7 +2503,9 @@ These keywords have been used to retrieve relevant memories from the database.
             )
 
         except Exception as e:
-            printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: step() failed\nmessages = {messages}\nerror = {e}")
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] ERROR: step() failed\nmessages = {messages}\nerror = {e}"
+            )
 
             # If we got a context alert, try trimming the messages length, then try again
             if is_context_overflow_error(e):
@@ -2530,7 +2555,9 @@ These keywords have been used to retrieve relevant memories from the database.
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: num_in_context_messages: {len(self.agent_state.message_ids)}"
                     )
-                    printv(f"[Mirix.Agent.{self.agent_state.name}] ERROR: token_counts: {token_counts}")
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: token_counts: {token_counts}"
+                    )
                     raise ContextWindowExceededError(
                         err_msg,
                         details={
@@ -2908,7 +2935,6 @@ def convert_message_to_input_message(message: Message) -> Union[str, List[dict]]
         return message.content[0].text
 
     # For multi-modal content, convert to list of dictionaries
-    file_manager = FileManager()
     result = []
 
     for content_part in message.content:

@@ -8,7 +8,8 @@ from mirix.orm.sqlalchemy_base import SqlalchemyBase
 from mirix.schemas.step import Step as PydanticStep
 
 if TYPE_CHECKING:
-    pass
+    from mirix.orm.message import Message
+    from mirix.orm.organization import Organization
 
 
 class Step(SqlalchemyBase):

@@ -23,7 +23,7 @@ def mistral_get_model_list(url: str, api_key: str) -> dict:
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got HTTPError, exception={http_err}, response={response}")
         raise http_err
@@ -32,7 +32,7 @@ def mistral_get_model_list(url: str, api_key: str) -> dict:
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got RequestException, exception={req_err}, response={response}")
         raise req_err
@@ -41,7 +41,7 @@ def mistral_get_model_list(url: str, api_key: str) -> dict:
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got unknown Exception, exception={e}, response={response}")
         raise e

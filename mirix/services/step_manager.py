@@ -1,5 +1,3 @@
-
-
 from mirix.orm.step import Step as StepModel
 from mirix.schemas.openai.chat_completion_response import UsageStatistics
 from mirix.schemas.step import Step as PydanticStep

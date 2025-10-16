@@ -24,6 +24,7 @@ from mirix.schemas.tool_rule import ToolRule
 if TYPE_CHECKING:
     from mirix.orm.agents_tags import AgentsTags
     from mirix.orm.organization import Organization
+    from mirix.orm.sandbox_config import AgentEnvironmentVariable
     from mirix.orm.tool import Tool
 
 
@@ -51,7 +52,9 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         String, nullable=True, doc="The description of the agent."
     )
     parent_id: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True, doc="The parent agent ID (for sub-agents in a meta-agent)."
+        String,
+        nullable=True,
+        doc="The parent agent ID (for sub-agents in a meta-agent).",
     )
 
     # System prompt

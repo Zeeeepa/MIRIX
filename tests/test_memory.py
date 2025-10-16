@@ -44,15 +44,15 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
 # Now import the rest
-import traceback
-from datetime import datetime
+import traceback  # noqa: E402
+from datetime import datetime  # noqa: E402
 
-from mirix.agent import AgentWrapper
+from mirix.agent import AgentWrapper  # noqa: E402
 
 
 class TestTracker:
@@ -1213,7 +1213,7 @@ def test_greeting_with_images():
 
     # Gemini first
     agent.set_model("gemini-2.0-flash")
-    response = agent.send_message(
+    agent.send_message(
         message=message,
         memorizing=False,
     )
@@ -1221,12 +1221,12 @@ def test_greeting_with_images():
 
     # gpt-4.1
     agent.set_model("gpt-4.1")
-    response = agent.send_message(message=message, memorizing=False)
+    agent.send_message(message=message, memorizing=False)
     print("GPT-4.1 Cloud File Success")
 
     # Claude Sonnet 3.5
     agent.set_model("claude-sonnet-4-20250514")
-    response = agent.send_message(message=message, memorizing=False)
+    agent.send_message(message=message, memorizing=False)
     print("Claude Sonnet 3.5 Cloud File Success")
 
 
@@ -1249,14 +1249,14 @@ def test_greeting_with_files(file_path):
     # Test with GPT-4.1
     print("Testing with GPT-4.1...")
     agent.set_model("gpt-4.1")
-    response = agent.send_message(message=message, memorizing=False)
+    agent.send_message(message=message, memorizing=False)
     print("GPT-4.1 File Success - Response received")
 
     # Test with Claude Sonnet 3.5
     print("Testing with Claude Sonnet 3.5...")
     agent.set_model("claude-sonnet-4-20250514")
     try:
-        response = agent.send_message(message=message, role="user", memorizing=False)
+        agent.send_message(message=message, role="user", memorizing=False)
         print("Claude Sonnet 3.5 File Success - Response received")
     except Exception as e:
         print(f"Claude Sonnet 3.5 File Error: {e}")
@@ -1265,7 +1265,7 @@ def test_greeting_with_files(file_path):
     print("Testing with Gemini...")
     agent.set_model("gemini-2.0-flash")
     try:
-        response = agent.send_message(message=message, role="user", memorizing=False)
+        agent.send_message(message=message, role="user", memorizing=False)
         print("Gemini File Success - Response received")
     except Exception as e:
         print(f"Gemini File Error: {e}")
@@ -1285,9 +1285,7 @@ def test_greeting_with_files(file_path):
         print(f"Testing file_uri format with {model_name}...")
         agent.set_model(model_name)
         try:
-            response = agent.send_message(
-                message=message_uri, role="user", memorizing=False
-            )
+            agent.send_message(message=message_uri, role="user", memorizing=False)
             print(f"{model_name} file_uri Success - Response received")
         except Exception as e:
             print(f"{model_name} file_uri Error: {e}")
@@ -1315,9 +1313,7 @@ def test_greeting_with_files(file_path):
     print("Testing mixed content with GPT-4.1...")
     agent.set_model("gpt-4.1")
     try:
-        response = agent.send_message(
-            message=mixed_message, role="user", memorizing=False
-        )
+        agent.send_message(message=mixed_message, role="user", memorizing=False)
         print("GPT-4.1 Mixed Content Success - Response received")
     except Exception as e:
         print(f"GPT-4.1 Mixed Content Error: {e}")
@@ -1355,9 +1351,7 @@ def test_file_types():
             ]
 
             try:
-                response = agent.send_message(
-                    message=message, role="user", memorizing=False
-                )
+                agent.send_message(message=message, role="user", memorizing=False)
                 print(f"Successfully processed {file_desc}")
             except Exception as e:
                 print(f"Error processing {file_desc}: {e}")
@@ -1394,7 +1388,7 @@ def test_file_with_memory():
     ]
 
     try:
-        response = agent.send_message(
+        agent.send_message(
             message=message,
             role="user",
             memorizing=True,  # Enable memory
@@ -1402,7 +1396,7 @@ def test_file_with_memory():
         print("File content memorized successfully")
 
         # Follow up question to test if file content was remembered
-        follow_up = agent.send_message(
+        agent.send_message(
             message="What were the main points from the document I shared earlier?",
             role="user",
             memorizing=False,

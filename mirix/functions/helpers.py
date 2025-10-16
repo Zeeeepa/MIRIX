@@ -1,5 +1,7 @@
+import asyncio
 import json
-from typing import Any, Optional, Union
+from random import uniform
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import humps
 
@@ -18,6 +20,14 @@ from mirix.schemas.mirix_message import (
     ToolCallMessage,
 )
 from mirix.schemas.mirix_response import MirixResponse
+
+if TYPE_CHECKING:
+    try:
+        from langchain_core.tools import BaseTool as LangChainBaseTool
+    except ImportError:
+        LangChainBaseTool = Any  # type: ignore
+
+    from mirix.agent.agent import Agent
 
 
 def generate_langchain_tool_wrapper(
@@ -222,11 +232,6 @@ def parse_mirix_response_for_assistant_message(
             reasoning_message += f"{m.reasoning}\n"
 
     return None
-
-
-import asyncio
-from random import uniform
-from typing import Optional
 
 
 async def async_send_message_with_retries(

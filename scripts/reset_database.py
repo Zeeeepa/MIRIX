@@ -328,7 +328,7 @@ def reset_postgresql(
         try:
             run_command(extension_cmd, check=False)
             log_success("Enabled pgvector extension")
-        except:
+        except Exception:
             log_warning(
                 "Could not enable pgvector extension (may need superuser privileges)"
             )

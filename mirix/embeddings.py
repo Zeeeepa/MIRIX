@@ -58,10 +58,8 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
         print(
             f"Warning: text is too long ({num_tokens} tokens), truncating to {max_length} tokens."
         )
-        # First, apply any necessary formatting
-        formatted_text = format_text(text, embedding_model)
-        # Then truncate
-        text = truncate_text(formatted_text, max_length, encoding)
+        # Truncate the text
+        text = truncate_text(text, max_length, encoding)
 
     return [text]
 

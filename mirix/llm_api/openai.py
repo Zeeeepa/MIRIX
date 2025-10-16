@@ -1,6 +1,6 @@
 import json
 import warnings
-from typing import Generator, List, Optional, Union
+from typing import TYPE_CHECKING, Generator, List, Optional, Union
 
 import httpx
 import requests
@@ -13,6 +13,12 @@ from mirix.constants import (
     OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING,
 )
 from mirix.errors import LLMError
+
+if TYPE_CHECKING:
+    from mirix.interface import (
+        AgentChunkStreamingInterface,
+        AgentRefreshStreamingInterface,
+    )
 from mirix.llm_api.helpers import (
     add_inner_thoughts_to_functions,
     convert_to_structured_output,
@@ -86,7 +92,7 @@ def openai_get_model_list(
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got HTTPError, exception={http_err}, response={response}")
         raise http_err
@@ -95,7 +101,7 @@ def openai_get_model_list(
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got RequestException, exception={req_err}, response={response}")
         raise req_err
@@ -104,7 +110,7 @@ def openai_get_model_list(
         try:
             if response:
                 response = response.json()
-        except:
+        except Exception:
             pass
         printd(f"Got unknown Exception, exception={e}, response={response}")
         raise e
@@ -198,7 +204,7 @@ def openai_chat_completions_process_stream(
     To "stream" the response in Mirix, we want to call a streaming-compatible interface function
     on the chunks received from the OpenAI-compatible server POST SSE response.
     """
-    assert chat_completion_request.stream == True
+    assert chat_completion_request.stream
     assert stream_interface is not None, "Required"
 
     # Count the prompt tokens
@@ -481,7 +487,7 @@ def _sse_post(
                         raise LLMError(error_message)
                 except LLMError:
                     raise
-                except:
+                except Exception:
                     print(
                         "Failed to parse SSE message, throwing SSE HTTP error up the stack"
                     )

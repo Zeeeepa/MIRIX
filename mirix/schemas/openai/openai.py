@@ -69,12 +69,6 @@ class OpenAIMessage(BaseModel):
     )
 
 
-class MessageFile(BaseModel):
-    id: str
-    object: str = "thread.message.file"
-    created_at: int  # unix timestamp
-
-
 class OpenAIThread(BaseModel):
     """Represents an OpenAI thread (equivalent to Mirix agent)"""
 

@@ -3,16 +3,13 @@ import re
 import string
 from typing import Any, Dict, List, Optional
 
-
-from mirix.log import get_logger
-
-logger = get_logger(__name__)
 from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
 from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
+from mirix.log import get_logger
 from mirix.orm.errors import NoResultFound
 from mirix.orm.semantic_memory import SemanticMemoryItem
 from mirix.schemas.agent import AgentState
@@ -24,6 +21,8 @@ from mirix.schemas.user import User as PydanticUser
 from mirix.services.utils import build_query, update_timezone
 from mirix.settings import settings
 from mirix.utils import enforce_types, generate_unique_short_id
+
+logger = get_logger(__name__)
 
 
 class SemanticMemoryManager:

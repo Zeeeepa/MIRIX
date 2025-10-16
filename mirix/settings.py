@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -105,8 +106,6 @@ cors_origins = [
 default_pg_uri = None
 
 ## check if --use-file-pg-uri is passed
-import sys
-
 if "--use-file-pg-uri" in sys.argv:
     try:
         with open(Path.home() / ".mirix/pg_uri", "r") as f:

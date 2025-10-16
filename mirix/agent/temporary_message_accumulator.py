@@ -141,17 +141,6 @@ class TemporaryMessageAccumulator:
                     )
                 )
 
-                # Print accumulation statistics
-                total_messages = len(self.temporary_messages)
-                total_images = sum(
-                    len(item.get("image_uris", []) or [])
-                    for _, item in self.temporary_messages
-                )
-                total_voice_segments = sum(
-                    len(item.get("audio_segments", []) or [])
-                    for _, item in self.temporary_messages
-                )
-
             if delete_after_upload and full_message["image_uris"]:
                 threading.Thread(
                     target=self._cleanup_file_after_upload,
@@ -160,15 +149,6 @@ class TemporaryMessageAccumulator:
                 ).start()
 
         else:
-            image_uris = full_message.get("image_uris", [])
-            if image_uris is None:
-                image_uris = []
-            image_count = len(image_uris)
-            voice_files = full_message.get("voice_files", [])
-            if voice_files is None:
-                voice_files = []
-            voice_count = len(voice_files)
-
             with self._temporary_messages_lock:
                 sources = full_message.get("sources")
                 image_uris = full_message.get("image_uris", [])
@@ -219,8 +199,6 @@ class TemporaryMessageAccumulator:
 
                         for j, file_ref in enumerate(item["image_uris"]):
                             if isinstance(file_ref, dict) and file_ref.get("pending"):
-                                placeholder_id = id(file_ref)
-
                                 # Get upload status
                                 upload_status = self.upload_manager.get_upload_status(
                                     file_ref
@@ -330,17 +308,12 @@ class TemporaryMessageAccumulator:
                         if self.needs_upload and self.upload_manager is not None:
                             # For GEMINI models: Resolve pending uploads for immediate use (non-blocking check)
                             if isinstance(file_ref, dict) and file_ref.get("pending"):
-                                placeholder_id = id(file_ref)
-
                                 # Get upload status
                                 upload_status = self.upload_manager.get_upload_status(
                                     file_ref
                                 )
 
                                 if upload_status["status"] == "completed":
-                                    original_placeholder = (
-                                        file_ref  # Store original before modifying
-                                    )
                                     file_ref = upload_status["result"]
                                     # Note: Don't clean up here, this is just for chat context
                                 elif upload_status["status"] == "failed":
@@ -630,9 +603,7 @@ class TemporaryMessageAccumulator:
 
         voice_transcription = ""
         if all_voice_content:
-            t1 = time.time()
             voice_transcription = process_voice_files(all_voice_content)
-            t2 = time.time()
 
         # Build the structured message for memory agents
         message_parts = []
@@ -761,7 +732,6 @@ class TemporaryMessageAccumulator:
         self, message, existing_file_uris, agent_states, user_id=None
     ):
         """Send the processed content to all memory agents in parallel."""
-        import time
 
         payloads = {
             "message": message,
@@ -780,8 +750,6 @@ class TemporaryMessageAccumulator:
             "resource_memory",
         ]
 
-        overall_start = time.time()
-
         with ThreadPoolExecutor(max_workers=6) as pool:
             futures = [
                 pool.submit(
@@ -797,8 +765,6 @@ class TemporaryMessageAccumulator:
             for future in tqdm(as_completed(futures), total=len(futures)):
                 response, agent_type = future.result()
                 responses.append(response)
-
-        overall_end = time.time()
 
     def _cleanup_processed_content(self, ready_to_process, user_message_added):
         """Clean up processed content and mark files as processed."""

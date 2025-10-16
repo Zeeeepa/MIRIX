@@ -1,9 +1,7 @@
 import os
 
 
-
 def get_system_text(key):
-
     if os.path.exists(os.path.dirname(key)):
         file_path = f"{key}.txt"
     else:

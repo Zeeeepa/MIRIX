@@ -90,7 +90,7 @@ def azure_openai_get_chat_completion_model_list(
     model_list = azure_openai_get_deployed_model_list(base_url, api_key, api_version)
     # Extract models that support text generation
     model_options = [
-        m for m in model_list if m.get("capabilities").get("chat_completion") == True
+        m for m in model_list if m.get("capabilities").get("chat_completion")
     ]
     return model_options
 
@@ -106,7 +106,7 @@ def azure_openai_get_embeddings_model_list(
         if require_embedding_in_name:
             valid_name = "embedding" in m["id"]
 
-        return m.get("capabilities").get("embeddings") == True and valid_name
+        return m.get("capabilities").get("embeddings") and valid_name
 
     model_list = azure_openai_get_deployed_model_list(base_url, api_key, api_version)
     # Extract models that support embeddings

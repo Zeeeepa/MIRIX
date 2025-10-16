@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 def switch_user_context(agent_wrapper, user_id: str):
     """Switch agent's user context and manage user status"""
     if agent_wrapper and agent_wrapper.client:
-
         # Set current user to inactive
         if agent_wrapper.client.user:
             current_user = agent_wrapper.client.user
@@ -284,44 +283,6 @@ def register_mcp_tools_for_restored_connections():
 
     except Exception as e:
         logger.error(f"Error re-registering MCP tools: {str(e)}")
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize and restore MCP connections on startup"""
-    try:
-        logger.info("Starting up Mirix FastAPI server...")
-
-        # Initialize the MCP client manager (this will auto-restore connections)
-        print("🚀 Initializing MCP client manager...")
-        mcp_manager = get_mcp_client_manager()
-        connected_servers = mcp_manager.list_servers()
-        logger.info(
-            f"MCP client manager initialized with {len(connected_servers)} restored connections: {connected_servers}"
-        )
-        print(
-            f"🔄 MCP Manager: Restored {len(connected_servers)} connections: {connected_servers}"
-        )
-
-        # Debug: Check if the configuration file exists
-        import os
-
-        config_file = os.path.expanduser("~/.mirix/mcp_connections.json")
-        if os.path.exists(config_file):
-            with open(config_file, "r") as f:
-                import json
-
-                configs = json.load(f)
-                print(
-                    f"📋 Found MCP config file with {len(configs)} entries: {list(configs.keys())}"
-                )
-        else:
-            print(f"📋 No MCP config file found at {config_file}")
-
-        # Tool registration will happen later when agent is available
-
-    except Exception as e:
-        logger.error(f"Error during startup: {str(e)}")
 
 
 # Global agent instance
@@ -952,11 +913,6 @@ async def get_personas(user_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Agent not initialized")
 
     try:
-        # Find the current active user
-        users = agent.client.server.user_manager.list_users()
-        active_user = next((user for user in users if user.status == "active"), None)
-        target_user = active_user if active_user else (users[0] if users else None)
-
         persona_details = agent.get_persona_details()
         return PersonaDetailsResponse(personas=persona_details)
     except Exception as e:
@@ -971,11 +927,6 @@ async def update_persona(request: UpdatePersonaRequest):
         raise HTTPException(status_code=500, detail="Agent not initialized")
 
     try:
-        # Find the current active user
-        users = agent.client.server.user_manager.list_users()
-        active_user = next((user for user in users if user.status == "active"), None)
-        target_user = active_user if active_user else (users[0] if users else None)
-
         agent.update_core_memory_persona(request.text)
         return UpdatePersonaResponse(
             success=True, message="Core memory persona updated successfully"
@@ -994,11 +945,6 @@ async def apply_persona_template(request: ApplyPersonaTemplateRequest):
         raise HTTPException(status_code=500, detail="Agent not initialized")
 
     try:
-        # Find the current active user
-        users = agent.client.server.user_manager.list_users()
-        active_user = next((user for user in users if user.status == "active"), None)
-        target_user = active_user if active_user else (users[0] if users else None)
-
         agent.apply_persona_template(request.persona_name)
         return UpdatePersonaResponse(
             success=True,
@@ -1036,11 +982,6 @@ async def get_core_memory_persona(user_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Agent not initialized")
 
     try:
-        # Find the current active user
-        users = agent.client.server.user_manager.list_users()
-        active_user = next((user for user in users if user.status == "active"), None)
-        target_user = active_user if active_user else (users[0] if users else None)
-
         persona_text = agent.get_core_memory_persona()
         return CoreMemoryPersonaResponse(text=persona_text)
     except Exception as e:
