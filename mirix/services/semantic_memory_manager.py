@@ -279,9 +279,9 @@ class SemanticMemoryManager:
         try:
             and_query_sql = text(f"""
                 SELECT 
-                    id, created_at, name, summary, details, source, tree_path,
+                    id, created_at, name, summary, details, source,
                     name_embedding, summary_embedding, details_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM semantic_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -310,7 +310,7 @@ class SemanticMemoryManager:
                     data.pop("rank_score", None)
 
                     # Parse JSON fields that are returned as strings from raw SQL
-                    json_fields = ["last_modify", "metadata_", "embedding_config"]
+                    json_fields = ["last_modify", "embedding_config"]
                     for field in json_fields:
                         if field in data and isinstance(data[field], str):
                             try:
@@ -339,9 +339,9 @@ class SemanticMemoryManager:
         try:
             or_query_sql = text(f"""
                 SELECT 
-                    id, created_at, name, summary, details, source, tree_path,
+                    id, created_at, name, summary, details, source,
                     name_embedding, summary_embedding, details_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM semantic_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -366,7 +366,7 @@ class SemanticMemoryManager:
                 data.pop("rank_score", None)
 
                 # Parse JSON fields that are returned as strings from raw SQL
-                json_fields = ["last_modify", "metadata_", "embedding_config"]
+                json_fields = ["last_modify", "embedding_config"]
                 for field in json_fields:
                     if field in data and isinstance(data[field], str):
                         try:
@@ -476,8 +476,6 @@ class SemanticMemoryManager:
                 raise ValueError(
                     f"Required field '{field}' missing from semantic memory data"
                 )
-
-        data_dict.setdefault("metadata_", {})
 
         # Set user_id from actor for multi-user support
         data_dict["user_id"] = actor.id
@@ -599,9 +597,7 @@ class SemanticMemoryManager:
                     SemanticMemoryItem.details_embedding.label("details_embedding"),
                     SemanticMemoryItem.embedding_config.label("embedding_config"),
                     SemanticMemoryItem.organization_id.label("organization_id"),
-                    SemanticMemoryItem.metadata_.label("metadata_"),
                     SemanticMemoryItem.last_modify.label("last_modify"),
-                    SemanticMemoryItem.tree_path.label("tree_path"),
                     SemanticMemoryItem.user_id.label("user_id"),
                     SemanticMemoryItem.agent_id.label("agent_id"),
                 ).where(SemanticMemoryItem.user_id == actor.id)
@@ -746,7 +742,6 @@ class SemanticMemoryManager:
         summary: str,
         details: Optional[str],
         source: Optional[str],
-        tree_path: Optional[List[str]],
         organization_id: str,
     ) -> PydanticSemanticMemoryItem:
         """
@@ -780,7 +775,6 @@ class SemanticMemoryManager:
                     name_embedding=name_embedding,
                     summary_embedding=summary_embedding,
                     embedding_config=embedding_config,
-                    tree_path=tree_path,
                 ),
                 actor=actor,
             )

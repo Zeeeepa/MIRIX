@@ -253,7 +253,6 @@ class EpisodicMemoryManager:
         details: str,
         summary: str,
         organization_id: str,
-        tree_path: Optional[List[str]] = None,
     ) -> PydanticEpisodicEvent:
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
@@ -277,7 +276,6 @@ class EpisodicMemoryManager:
                     actor=event_actor,
                     summary=summary,
                     details=details,
-                    tree_path=tree_path or [],
                     organization_id=organization_id,
                     summary_embedding=summary_embedding,
                     details_embedding=details_embedding,
@@ -404,9 +402,7 @@ class EpisodicMemoryManager:
                     EpisodicEvent.details_embedding.label("details_embedding"),
                     EpisodicEvent.embedding_config.label("embedding_config"),
                     EpisodicEvent.organization_id.label("organization_id"),
-                    EpisodicEvent.metadata_.label("metadata_"),
                     EpisodicEvent.last_modify.label("last_modify"),
-                    EpisodicEvent.tree_path.label("tree_path"),
                     EpisodicEvent.user_id.label("user_id"),
                     EpisodicEvent.agent_id.label("agent_id"),
                 ).where(EpisodicEvent.user_id == actor.id)
@@ -639,9 +635,9 @@ class EpisodicMemoryManager:
         try:
             and_query_sql = text(f"""
                 SELECT 
-                    id, created_at, occurred_at, actor, event_type, tree_path,
+                    id, created_at, occurred_at, actor, event_type,
                     summary, details, summary_embedding, details_embedding,
-                    embedding_config, organization_id, metadata_, last_modify, user_id,
+                    embedding_config, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM episodic_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -670,7 +666,7 @@ class EpisodicMemoryManager:
                     data.pop("rank_score", None)
 
                     # Parse JSON fields that are returned as strings from raw SQL
-                    json_fields = ["last_modify", "metadata_", "embedding_config"]
+                    json_fields = ["last_modify", "embedding_config"]
                     for field in json_fields:
                         if field in data and isinstance(data[field], str):
                             try:
@@ -695,9 +691,9 @@ class EpisodicMemoryManager:
         try:
             or_query_sql = text(f"""
                 SELECT 
-                    id, created_at, occurred_at, actor, event_type, tree_path,
+                    id, created_at, occurred_at, actor, event_type,
                     summary, details, summary_embedding, details_embedding,
-                    embedding_config, organization_id, metadata_, last_modify, user_id,
+                    embedding_config, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM episodic_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -722,7 +718,7 @@ class EpisodicMemoryManager:
                 data.pop("rank_score", None)
 
                 # Parse JSON fields that are returned as strings from raw SQL
-                json_fields = ["last_modify", "metadata_", "embedding_config"]
+                json_fields = ["last_modify", "embedding_config"]
                 for field in json_fields:
                     if field in data and isinstance(data[field], str):
                         try:

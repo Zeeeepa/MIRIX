@@ -5,7 +5,6 @@ from mirix import system
 from mirix.constants import IN_CONTEXT_MEMORY_KEYWORD, STRUCTURED_OUTPUT_MODELS
 from mirix.helpers import ToolRulesSolver
 from mirix.orm.agent import Agent as AgentModel
-from mirix.orm.agents_tags import AgentsTags
 from mirix.orm.errors import NoResultFound
 from mirix.prompts import gpt_system
 from mirix.schemas.agent import AgentState, AgentType
@@ -64,29 +63,6 @@ def _process_relationship(
         current_ids = {item.id for item in current_relationship}
         new_items = [item for item in found_items if item.id not in current_ids]
         current_relationship.extend(new_items)
-
-
-def _process_tags(agent: AgentModel, tags: List[str], replace=True):
-    """
-    Handles tags for an agent.
-
-    Args:
-        agent: The AgentModel instance.
-        tags: List of tags to set or update.
-        replace: If True, replaces all tags; otherwise, extends them.
-    """
-    if not tags:
-        if replace:
-            agent.tags = []
-        return
-
-    # Ensure tags are unique and prepare for replacement/extension
-    new_tags = {AgentsTags(agent_id=agent.id, tag=tag) for tag in set(tags)}
-    if replace:
-        agent.tags = list(new_tags)
-    else:
-        existing_tags = {t.tag for t in agent.tags}
-        agent.tags.extend([tag for tag in new_tags if tag.tag not in existing_tags])
 
 
 def derive_system_message(agent_type: AgentType, system: Optional[str] = None):

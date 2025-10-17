@@ -284,7 +284,7 @@ class KnowledgeVaultManager:
                 SELECT 
                     id, created_at, entry_type, source, sensitivity,
                     secret_value, caption, caption_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM knowledge_vault 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -311,14 +311,14 @@ class KnowledgeVaultManager:
                     # Remove the rank_score field before creating the object
                     data.pop("rank_score", None)
 
-                    # Parse JSON fields that are returned as strings from raw SQL
-                    json_fields = ["last_modify", "metadata_", "embedding_config"]
-                    for field in json_fields:
-                        if field in data and isinstance(data[field], str):
-                            try:
-                                data[field] = json.loads(data[field])
-                            except (json.JSONDecodeError, TypeError):
-                                pass
+                # Parse JSON fields that are returned as strings from raw SQL
+                json_fields = ["last_modify", "embedding_config"]
+                for field in json_fields:
+                    if field in data and isinstance(data[field], str):
+                        try:
+                            data[field] = json.loads(data[field])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
 
                     # Parse embedding fields
                     embedding_fields = ["caption_embedding"]
@@ -339,7 +339,7 @@ class KnowledgeVaultManager:
                 SELECT 
                     id, created_at, entry_type, source, sensitivity,
                     secret_value, caption, caption_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM knowledge_vault 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -365,7 +365,7 @@ class KnowledgeVaultManager:
                 data.pop("rank_score", None)
 
                 # Parse JSON fields that are returned as strings from raw SQL
-                json_fields = ["last_modify", "metadata_", "embedding_config"]
+                json_fields = ["last_modify", "embedding_config"]
                 for field in json_fields:
                     if field in data and isinstance(data[field], str):
                         try:
@@ -483,8 +483,6 @@ class KnowledgeVaultManager:
                 raise ValueError(
                     f"Required field '{field}' missing from knowledge vault item data"
                 )
-
-        item_data.setdefault("metadata_", {})
 
         # Set user_id from actor for multi-user support
         item_data["user_id"] = actor.id
@@ -639,7 +637,6 @@ class KnowledgeVaultManager:
                     KnowledgeVaultItem.sensitivity.label("sensitivity"),
                     KnowledgeVaultItem.secret_value.label("secret_value"),
                     KnowledgeVaultItem.caption.label("caption"),
-                    KnowledgeVaultItem.metadata_.label("metadata_"),
                     KnowledgeVaultItem.organization_id.label("organization_id"),
                     KnowledgeVaultItem.last_modify.label("last_modify"),
                     KnowledgeVaultItem.user_id.label("user_id"),

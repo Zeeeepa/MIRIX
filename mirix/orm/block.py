@@ -29,19 +29,8 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
     # This may seem redundant, but is necessary for the BlocksAgents composite FK relationship
     __table_args__ = (UniqueConstraint("id", "label", name="unique_block_id_label"),)
 
-    template_name: Mapped[Optional[str]] = mapped_column(
-        nullable=True,
-        doc="the unique name that identifies a block in a human-readable way",
-    )
-    description: Mapped[Optional[str]] = mapped_column(
-        nullable=True, doc="a description of the block for context"
-    )
     label: Mapped[str] = mapped_column(
         doc="the type of memory block in use, ie 'human', 'persona', 'system'"
-    )
-    is_template: Mapped[bool] = mapped_column(
-        doc="whether the block is a template (e.g. saved human/persona options as baselines for other templates)",
-        default=False,
     )
     value: Mapped[str] = mapped_column(
         doc="Text content of the block for the respective section of core memory."
@@ -50,9 +39,6 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
         Integer,
         default=CORE_MEMORY_BLOCK_CHAR_LIMIT,
         doc="Character limit of the block.",
-    )
-    metadata_: Mapped[Optional[dict]] = mapped_column(
-        JSON, default={}, doc="arbitrary information related to the block."
     )
 
     # relationships

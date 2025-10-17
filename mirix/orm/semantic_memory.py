@@ -32,7 +32,6 @@ class SemanticMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         summary: A concise summary of the concept or the object.
         details: A more detailed explanation or contextual description.
         source: The reference or origin of the information (e.g., book, article, movie).
-        metadata_: Arbitrary additional metadata as a JSON object.
         created_at: Timestamp indicating when the entry was created.
     """
 
@@ -71,22 +70,6 @@ class SemanticMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     source: Mapped[str] = mapped_column(
         String,
         doc="The reference or origin of this information (e.g., book, article, or movie)",
-    )
-
-    # Hierarchical tree path for categorization (e.g., ["favorites", "pets", "dog"])
-    tree_path: Mapped[list] = mapped_column(
-        JSON,
-        default=list,
-        nullable=False,
-        doc="Hierarchical categorization path as an array of strings (e.g., ['favorites', 'pets', 'dog'])",
-    )
-
-    # Additional arbitrary metadata stored as a JSON object
-    metadata_: Mapped[dict] = mapped_column(
-        JSON,
-        default=dict,
-        nullable=True,
-        doc="Additional arbitrary metadata as a JSON object",
     )
 
     # When was this item last modified and what operation?

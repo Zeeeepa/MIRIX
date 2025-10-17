@@ -68,8 +68,6 @@ class BlockManager:
         actor: PydanticUser,
         agent_id: Optional[str] = None,
         label: Optional[str] = None,
-        is_template: Optional[bool] = None,
-        template_name: Optional[str] = None,
         id: Optional[str] = None,
         cursor: Optional[str] = None,
         limit: Optional[int] = 50,
@@ -97,10 +95,6 @@ class BlockManager:
                 # Apply additional filters
                 if label:
                     query = query.filter(BlockModel.label == label)
-                if is_template is not None:
-                    query = query.filter(BlockModel.is_template == is_template)
-                if template_name:
-                    query = query.filter(BlockModel.template_name == template_name)
                 if id:
                     query = query.filter(BlockModel.id == id)
                 if cursor:
@@ -117,10 +111,6 @@ class BlockManager:
                 }
                 if label:
                     filters["label"] = label
-                if is_template is not None:
-                    filters["is_template"] = is_template
-                if template_name:
-                    filters["template_name"] = template_name
                 if id:
                     filters["id"] = id
 
@@ -161,12 +151,12 @@ class BlockManager:
             text = open(persona_file, "r", encoding="utf-8").read()
             name = os.path.basename(persona_file).replace(".txt", "")
             self.create_or_update_block(
-                Persona(template_name=name, value=text, is_template=True), actor=actor
+                Persona(value=text), actor=actor
             )
 
         for human_file in list_human_files():
             text = open(human_file, "r", encoding="utf-8").read()
             name = os.path.basename(human_file).replace(".txt", "")
             self.create_or_update_block(
-                Human(template_name=name, value=text, is_template=True), actor=actor
+                Human(value=text), actor=actor
             )

@@ -227,8 +227,8 @@ class ResourceMemoryManager:
         try:
             and_query_sql = text(f"""
                 SELECT 
-                    id, title, summary, content, tree_path, summary_embedding, embedding_config,
-                    created_at, resource_type, organization_id, metadata_, last_modify, user_id,
+                    id, title, summary, content, summary_embedding, embedding_config,
+                    created_at, resource_type, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM resource_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -257,7 +257,7 @@ class ResourceMemoryManager:
                     data.pop("rank_score", None)
 
                     # Parse JSON fields that are returned as strings from raw SQL
-                    json_fields = ["last_modify", "metadata_", "embedding_config"]
+                    json_fields = ["last_modify", "embedding_config"]
                     for field in json_fields:
                         if field in data and isinstance(data[field], str):
                             try:
@@ -282,8 +282,8 @@ class ResourceMemoryManager:
         try:
             or_query_sql = text(f"""
                 SELECT 
-                    id, title, summary, content, tree_path, summary_embedding, embedding_config,
-                    created_at, resource_type, organization_id, metadata_, last_modify, user_id,
+                    id, title, summary, content, summary_embedding, embedding_config,
+                    created_at, resource_type, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM resource_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -308,7 +308,7 @@ class ResourceMemoryManager:
                 data.pop("rank_score", None)
 
                 # Parse JSON fields that are returned as strings from raw SQL
-                json_fields = ["last_modify", "metadata_", "embedding_config"]
+                json_fields = ["last_modify", "embedding_config"]
                 for field in json_fields:
                     if field in data and isinstance(data[field], str):
                         try:
@@ -416,7 +416,6 @@ class ResourceMemoryManager:
                     f"Required field '{field}' missing from resource memory data"
                 )
 
-        data_dict.setdefault("metadata_", {})
 
         # Set user_id from actor for multi-user support
         data_dict["user_id"] = actor.id
@@ -539,9 +538,7 @@ class ResourceMemoryManager:
                 ResourceMemoryItem.created_at.label("created_at"),
                 ResourceMemoryItem.resource_type.label("resource_type"),
                 ResourceMemoryItem.organization_id.label("organization_id"),
-                ResourceMemoryItem.metadata_.label("metadata_"),
                 ResourceMemoryItem.last_modify.label("last_modify"),
-                ResourceMemoryItem.tree_path.label("tree_path"),
                 ResourceMemoryItem.user_id.label("user_id"),
                 ResourceMemoryItem.agent_id.label("agent_id"),
             ).where(ResourceMemoryItem.user_id == actor.id)
@@ -664,7 +661,6 @@ class ResourceMemoryManager:
         resource_type: str,
         content: str,
         organization_id: str,
-        tree_path: Optional[List[str]] = None,
     ) -> PydanticResourceMemoryItem:
         """Create a new resource memory item."""
         try:
@@ -685,7 +681,6 @@ class ResourceMemoryManager:
                     summary=summary,
                     content=content,
                     resource_type=resource_type,
-                    tree_path=tree_path or [],
                     organization_id=organization_id,
                     summary_embedding=summary_embedding,
                     embedding_config=embedding_config,

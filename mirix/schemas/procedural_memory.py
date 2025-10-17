@@ -22,10 +22,6 @@ class ProceduralMemoryItemBase(MirixBase):
     steps: List[str] = Field(
         ..., description="Step-by-step instructions as a list of strings"
     )
-    tree_path: List[str] = Field(
-        ...,
-        description="Hierarchical categorization path as an array of strings (e.g., ['workflows', 'development', 'testing'])",
-    )
 
 
 class ProceduralMemoryItem(ProceduralMemoryItemBase):
@@ -55,9 +51,6 @@ class ProceduralMemoryItem(ProceduralMemoryItemBase):
     )
     organization_id: str = Field(
         ..., description="The unique identifier of the organization"
-    )
-    metadata_: Dict[str, Any] = Field(
-        default_factory=dict, description="Arbitrary additional metadata"
     )
     summary_embedding: Optional[List[float]] = Field(
         None, description="The embedding of the summary"
@@ -100,13 +93,6 @@ class ProceduralMemoryItemUpdate(MirixBase):
     summary: Optional[str] = Field(None, description="Short descriptive text")
     steps: Optional[List[str]] = Field(
         None, description="Step-by-step instructions as a list of strings"
-    )
-    tree_path: Optional[List[str]] = Field(
-        None,
-        description="Hierarchical categorization path as an array of strings (e.g., ['workflows', 'development', 'testing'])",
-    )
-    metadata_: Optional[Dict[str, Any]] = Field(
-        None, description="Arbitrary additional metadata"
     )
     organization_id: Optional[str] = Field(None, description="The organization ID")
     updated_at: datetime = Field(

@@ -80,7 +80,6 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
             summary=item["summary"],
             details=item["details"],
             organization_id=self.user.organization_id,
-            tree_path=item.get("tree_path"),
         )
     response = "Events inserted! Now you need to check if there are repeated events shown in the system prompt."
     return response
@@ -160,7 +159,6 @@ def episodic_memory_replace(
             summary=new_item["summary"],
             details=new_item["details"],
             organization_id=self.user.organization_id,
-            tree_path=new_item.get("tree_path"),
         )
 
 
@@ -191,7 +189,6 @@ def check_episodic_memory(
             "actor": x.actor,
             "summary": x.summary,
             "details": x.details,
-            "tree_path": x.tree_path,
         }
         for x in episodic_memory
     ]
@@ -225,7 +222,6 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
             content=item["content"],
             actor=self.user,
             organization_id=self.user.organization_id,
-            tree_path=item.get("tree_path"),
         )
 
 
@@ -260,7 +256,6 @@ def resource_memory_update(
             content=item["content"],
             actor=self.user,
             organization_id=self.user.organization_id,
-            tree_path=item.get("tree_path"),
         )
 
 
@@ -289,7 +284,6 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
             steps=item["steps"],
             actor=self.user,
             organization_id=self.user.organization_id,
-            tree_path=item.get("tree_path"),
         )
 
 
@@ -326,7 +320,6 @@ def procedural_memory_update(
             steps=item["steps"],
             actor=self.user,
             organization_id=self.user.organization_id,
-            tree_path=item.get("tree_path"),
         )
 
 
@@ -356,7 +349,6 @@ def check_semantic_memory(
             "summary": x.summary,
             "details": x.details,
             "source": x.source,
-            "tree_path": x.tree_path,
         }
         for x in semantic_memory
     ]
@@ -388,7 +380,6 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
             summary=item["summary"],
             details=item["details"],
             source=item["source"],
-            tree_path=item["tree_path"],
             organization_id=self.user.organization_id,
             actor=self.user,
         )
@@ -430,7 +421,6 @@ def semantic_memory_update(
             details=item["details"],
             source=item["source"],
             actor=self.user,
-            tree_path=item["tree_path"],
             organization_id=self.user.organization_id,
         )
         new_ids.append(inserted_item.id)

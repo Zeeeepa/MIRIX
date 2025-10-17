@@ -17,14 +17,10 @@ from mirix.constants import (
 )
 from mirix.log import get_logger
 from mirix.orm import Agent as AgentModel
-from mirix.orm import AgentsTags
 from mirix.orm import Block as BlockModel
 from mirix.orm import Tool as ToolModel
 from mirix.orm.enums import ToolType
 from mirix.orm.errors import NoResultFound
-from mirix.orm.sandbox_config import (
-    AgentEnvironmentVariable as AgentEnvironmentVariableModel,
-)
 from mirix.schemas.agent import AgentState as PydanticAgentState
 from mirix.schemas.agent import AgentType, CreateAgent, CreateMetaAgent, UpdateAgent
 from mirix.schemas.block import Block as PydanticBlock
@@ -37,7 +33,6 @@ from mirix.schemas.user import User as PydanticUser
 from mirix.services.block_manager import BlockManager
 from mirix.services.helpers.agent_manager_helper import (
     _process_relationship,
-    _process_tags,
     check_supports_structured_output,
     derive_system_message,
     initialize_message_sequence,
@@ -149,21 +144,11 @@ class AgentManager:
             embedding_config=agent_create.embedding_config,
             block_ids=block_ids,
             tool_ids=tool_ids,
-            tags=agent_create.tags or [],
             description=agent_create.description,
-            metadata_=agent_create.metadata_,
             tool_rules=agent_create.tool_rules,
             parent_id=agent_create.parent_id,
             actor=actor,
         )
-
-        # If there are provided environment variables, add them in
-        if agent_create.tool_exec_environment_variables:
-            agent_state = self._set_environment_variables(
-                agent_id=agent_state.id,
-                env_vars=agent_create.tool_exec_environment_variables,
-                actor=actor,
-            )
 
         return self.append_initial_message_sequence_to_in_context_messages(
             actor, agent_state, agent_create.initial_message_sequence
@@ -233,7 +218,6 @@ class AgentManager:
             include_base_tools=True,
             description=meta_agent_create.description
             or "Meta memory agent coordinating sub-agents",
-            metadata_=meta_agent_create.metadata_,
         )
 
         meta_agent_state = self.create_agent(
@@ -277,7 +261,6 @@ class AgentManager:
                 block_ids=block_ids.copy() if block_ids else None,
                 include_base_tools=True,
                 description=f"Sub-agent of meta agent: {meta_agent_name}",
-                metadata_=meta_agent_create.metadata_,
                 parent_id=meta_agent_state.id,  # Set the parent_id
             )
 
@@ -469,9 +452,7 @@ class AgentManager:
         embedding_config: EmbeddingConfig,
         block_ids: List[str],
         tool_ids: List[str],
-        tags: List[str],
         description: Optional[str] = None,
-        metadata_: Optional[Dict] = None,
         tool_rules: Optional[List[PydanticToolRule]] = None,
         parent_id: Optional[str] = None,
     ) -> PydanticAgentState:
@@ -481,13 +462,11 @@ class AgentManager:
             data = {
                 "name": name,
                 "system": system,
-                "topic": "",  # TODO: make this nullable
                 "agent_type": agent_type,
                 "llm_config": llm_config,
                 "embedding_config": embedding_config,
                 "organization_id": actor.organization_id,
                 "description": description,
-                "metadata_": metadata_,
                 "tool_rules": tool_rules,
                 "parent_id": parent_id,
             }
@@ -500,7 +479,6 @@ class AgentManager:
             _process_relationship(
                 session, new_agent, "core_memory", BlockModel, block_ids, replace=True
             )
-            _process_tags(new_agent, tags, replace=True)
             new_agent.create(session, actor=actor)
 
             # Convert to PydanticAgentState and return
@@ -513,14 +491,6 @@ class AgentManager:
         agent_state = self._update_agent(
             agent_id=agent_id, agent_update=agent_update, actor=actor
         )
-
-        # If there are provided environment variables, add them in
-        if agent_update.tool_exec_environment_variables:
-            agent_state = self._set_environment_variables(
-                agent_id=agent_state.id,
-                env_vars=agent_update.tool_exec_environment_variables,
-                actor=actor,
-            )
 
         # Rebuild the system prompt if it's different
         if agent_update.system and agent_update.system != agent_state.system:
@@ -623,13 +593,11 @@ class AgentManager:
             scalar_fields = {
                 "name",
                 "system",
-                "topic",
                 "llm_config",
                 "embedding_config",
                 "message_ids",
                 "tool_rules",
                 "description",
-                "metadata_",
                 "mcp_tools",
                 "parent_id",
             }
@@ -638,7 +606,7 @@ class AgentManager:
                 if value is not None:
                     setattr(agent, field, value)
 
-            # Update relationships using _process_relationship and _process_tags
+            # Update relationships using _process_relationship
             if agent_update.tool_ids is not None:
                 _process_relationship(
                     session,
@@ -657,8 +625,6 @@ class AgentManager:
                     agent_update.block_ids,
                     replace=True,
                 )
-            if agent_update.tags is not None:
-                _process_tags(agent, agent_update.tags, replace=True)
 
             # Commit and refresh the agent
             agent.update(session, actor=actor)
@@ -764,69 +730,6 @@ class AgentManager:
                 db_session=session, identifier=agent_id, actor=actor
             )
             agent.hard_delete(session)
-
-    # ======================================================================================================================
-    # Per Agent Environment Variable Management
-    # ======================================================================================================================
-    @enforce_types
-    def _set_environment_variables(
-        self,
-        agent_id: str,
-        env_vars: Dict[str, str],
-        actor: PydanticUser,
-    ) -> PydanticAgentState:
-        """
-        Adds or replaces the environment variables for the specified agent.
-
-        Args:
-            agent_id: The agent id.
-            env_vars: A dictionary of environment variable key-value pairs.
-            actor: The user performing the action.
-
-        Returns:
-            PydanticAgentState: The updated agent as a Pydantic model.
-        """
-        with self.session_maker() as session:
-            # Retrieve the agent
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-
-            # Fetch existing environment variables as a dictionary
-            existing_vars = {
-                var.key: var for var in agent.tool_exec_environment_variables
-            }
-
-            # Update or create environment variables
-            updated_vars = []
-            for key, value in env_vars.items():
-                if key in existing_vars:
-                    # Update existing variable
-                    existing_vars[key].value = value
-                    updated_vars.append(existing_vars[key])
-                else:
-                    # Create new variable
-                    updated_vars.append(
-                        AgentEnvironmentVariableModel(
-                            key=key,
-                            value=value,
-                            agent_id=agent_id,
-                            organization_id=actor.organization_id,
-                        )
-                    )
-
-            # Remove stale variables
-            stale_keys = set(existing_vars) - set(env_vars)
-            agent.tool_exec_environment_variables = [
-                var for var in updated_vars if var.key not in stale_keys
-            ]
-
-            # Update the agent in the database
-            agent.update(session, actor=actor)
-
-            # Return the updated agent state
-            return agent.to_pydantic()
-
     # ======================================================================================================================
     # In Context Messages Management
     # ======================================================================================================================
@@ -874,14 +777,6 @@ class AgentManager:
         ]  # swap index 0 (system)
         return self.set_in_context_messages(
             agent_id=agent_id, message_ids=message_ids, actor=actor
-        )
-
-    @enforce_types
-    def update_topic(
-        self, agent_id: str, topic: str, actor: PydanticUser
-    ) -> PydanticAgentState:
-        return self.update_agent(
-            agent_id=agent_id, agent_update=UpdateAgent(topic=topic), actor=actor
         )
 
     @enforce_types
@@ -1252,43 +1147,3 @@ class AgentManager:
             agent.update(session, actor=actor)
             return agent.to_pydantic()
 
-    # ======================================================================================================================
-    # Tag Management
-    # ======================================================================================================================
-    @enforce_types
-    def list_tags(
-        self,
-        actor: PydanticUser,
-        cursor: Optional[str] = None,
-        limit: Optional[int] = 50,
-        query_text: Optional[str] = None,
-    ) -> List[str]:
-        """
-        Get all tags a user has created, ordered alphabetically.
-
-        Args:
-            actor: User performing the action.
-            cursor: Cursor for pagination.
-            limit: Maximum number of tags to return.
-            query_text: Query text to filter tags by.
-
-        Returns:
-            List[str]: List of all tags.
-        """
-        with self.session_maker() as session:
-            query = (
-                session.query(AgentsTags.tag)
-                .join(AgentModel, AgentModel.id == AgentsTags.agent_id)
-                .filter(AgentModel.organization_id == actor.organization_id)
-                .distinct()
-            )
-
-            if query_text:
-                query = query.filter(AgentsTags.tag.ilike(f"%{query_text}%"))
-
-            if cursor:
-                query = query.filter(AgentsTags.tag > cursor)
-
-            query = query.order_by(AgentsTags.tag).limit(limit)
-            results = [tag[0] for tag in query.all()]
-            return results

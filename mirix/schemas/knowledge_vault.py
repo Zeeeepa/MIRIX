@@ -62,9 +62,6 @@ class KnowledgeVaultItem(KnowledgeVaultItemBase):
         },
         description="Last modification info including timestamp and operation type",
     )
-    metadata_: Dict[str, Any] = Field(
-        default_factory=dict, description="Arbitrary additional metadata"
-    )
     organization_id: str = Field(
         ..., description="The unique identifier of the organization"
     )
@@ -125,9 +122,6 @@ class KnowledgeVaultItemUpdate(MirixBase):
     )
     secret_value: Optional[str] = Field(
         None, description="The actual credential or data value"
-    )
-    metadata_: Optional[Dict[str, Any]] = Field(
-        None, description="Arbitrary additional metadata"
     )
     organization_id: Optional[str] = Field(
         None, description="The unique identifier of the organization"

@@ -94,7 +94,6 @@ from mirix.services.per_agent_lock_manager import PerAgentLockManager
 from mirix.services.procedural_memory_manager import ProceduralMemoryManager
 from mirix.services.provider_manager import ProviderManager
 from mirix.services.resource_memory_manager import ResourceMemoryManager
-from mirix.services.sandbox_config_manager import SandboxConfigManager
 from mirix.services.semantic_memory_manager import SemanticMemoryManager
 from mirix.services.step_manager import StepManager
 from mirix.services.tool_execution_sandbox import ToolExecutionSandbox
@@ -435,7 +434,6 @@ class SyncServer(Server):
         self.user_manager = UserManager()
         self.tool_manager = ToolManager()
         self.block_manager = BlockManager()
-        self.sandbox_config_manager = SandboxConfigManager(tool_settings)
         self.message_manager = MessageManager()
         self.agent_manager = AgentManager()
         self.step_manager = StepManager()
@@ -462,17 +460,6 @@ class SyncServer(Server):
             self.default_user = self.user_manager.create_default_user()
             # self.block_manager.add_default_blocks(actor=self.default_user)
             self.tool_manager.upsert_base_tools(actor=self.default_user)
-
-            # # Add composio keys to the tool sandbox env vars of the org
-            # if tool_settings.composio_api_key:
-            #     manager = SandboxConfigManager(tool_settings)
-            #     sandbox_config = manager.get_or_create_default_sandbox_config(sandbox_type=SandboxType.LOCAL, actor=self.default_user)
-
-            #     manager.create_sandbox_env_var(
-            #         SandboxEnvironmentVariableCreate(key="COMPOSIO_API_KEY", value=tool_settings.composio_api_key),
-            #         sandbox_config_id=sandbox_config.id,
-            #         actor=self.default_user,
-            #     )
 
         # collect providers (always has Mirix as a default)
         self._enabled_providers: List[Provider] = [MirixProvider()]

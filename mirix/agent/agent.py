@@ -1159,15 +1159,6 @@ class Agent(BaseAgent):
                                 "[Details]: " + memory_item.details + "\n"
                             )
                             memory_item_str += (
-                                "[Tree Path]: "
-                                + (
-                                    " > ".join(memory_item.tree_path)
-                                    if memory_item.tree_path
-                                    else "N/A"
-                                )
-                                + "\n"
-                            )
-                            memory_item_str += (
                                 "[Last Modified]: "
                                 + memory_item.last_modify["operation"]
                                 + " at "
@@ -1199,15 +1190,6 @@ class Agent(BaseAgent):
                             )
                             memory_item_str += (
                                 "[Steps]: " + "; ".join(memory_item.steps) + "\n"
-                            )
-                            memory_item_str += (
-                                "[Tree Path]: "
-                                + (
-                                    " > ".join(memory_item.tree_path)
-                                    if memory_item.tree_path
-                                    else "N/A"
-                                )
-                                + "\n"
                             )
                             memory_item_str += (
                                 "[Last Modified]: "
@@ -1244,15 +1226,6 @@ class Agent(BaseAgent):
                             )
                             memory_item_str += (
                                 "[Content]: " + memory_item.content + "\n"
-                            )
-                            memory_item_str += (
-                                "[Tree Path]: "
-                                + (
-                                    " > ".join(memory_item.tree_path)
-                                    if memory_item.tree_path
-                                    else "N/A"
-                                )
-                                + "\n"
                             )
                             memory_item_str += (
                                 "[Last Modified]: "
@@ -1336,15 +1309,6 @@ class Agent(BaseAgent):
                             )
                             memory_item_str += (
                                 "[Source]: " + (memory_item.source or "N/A") + "\n"
-                            )
-                            memory_item_str += (
-                                "[Tree Path]: "
-                                + (
-                                    " > ".join(memory_item.tree_path)
-                                    if memory_item.tree_path
-                                    else "N/A"
-                                )
-                                + "\n"
                             )
                             memory_item_str += (
                                 "[Last Modified]: "
@@ -1760,18 +1724,13 @@ class Agent(BaseAgent):
             episodic_memory = ""
             if len(current_episodic_memory) > 0:
                 for idx, event in enumerate(current_episodic_memory):
-                    tree_path_str = (
-                        f" - Path: {' > '.join(event.tree_path)}"
-                        if event.tree_path
-                        else ""
-                    )
                     if (
                         self.agent_state.name == "episodic_memory_agent"
                         or self.agent_state.name == "reflexion_agent"
                     ):
-                        episodic_memory += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}{tree_path_str} (Details: {len(event.details)} Characters)\n"
+                        episodic_memory += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
                     else:
-                        episodic_memory += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}{tree_path_str} (Details: {len(event.details)} Characters)\n"
+                        episodic_memory += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
 
             recent_episodic_memory = episodic_memory.strip()
 
@@ -1790,18 +1749,13 @@ class Agent(BaseAgent):
             most_relevant_episodic_memory_str = ""
             if len(most_relevant_episodic_memory) > 0:
                 for idx, event in enumerate(most_relevant_episodic_memory):
-                    tree_path_str = (
-                        f" - Path: {' > '.join(event.tree_path)}"
-                        if event.tree_path
-                        else ""
-                    )
                     if (
                         self.agent_state.name == "episodic_memory_agent"
                         or self.agent_state.name == "reflexion_agent"
                     ):
-                        most_relevant_episodic_memory_str += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}{tree_path_str}  (Details: {len(event.details)} Characters)\n"
+                        most_relevant_episodic_memory_str += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
                     else:
-                        most_relevant_episodic_memory_str += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}{tree_path_str}  (Details: {len(event.details)} Characters)\n"
+                        most_relevant_episodic_memory_str += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
             relevant_episodic_memory = most_relevant_episodic_memory_str.strip()
             retrieved_memories["episodic"] = {
                 "total_number_of_items": self.episodic_memory_manager.get_total_number_of_items(
@@ -1831,18 +1785,13 @@ class Agent(BaseAgent):
             resource_memory = ""
             if len(current_resource_memory) > 0:
                 for idx, resource in enumerate(current_resource_memory):
-                    tree_path_str = (
-                        f"; Path: {' > '.join(resource.tree_path)}"
-                        if resource.tree_path
-                        else ""
-                    )
                     if (
                         self.agent_state.name == "resource_memory_agent"
                         or self.agent_state.name == "reflexion_agent"
                     ):
-                        resource_memory += f"[Resource ID: {resource.id}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}{tree_path_str}\n"
+                        resource_memory += f"[Resource ID: {resource.id}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
                     else:
-                        resource_memory += f"[{idx}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}{tree_path_str}\n"
+                        resource_memory += f"[{idx}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
             resource_memory = resource_memory.strip()
             retrieved_memories["resource"] = {
                 "total_number_of_items": self.resource_memory_manager.get_total_number_of_items(
@@ -1870,18 +1819,13 @@ class Agent(BaseAgent):
             procedural_memory = ""
             if len(current_procedural_memory) > 0:
                 for idx, procedure in enumerate(current_procedural_memory):
-                    tree_path_str = (
-                        f"; Path: {' > '.join(procedure.tree_path)}"
-                        if procedure.tree_path
-                        else ""
-                    )
                     if (
                         self.agent_state.name == "procedural_memory_agent"
                         or self.agent_state.name == "reflexion_agent"
                     ):
-                        procedural_memory += f"[Procedure ID: {procedure.id}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}{tree_path_str}\n"
+                        procedural_memory += f"[Procedure ID: {procedure.id}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
                     else:
-                        procedural_memory += f"[{idx}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}{tree_path_str}\n"
+                        procedural_memory += f"[{idx}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
             procedural_memory = procedural_memory.strip()
             retrieved_memories["procedural"] = {
                 "total_number_of_items": self.procedural_memory_manager.get_total_number_of_items(
@@ -1909,18 +1853,13 @@ class Agent(BaseAgent):
             semantic_memory = ""
             if len(current_semantic_memory) > 0:
                 for idx, semantic_memory_item in enumerate(current_semantic_memory):
-                    tree_path_str = (
-                        f"; Path: {' > '.join(semantic_memory_item.tree_path)}"
-                        if semantic_memory_item.tree_path
-                        else ""
-                    )
                     if (
                         self.agent_state.name == "semantic_memory_agent"
                         or self.agent_state.name == "reflexion_agent"
                     ):
-                        semantic_memory += f"[Semantic Memory ID: {semantic_memory_item.id}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}{tree_path_str}\n"
+                        semantic_memory += f"[Semantic Memory ID: {semantic_memory_item.id}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
                     else:
-                        semantic_memory += f"[{idx}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}{tree_path_str}\n"
+                        semantic_memory += f"[{idx}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
 
             semantic_memory = semantic_memory.strip()
             retrieved_memories["semantic"] = {
@@ -2873,7 +2812,6 @@ def save_agent(agent: Agent):
         embedding_config=agent_state.embedding_config,
         message_ids=agent_state.message_ids,
         description=agent_state.description,
-        metadata_=agent_state.metadata_,
         # TODO: Add this back in later
         # tool_exec_environment_variables=agent_state.get_agent_env_vars_as_dict(),
     )

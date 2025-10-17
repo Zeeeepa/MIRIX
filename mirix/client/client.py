@@ -1517,9 +1517,7 @@ class LocalClient(AbstractClient):
     def get_block_id(self, name: str, label: str) -> str:
         block = self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
-            template_name=name,
             label=label,
-            is_template=True,
         )
         if not block:
             return None
@@ -1537,7 +1535,7 @@ class LocalClient(AbstractClient):
             human (Human): Human block
         """
         return self.server.block_manager.create_or_update_block(
-            Human(template_name=name, value=text),
+            Human(value=text),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
@@ -1553,7 +1551,7 @@ class LocalClient(AbstractClient):
             persona (Persona): Persona block
         """
         return self.server.block_manager.create_or_update_block(
-            Persona(template_name=name, value=text),
+            Persona(value=text),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
@@ -1567,7 +1565,6 @@ class LocalClient(AbstractClient):
         return self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
             label="human",
-            is_template=True,
         )
 
     def list_personas(self) -> List[Persona]:
@@ -1580,7 +1577,6 @@ class LocalClient(AbstractClient):
         return self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
             label="persona",
-            is_template=True,
         )
 
     def update_human(self, human_id: str, text: str):
@@ -1597,7 +1593,7 @@ class LocalClient(AbstractClient):
 
         return self.server.block_manager.update_block(
             block_id=human_id,
-            block_update=BlockUpdate(value=text, is_template=True),
+            block_update=BlockUpdate(value=text),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
 
@@ -1636,7 +1632,7 @@ class LocalClient(AbstractClient):
             # Update existing persona
             return self.server.block_manager.update_block(
                 block_id=persona_id,
-                block_update=BlockUpdate(value=text, is_template=True),
+                block_update=BlockUpdate(value=text),
                 actor=self.server.user_manager.get_user_by_id(self.user.id),
             )
         else:
@@ -1689,9 +1685,7 @@ class LocalClient(AbstractClient):
         """
         persona = self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
-            template_name=name,
             label="persona",
-            is_template=True,
         )
         if not persona:
             return None
@@ -1709,9 +1703,7 @@ class LocalClient(AbstractClient):
         """
         human = self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
-            template_name=name,
             label="human",
-            is_template=True,
         )
         if not human:
             return None
@@ -1988,26 +1980,23 @@ class LocalClient(AbstractClient):
         Returns:
             blocks (List[Block]): List of blocks
         """
-        return self.server.block_manager.get_blocks(
+        blocks = self.server.block_manager.get_blocks(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
             label=label,
-            is_template=templates_only,
         )
+        return blocks
 
     def create_block(
         self,
         label: str,
         value: str,
         limit: Optional[int] = None,
-        template_name: Optional[str] = None,
-        is_template: bool = False,
     ) -> Block:  #
         """
         Create a block
 
         Args:
             label (str): Label of the block
-            name (str): Name of the block
             text (str): Text of the block
             limit (int): Character of the block
 
@@ -2016,9 +2005,7 @@ class LocalClient(AbstractClient):
         """
         block = Block(
             label=label,
-            template_name=template_name,
             value=value,
-            is_template=is_template,
             limit=limit,
         )
         # if limit:

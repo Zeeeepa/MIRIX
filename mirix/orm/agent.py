@@ -22,9 +22,7 @@ from mirix.schemas.memory import Memory
 from mirix.schemas.tool_rule import ToolRule
 
 if TYPE_CHECKING:
-    from mirix.orm.agents_tags import AgentsTags
     from mirix.orm.organization import Organization
-    from mirix.orm.sandbox_config import AgentEnvironmentVariable
     from mirix.orm.tool import Tool
 
 
@@ -62,22 +60,11 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         String, nullable=True, doc="The system prompt used by the agent."
     )
 
-    # Current Topic
-    topic: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True, doc="The current topic between the agent and the user."
-    )
-
-    # In context memory
-    # TODO: This should be a separate mapping table
-    # This is dangerously flexible with the JSON type
     message_ids: Mapped[Optional[List[str]]] = mapped_column(
         JSON, nullable=True, doc="List of message IDs in in-context memory."
     )
 
     # Metadata and configs
-    metadata_: Mapped[Optional[dict]] = mapped_column(
-        JSON, nullable=True, doc="metadata for the agent."
-    )
     llm_config: Mapped[Optional[LLMConfig]] = mapped_column(
         LLMConfigColumn,
         nullable=True,
@@ -103,15 +90,6 @@ class Agent(SqlalchemyBase, OrganizationMixin):
     organization: Mapped["Organization"] = relationship(
         "Organization", back_populates="agents"
     )
-    tool_exec_environment_variables: Mapped[List["AgentEnvironmentVariable"]] = (
-        relationship(
-            "AgentEnvironmentVariable",
-            back_populates="agent",
-            cascade="all, delete-orphan",
-            lazy="selectin",
-            doc="Environment variables associated with this agent.",
-        )
-    )
     tools: Mapped[List["Tool"]] = relationship(
         "Tool", secondary="tools_agents", lazy="selectin", passive_deletes=True
     )
@@ -125,13 +103,6 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         cascade="all, delete-orphan",  # Ensure messages are deleted when the agent is deleted
         passive_deletes=True,
     )
-    tags: Mapped[List["AgentsTags"]] = relationship(
-        "AgentsTags",
-        back_populates="agent",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        doc="Tags associated with the agent.",
-    )
 
     def to_pydantic(self) -> PydanticAgentState:
         """converts to the basic pydantic model counterpart"""
@@ -144,20 +115,16 @@ class Agent(SqlalchemyBase, OrganizationMixin):
             "children": None,  # Children are populated separately when needed
             "message_ids": self.message_ids,
             "tools": self.tools,
-            "tags": [t.tag for t in self.tags],
             "tool_rules": self.tool_rules,
             "system": self.system,
-            "topic": self.topic,
             "agent_type": self.agent_type,
             "llm_config": self.llm_config,
             "embedding_config": self.embedding_config,
-            "metadata_": self.metadata_,
             "memory": Memory(blocks=[b.to_pydantic() for b in self.core_memory]),
             "created_by_id": self.created_by_id,
             "last_updated_by_id": self.last_updated_by_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
-            "tool_exec_environment_variables": self.tool_exec_environment_variables,
             "mcp_tools": self.mcp_tools,
         }
         return self.__pydantic_model__(**state)

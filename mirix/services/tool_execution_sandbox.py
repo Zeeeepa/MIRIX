@@ -24,7 +24,6 @@ from mirix.schemas.agent import AgentState
 from mirix.schemas.sandbox_config import SandboxConfig, SandboxRunResult, SandboxType
 from mirix.schemas.tool import Tool
 from mirix.schemas.user import User
-from mirix.services.sandbox_config_manager import SandboxConfigManager
 from mirix.services.tool_manager import ToolManager
 from mirix.settings import tool_settings
 from mirix.utils import get_friendly_error_msg
@@ -76,7 +75,6 @@ class ToolExecutionSandbox:
                     f"Agent attempted to invoke tool {self.tool_name} that does not exist for organization {self.user.organization_id}"
                 )
 
-        self.sandbox_config_manager = SandboxConfigManager(tool_settings)
         self.force_recreate = force_recreate
 
     def run(

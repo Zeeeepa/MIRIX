@@ -33,3 +33,17 @@ local_evaluations
 .claude/
 mirix.egg-info
 .local
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+.hypothesis/
+.tox/
+*.db
+*.sqlite
+*.sqlite-journal
+test-results/
+test_*.db

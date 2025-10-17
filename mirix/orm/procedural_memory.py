@@ -27,7 +27,6 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     type:        The category or tag of the procedure (e.g. 'workflow', 'guide', 'script')
     description: Short descriptive text about what this procedure accomplishes
     steps:       Step-by-step instructions or method
-    metadata_:   Additional fields/notes
     """
 
     __tablename__ = "procedural_memory"
@@ -63,14 +62,6 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         JSON, doc="Step-by-step instructions stored as a list of strings"
     )
 
-    # Hierarchical categorization path
-    tree_path: Mapped[list] = mapped_column(
-        JSON,
-        default=list,
-        nullable=False,
-        doc="Hierarchical categorization path as an array of strings",
-    )
-
     # When was this item last modified and what operation?
     last_modify: Mapped[dict] = mapped_column(
         JSON,
@@ -80,14 +71,6 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
             "operation": "created",
         },
         doc="Last modification info including timestamp and operation type",
-    )
-
-    # Optional metadata
-    metadata_: Mapped[dict] = mapped_column(
-        JSON,
-        default={},
-        nullable=True,
-        doc="Arbitrary additional metadata as a JSON object",
     )
 
     embedding_config: Mapped[Optional[dict]] = mapped_column(

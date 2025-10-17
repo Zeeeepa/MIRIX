@@ -7,7 +7,6 @@ from mirix.constants import DEFAULT_EMBEDDING_CHUNK_SIZE
 from mirix.helpers import ToolRulesSolver
 from mirix.schemas.block import CreateBlock
 from mirix.schemas.embedding_config import EmbeddingConfig
-from mirix.schemas.environment_variables import AgentEnvironmentVariable
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message, MessageCreate
@@ -44,11 +43,9 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
         id (str): The unique identifier of the agent.
         name (str): The name of the agent (must be unique to the user).
         created_at (datetime): The datetime the agent was created.
-        message_ids (List[str]): The ids of the messages in the agent's in-context memory.
         memory (Memory): The in-context memory of the agent.
         tools (List[str]): The tools used by the agent. This includes any memory editing functions specified in `memory`.
         system (str): The system prompt used by the agent.
-        topic (str): The current topic between the agent and the user.
         llm_config (LLMConfig): The LLM configuration used by the agent.
         embedding_config (EmbeddingConfig): The embedding configuration used by the agent.
 
@@ -72,9 +69,6 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
 
     # system prompt
     system: str = Field(..., description="The system prompt used by the agent.")
-    topic: str = Field(
-        ..., description="The current topic between the agent and the user."
-    )
 
     # agent configuration
     agent_type: AgentType = Field(..., description="The type of agent.")
@@ -97,9 +91,6 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     description: Optional[str] = Field(
         None, description="The description of the agent."
     )
-    metadata_: Optional[Dict] = Field(
-        None, description="The metadata of the agent.", alias="metadata_"
-    )
     parent_id: Optional[str] = Field(
         None, description="The parent agent ID (for sub-agents in a meta-agent)."
     )
@@ -109,22 +100,10 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
 
     memory: Memory = Field(..., description="The in-context memory of the agent.")
     tools: List[Tool] = Field(..., description="The tools used by the agent.")
-    tags: List[str] = Field(..., description="The tags associated with the agent.")
-    tool_exec_environment_variables: List[AgentEnvironmentVariable] = Field(
-        default_factory=list,
-        description="The environment variables for tool execution specific to this agent.",
-    )
     mcp_tools: Optional[List[str]] = Field(
         default_factory=list,
         description="List of connected MCP server names (e.g., ['gmail-native'])",
     )
-
-    def get_agent_env_vars_as_dict(self) -> Dict[str, str]:
-        # Get environment variables for this agent specifically
-        per_agent_env_vars = {}
-        for agent_env_var_obj in self.tool_exec_environment_variables:
-            per_agent_env_vars[agent_env_var_obj.key] = agent_env_var_obj.value
-        return per_agent_env_vars
 
 
 class CreateAgent(BaseModel, validate_assignment=True):  #
@@ -150,14 +129,8 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     tool_rules: Optional[List[ToolRule]] = Field(
         None, description="The tool rules governing the agent."
     )
-    tags: Optional[List[str]] = Field(
-        None, description="The tags associated with the agent."
-    )
     system: Optional[str] = Field(
         None, description="The system prompt used by the agent."
-    )
-    topic: Optional[str] = Field(
-        None, description="The current topic between the agent and the user."
     )
     agent_type: AgentType = Field(
         default_factory=lambda: AgentType.chat_agent, description="The type of agent."
@@ -184,9 +157,6 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     )
     description: Optional[str] = Field(
         None, description="The description of the agent."
-    )
-    metadata_: Optional[Dict] = Field(
-        None, description="The metadata of the agent.", alias="metadata_"
     )
     parent_id: Optional[str] = Field(
         None, description="The parent agent ID (for sub-agents in a meta-agent)."
@@ -287,14 +257,8 @@ class UpdateAgent(BaseModel):
     block_ids: Optional[List[str]] = Field(
         None, description="The ids of the blocks used by the agent."
     )
-    tags: Optional[List[str]] = Field(
-        None, description="The tags associated with the agent."
-    )
     system: Optional[str] = Field(
         None, description="The system prompt used by the agent."
-    )
-    topic: Optional[str] = Field(
-        None, description="The current topic between the agent and the user."
     )
     tool_rules: Optional[List[ToolRule]] = Field(
         None, description="The tool rules governing the agent."
@@ -311,15 +275,8 @@ class UpdateAgent(BaseModel):
     description: Optional[str] = Field(
         None, description="The description of the agent."
     )
-    metadata_: Optional[Dict] = Field(
-        None, description="The metadata of the agent.", alias="metadata_"
-    )
     parent_id: Optional[str] = Field(
         None, description="The parent agent ID (for sub-agents in a meta-agent)."
-    )
-    tool_exec_environment_variables: Optional[Dict[str, str]] = Field(
-        None,
-        description="The environment variables for tool execution specific to this agent.",
     )
     mcp_tools: Optional[List[str]] = Field(
         None, description="List of MCP server names to connect to this agent."
@@ -371,9 +328,6 @@ class CreateMetaAgent(BaseModel):
     )
     description: Optional[str] = Field(
         None, description="Description of the MetaAgent."
-    )
-    metadata_: Optional[Dict] = Field(
-        None, description="Metadata for the MetaAgent.", alias="metadata_"
     )
 
     def model_post_init(self, __context):

@@ -16,11 +16,6 @@ if TYPE_CHECKING:
     from mirix.orm.procedural_memory import ProceduralMemoryItem
     from mirix.orm.provider import Provider
     from mirix.orm.resource_memory import ResourceMemoryItem
-    from mirix.orm.sandbox_config import (
-        AgentEnvironmentVariable,
-        SandboxConfig,
-        SandboxEnvironmentVariable,
-    )
     from mirix.orm.semantic_memory import SemanticMemoryItem
     from mirix.orm.tool import Tool
     from mirix.orm.user import User
@@ -43,23 +38,6 @@ class Organization(SqlalchemyBase):
     )
     blocks: Mapped[List["Block"]] = relationship(
         "Block", back_populates="organization", cascade="all, delete-orphan"
-    )
-    sandbox_configs: Mapped[List["SandboxConfig"]] = relationship(
-        "SandboxConfig", back_populates="organization", cascade="all, delete-orphan"
-    )
-    sandbox_environment_variables: Mapped[List["SandboxEnvironmentVariable"]] = (
-        relationship(
-            "SandboxEnvironmentVariable",
-            back_populates="organization",
-            cascade="all, delete-orphan",
-        )
-    )
-    agent_environment_variables: Mapped[List["AgentEnvironmentVariable"]] = (
-        relationship(
-            "AgentEnvironmentVariable",
-            back_populates="organization",
-            cascade="all, delete-orphan",
-        )
     )
 
     # relationships

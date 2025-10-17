@@ -270,9 +270,9 @@ class ProceduralMemoryManager:
         try:
             and_query_sql = text(f"""
                 SELECT 
-                    id, created_at, entry_type, summary, steps, tree_path,
+                    id, created_at, entry_type, summary, steps,
                     steps_embedding, summary_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM procedural_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -301,13 +301,13 @@ class ProceduralMemoryManager:
                     data.pop("rank_score", None)
 
                     # Parse JSON fields that are returned as strings from raw SQL
-                    json_fields = ["last_modify", "metadata_", "embedding_config"]
-                    for field in json_fields:
-                        if field in data and isinstance(data[field], str):
-                            try:
-                                data[field] = json.loads(data[field])
-                            except (json.JSONDecodeError, TypeError):
-                                pass
+                json_fields = ["last_modify", "embedding_config"]
+                for field in json_fields:
+                    if field in data and isinstance(data[field], str):
+                        try:
+                            data[field] = json.loads(data[field])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
 
                     # Parse embedding fields
                     embedding_fields = ["steps_embedding", "summary_embedding"]
@@ -326,9 +326,9 @@ class ProceduralMemoryManager:
         try:
             or_query_sql = text(f"""
                 SELECT 
-                    id, created_at, entry_type, summary, steps, tree_path,
+                    id, created_at, entry_type, summary, steps,
                     steps_embedding, summary_embedding, embedding_config,
-                    organization_id, metadata_, last_modify, user_id,
+                    organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM procedural_memory 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
@@ -353,7 +353,7 @@ class ProceduralMemoryManager:
                 data.pop("rank_score", None)
 
                 # Parse JSON fields that are returned as strings from raw SQL
-                json_fields = ["last_modify", "metadata_", "embedding_config"]
+                json_fields = ["last_modify", "embedding_config"]
                 for field in json_fields:
                     if field in data and isinstance(data[field], str):
                         try:
@@ -459,8 +459,6 @@ class ProceduralMemoryManager:
                 raise ValueError(
                     f"Required field '{field}' missing from procedural memory data"
                 )
-
-        data_dict.setdefault("metadata_", {})
 
         # Set user_id from actor for multi-user support
         data_dict["user_id"] = actor.id
@@ -572,9 +570,7 @@ class ProceduralMemoryManager:
                     ProceduralMemoryItem.summary_embedding.label("summary_embedding"),
                     ProceduralMemoryItem.embedding_config.label("embedding_config"),
                     ProceduralMemoryItem.organization_id.label("organization_id"),
-                    ProceduralMemoryItem.metadata_.label("metadata_"),
                     ProceduralMemoryItem.last_modify.label("last_modify"),
-                    ProceduralMemoryItem.tree_path.label("tree_path"),
                     ProceduralMemoryItem.user_id.label("user_id"),
                     ProceduralMemoryItem.agent_id.label("agent_id"),
                 ).where(ProceduralMemoryItem.user_id == actor.id)
@@ -748,7 +744,6 @@ class ProceduralMemoryManager:
         steps: List[str],
         actor: PydanticUser,
         organization_id: str,
-        tree_path: Optional[List[str]] = None,
     ) -> PydanticProceduralMemoryItem:
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
@@ -770,7 +765,6 @@ class ProceduralMemoryManager:
                     steps=steps,
                     user_id=actor.id,
                     agent_id=agent_id,
-                    tree_path=tree_path or [],
                     organization_id=organization_id,
                     summary_embedding=summary_embedding,
                     steps_embedding=steps_embedding,

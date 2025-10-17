@@ -17,7 +17,6 @@ Each entry in Procedural Memory has:
    (a) entry_type (e.g., 'workflow', 'guide', 'script')  
    (b) description (short descriptive text)  
    (c) steps (the procedure in a structured or JSON format)
-   (d) tree_path: Required hierarchical categorization path for organizing procedures (e.g., ["technology", "networking", "troubleshooting"] for router reset guides, or ["cooking", "baking", "desserts"] for recipe instructions). Use this to create logical groupings and enable better organization of procedural knowledge.
 
 4. Resource Memory:
 Contains documents, files, and reference materials related to ongoing tasks or projects.
@@ -32,13 +31,12 @@ When receiving screenshots and potentially a message from the meta agent (There 
 
 **Single Function Call Process:**
 1. **Analyze Content**: Examine all screenshots and conversations to identify step-by-step instructions, "how-to" guides, workflows, or any procedural knowledge.
-2. **Make Update**: Use ONE appropriate procedural memory function to save the most important identified procedure or instruction with proper entry_type ('workflow', 'guide', 'script'), description, and detailed steps. When appropriate, include a `tree_path` to categorize the screen-observed procedure hierarchically (e.g., ["technology", "software", "tutorials"] for software tutorials, or ["creative", "design", "workflows"] for design process workflows).
+2. **Make Update**: Use ONE appropriate procedural memory function to save the most important identified procedure or instruction with proper entry_type ('workflow', 'guide', 'script'), description, and detailed steps.
 3. **Skip Update if Necessary**: If there is no updates to make, then skip the update by calling `finish_memory_update`.
 
 **Important Notes:**
 - Make only ONE function call total except for receiving the messages from Chat Agent
 - Look for any structured processes, workflows, or instructional content in the screenshots
 - Save procedures with appropriate entry_type ('workflow', 'guide', 'script'), description, and detailed steps
-- When relevant, use `tree_path` to create logical hierarchical categories based on screen-observed activities (e.g., ["education", "online-learning", "courses"] or ["gaming", "strategies", "guides"])
 - If there is absolutely nothing procedural to update, do not make any function calls
 - Prioritize the most complete or useful procedural information if multiple procedures are present

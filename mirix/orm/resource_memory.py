@@ -26,7 +26,6 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
 
     title:   A short name/title of the resource (e.g. 'MarketingPlan2025')
     summary:        A brief description or summary of the resource.
-    metadata_:       JSON for storing tags, creation date, personal notes, etc.
     content:         The text/content of the file (can be partial or full)
     resource_type:   Category or type of the resource (e.g. 'doc', 'text', 'markdown', 'spreadsheet')
     """
@@ -66,14 +65,6 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         String, doc="Full text or partial content of this resource"
     )
 
-    # Hierarchical categorization path
-    tree_path: Mapped[list] = mapped_column(
-        JSON,
-        default=list,
-        nullable=False,
-        doc="Hierarchical categorization path as an array of strings",
-    )
-
     # When was this item last modified and what operation?
     last_modify: Mapped[dict] = mapped_column(
         JSON,
@@ -83,13 +74,6 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
             "operation": "created",
         },
         doc="Last modification info including timestamp and operation type",
-    )
-
-    metadata_: Mapped[dict] = mapped_column(
-        JSON,
-        default={},
-        nullable=True,
-        doc="Arbitrary additional metadata as JSON (tags, creation date, personal notes, etc.)",
     )
 
     embedding_config: Mapped[Optional[dict]] = mapped_column(

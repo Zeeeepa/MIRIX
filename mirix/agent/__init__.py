@@ -4,7 +4,6 @@
 from . import app_constants, app_utils
 from .agent_configs import AGENT_CONFIGS
 from .agent_states import AgentStates
-from .agent_wrapper import AgentWrapper
 from .message_queue import MessageQueue
 from .meta_agent import MEMORY_AGENT_CONFIGS, MemoryAgentStates, MetaAgent
 from .temporary_message_accumulator import TemporaryMessageAccumulator

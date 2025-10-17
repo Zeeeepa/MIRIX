@@ -25,10 +25,6 @@ class ResourceMemoryItemBase(MirixBase):
     content: str = Field(
         ..., description="Full or partial text content of the resource"
     )
-    tree_path: List[str] = Field(
-        ...,
-        description="Hierarchical categorization path as an array of strings (e.g., ['documents', 'work', 'projects'])",
-    )
 
 
 class ResourceMemoryItem(ResourceMemoryItemBase):
@@ -65,10 +61,6 @@ class ResourceMemoryItem(ResourceMemoryItemBase):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the event"
     )
-    metadata_: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Arbitrary additional metadata (tags, creation date, etc.)",
-    )
 
     @field_validator("summary_embedding")
     @classmethod
@@ -102,10 +94,6 @@ class ResourceMemoryItemUpdate(MirixBase):
         None, description="File type/format (e.g. 'doc', 'markdown')"
     )
     content: Optional[str] = Field(None, description="Full or partial text content")
-    tree_path: Optional[List[str]] = Field(
-        None,
-        description="Hierarchical categorization path as an array of strings (e.g., ['documents', 'work', 'projects'])",
-    )
     organization_id: Optional[str] = Field(None, description="The organization ID")
     updated_at: datetime = Field(
         default_factory=get_utc_time, description="Update timestamp"
@@ -119,9 +107,6 @@ class ResourceMemoryItemUpdate(MirixBase):
     )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the event"
-    )
-    metadata_: Optional[Dict[str, Any]] = Field(
-        None, description="Arbitrary additional metadata"
     )
 
 

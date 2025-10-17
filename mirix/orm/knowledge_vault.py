@@ -29,7 +29,6 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     source:      The origin or context (e.g. 'user-provided on 2025-03-01')
     sensitivity: Level of data sensitivity (e.g. 'low', 'high')
     secret_value: The actual data or secret (e.g. password, token)
-    metadata_:   Optional JSON for extra fields/notes
     """
 
     __tablename__ = "knowledge_vault"
@@ -87,14 +86,6 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
             "operation": "created",
         },
         doc="Last modification info including timestamp and operation type",
-    )
-
-    # Optional catch-all for any extra metadata you want to store
-    metadata_: Mapped[dict] = mapped_column(
-        JSON,
-        default={},
-        nullable=True,
-        doc="Arbitrary additional metadata as a JSON object",
     )
 
     embedding_config: Mapped[Optional[dict]] = mapped_column(

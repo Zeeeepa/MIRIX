@@ -76,19 +76,6 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
         String, nullable=False, doc="Detailed description or narrative about this event"
     )
 
-    # Hierarchical categorization path
-    tree_path: Mapped[list] = mapped_column(
-        JSON,
-        default=list,
-        nullable=False,
-        doc="Hierarchical categorization path as an array of strings",
-    )
-
-    # Arbitrary JSON metadata for extra fields (e.g., references, tags, confidence, etc.)
-    metadata_: Mapped[dict] = mapped_column(
-        JSON, default={}, nullable=True, doc="Additional metadata for flexible storage"
-    )
-
     embedding_config: Mapped[Optional[dict]] = mapped_column(
         EmbeddingConfigColumn, nullable=True, doc="Embedding configuration"
     )

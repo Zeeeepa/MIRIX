@@ -24,10 +24,6 @@ class EpisodicEventBase(MirixBase):
     actor: str = Field(
         ..., description="The actor who generated the event (user or assistant)"
     )
-    tree_path: List[str] = Field(
-        ...,
-        description="Hierarchical categorization path as an array of strings (e.g., ['work', 'projects', 'ai-research'])",
-    )
 
 
 class EpisodicEventForLLM(EpisodicEventBase):
@@ -83,9 +79,6 @@ class EpisodicEvent(EpisodicEventBase):
         },
         description="Last modification info including timestamp and operation type",
     )
-    metadata_: Dict[str, Any] = Field(
-        default_factory=dict, description="Additional structured metadata for the event"
-    )
     organization_id: str = Field(
         ..., description="Unique identifier of the organization"
     )
@@ -134,13 +127,6 @@ class EpisodicEventUpdate(MirixBase):
     )
     details: Optional[str] = Field(
         None, description="Detailed text describing the event"
-    )
-    tree_path: Optional[List[str]] = Field(
-        None,
-        description="Hierarchical categorization path as an array of strings (e.g., ['work', 'projects', 'ai-research'])",
-    )
-    metadata_: Optional[Dict[str, Any]] = Field(
-        None, description="Any additional metadata"
     )
     organization_id: Optional[str] = Field(
         None, description="Unique identifier of the organization"
