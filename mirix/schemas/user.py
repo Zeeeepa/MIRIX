@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+import uuid
 
 from pydantic import Field
 
@@ -9,6 +10,11 @@ from mirix.services.organization_manager import OrganizationManager
 
 class UserBase(MirixBase):
     __id_prefix__ = "user"
+
+
+def _generate_user_id() -> str:
+    """Generate a random user ID."""
+    return f"user-{uuid.uuid4().hex[:8]}"
 
 
 class User(UserBase):
@@ -22,7 +28,10 @@ class User(UserBase):
         created_at (datetime): The creation date of the user.
     """
 
-    id: str = UserBase.generate_id_field()
+    id: str = Field(
+        default_factory=_generate_user_id,
+        description="The unique identifier of the user.",
+    )
     organization_id: Optional[str] = Field(
         OrganizationManager.DEFAULT_ORG_ID,
         description="The organization id of the user",
@@ -40,6 +49,7 @@ class User(UserBase):
 
 
 class UserCreate(UserBase):
+    id: Optional[str] = Field(None, description="The unique identifier of the user.")
     name: str = Field(..., description="The name of the user.")
     status: str = Field("active", description="Whether the user is active or not.")
     timezone: str = Field(..., description="The timezone of the user.")

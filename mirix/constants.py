@@ -51,7 +51,6 @@ DEFAULT_PRESET = "memgpt_chat"
 # Base tools that cannot be edited, as they access agent state directly
 # Note that we don't include "conversation_search_date" for now
 BASE_TOOLS = [
-    "send_message",
     "send_intermediate_message",
     "conversation_search",
     "search_in_memory",
@@ -73,7 +72,7 @@ SEMANTIC_MEMORY_TOOLS = [
     "semantic_memory_update",
     "check_semantic_memory",
 ]
-CHAT_AGENT_TOOLS = ["trigger_memory_update_with_instruction"]
+CHAT_AGENT_TOOLS = []
 EXTRAS_TOOLS = ["web_search", "fetch_and_read_pdf"]
 MCP_TOOLS = []
 META_MEMORY_TOOLS = ["trigger_memory_update"]

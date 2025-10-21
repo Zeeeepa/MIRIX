@@ -312,6 +312,9 @@ class GoogleAIClient(LLMClientBase):
             for candidate in response_data["candidates"]:
                 content = candidate["content"]
 
+                if 'role' not in content:
+                    raise ValueError("Empty response from Google AI API")
+
                 role = content["role"]
                 assert role == "model", f"Unknown role in response: {role}"
 

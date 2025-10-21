@@ -4,6 +4,7 @@ from typing import List, Optional
 from mirix.agent import Agent, AgentState
 from mirix.schemas.episodic_memory import EpisodicEventForLLM
 from mirix.schemas.knowledge_vault import KnowledgeVaultItemBase
+from mirix.schemas.mirix_message_content import TextContent
 from mirix.schemas.procedural_memory import ProceduralMemoryItemBase
 from mirix.schemas.resource_memory import ResourceMemoryItemBase
 from mirix.schemas.semantic_memory import SemanticMemoryItemBase
@@ -586,10 +587,14 @@ def trigger_memory_update(
         Optional[str]: None is always returned as this function does not produce a response.
     """
 
-    from mirix import create_client
-
-    client = create_client()
-    agents = client.list_agents(parent_id=self.agent_state.id)
+    from mirix.agent import (
+        CoreMemoryAgent,
+        EpisodicMemoryAgent,
+        KnowledgeVaultAgent,
+        ProceduralMemoryAgent,
+        ResourceMemoryAgent,
+        SemanticMemoryAgent,
+    )
 
     # Validate that user_message is a dictionary
     if not isinstance(user_message, dict):
@@ -597,132 +602,61 @@ def trigger_memory_update(
             f"user_message must be a dictionary, got {type(user_message).__name__}: {user_message}"
         )
 
-    if "message_queue" in user_message:
-        import time
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Map memory types to agent classes
+    memory_type_to_agent_class = {
+        "core": CoreMemoryAgent,
+        "episodic": EpisodicMemoryAgent,
+        "resource": ResourceMemoryAgent,
+        "procedural": ProceduralMemoryAgent,
+        "knowledge_vault": KnowledgeVaultAgent,
+        "semantic": SemanticMemoryAgent,
+    }
 
-        from tqdm import tqdm
-
-        # Use multi-processing approach similar to _send_to_memory_agents_separately
-        message_queue = user_message["message_queue"]
-
-        # Map memory types to agent types
-        memory_type_to_agent_type = {
-            "core": "core_memory_agent",
-            "episodic": "episodic_memory_agent",
-            "resource": "resource_memory_agent",
-            "procedural": "procedural_memory_agent",
-            "knowledge_vault": "knowledge_vault_agent",
-            "semantic": "semantic_memory_agent",
-        }
-
-        # Filter to only supported memory types
-        valid_agent_types = []
-        for memory_type in memory_types:
-            if memory_type in memory_type_to_agent_type:
-                valid_agent_types.append(memory_type_to_agent_type[memory_type])
-            else:
-                raise ValueError(
-                    f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
-                )
-
-        if user_message["message"][-1]["type"] == "text" and user_message["message"][
-            -1
-        ]["text"].startswith("[System Message]"):
-            user_message["message"][-1]["text"] = (
-                "[System Message] Interpret the provided content, extract the important information matching your memory type and save it into the memory."
+    # Validate memory types
+    for memory_type in memory_types:
+        if memory_type not in memory_type_to_agent_class:
+            raise ValueError(
+                f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
             )
 
-        # Prepare payloads for message queue
-        payloads = {
-            "user_id": self.user.id,
-            "message": user_message["message"],
-            "existing_file_uris": user_message.get("existing_file_uris", set()),
-            "chaining": user_message.get("chaining", False),
-            "message_queue": message_queue,
-            "retrieved_memories": user_message.get("retrieved_memories", None),
-        }
+    # Get child agents
+    child_agent_states = self.agent_manager.list_agents(parent_id=self.agent_state.id, actor=self.user)
 
-        responses = []
-        overall_start = time.time()
+    # Map agent types to agent states
+    agent_type_to_state = {
+        agent_state.agent_type: agent_state for agent_state in child_agent_states
+    }
 
-        if len(valid_agent_types) > 0:
-            # Use ThreadPoolExecutor for parallel processing
-            with ThreadPoolExecutor(max_workers=len(valid_agent_types)) as pool:
-                futures = []
-                for agent_type in valid_agent_types:
-                    matching_agents = [
-                        agent for agent in agents if agent.agent_type == agent_type
-                    ]
-                    if not matching_agents:
-                        raise ValueError(f"No agent found with type '{agent_type}'")
-                    futures.append(
-                        pool.submit(
-                            message_queue.send_message_in_queue,
-                            client,
-                            matching_agents[0].id,
-                            payloads,
-                            agent_type,
-                        )
-                    )
+    response = ""
+    for memory_type in memory_types:
+        agent_class = memory_type_to_agent_class[memory_type]
+        agent_type_str = f"{memory_type}_memory_agent"
+        
+        # Find the corresponding agent state
+        agent_state = agent_type_to_state.get(agent_type_str)
+        if agent_state is None:
+            raise ValueError(f"No agent found with type '{agent_type_str}'")
 
-                for future in tqdm(as_completed(futures), total=len(futures)):
-                    response, agent_type = future.result()
-                    responses.append(response)
+        # Instantiate the memory agent
+        memory_agent = agent_class(
+            agent_state=agent_state,
+            interface=self.interface,
+            user=self.user,
+        )
 
-            overall_end = time.time()
-            response_message = f"[System Message] {len(valid_agent_types)} memory agents have been triggered in parallel to update the memory. Total time: {overall_end - overall_start:.2f} seconds."
-        else:
-            response_message = "[System Message] Valid agent types are empty. No memory agents have been triggered to update the memory."
+        user_message["message"].content.append(TextContent(text='[System Message] According to the instructions, the retrieved memories and the above content, update the corresponding memory.'))
 
-        return response_message
+        # Call step on the memory agent
+        memory_agent.step(
+            input_messages=user_message["message"],
+            chaining=user_message.get("chaining", False),
+        )
 
-    else:
-        # Fallback to sequential processing for backward compatibility
-        response = ""
+        response += (
+            f"[System Message] Agent {agent_state.name} has been triggered to update the memory.\n"
+        )
 
-        for memory_type in memory_types:
-            if memory_type == "core":
-                agent_type = "core_memory_agent"
-            elif memory_type == "episodic":
-                agent_type = "episodic_memory_agent"
-            elif memory_type == "resource":
-                agent_type = "resource_memory_agent"
-            elif memory_type == "procedural":
-                agent_type = "procedural_memory_agent"
-            elif memory_type == "knowledge_vault":
-                agent_type = "knowledge_vault_agent"
-            elif memory_type == "semantic":
-                agent_type = "semantic_memory_agent"
-            else:
-                raise ValueError(
-                    f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
-                )
-
-            matching_agent = None
-            for agent in agents:
-                if agent.agent_type == agent_type:
-                    matching_agent = agent
-                    break
-
-            if matching_agent is None:
-                raise ValueError(f"No agent found with type '{agent_type}'")
-
-            client.send_message(
-                role="user",
-                user_id=self.user.id,
-                agent_id=matching_agent.id,
-                message=user_message["message"],
-                existing_file_uris=user_message["existing_file_uris"],
-                retrieved_memories=user_message.get("retrieved_memories", None),
-            )
-            response += (
-                "[System Message] Agent "
-                + matching_agent.name
-                + " has been triggered to update the memory.\n"
-            )
-
-        return response.strip()
+    return response.strip()
 
 
 def finish_memory_update(self: "Agent"):

@@ -1,7 +1,6 @@
 from mirix.orm.agent import Agent
 from mirix.orm.base import Base
 from mirix.orm.block import Block
-from mirix.orm.blocks_agents import BlocksAgents
 from mirix.orm.file import FileMetadata
 from mirix.orm.message import Message
 from mirix.orm.organization import Organization
@@ -15,7 +14,6 @@ __all__ = [
     "Agent",
     "Base",
     "Block",
-    "BlocksAgents",
     "FileMetadata",
     "Message",
     "Organization",

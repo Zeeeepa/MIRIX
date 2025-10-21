@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -123,9 +123,6 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     tool_ids: Optional[List[str]] = Field(
         None, description="The ids of the tools used by the agent."
     )
-    block_ids: Optional[List[str]] = Field(
-        None, description="The ids of the blocks used by the agent."
-    )
     tool_rules: Optional[List[ToolRule]] = Field(
         None, description="The tool rules governing the agent."
     )
@@ -154,9 +151,6 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     include_multi_agent_tools: bool = Field(
         False,
         description="If true, attaches the Mirix multi-agent tools (e.g. sending a message to another agent).",
-    )
-    description: Optional[str] = Field(
-        None, description="The description of the agent."
     )
     parent_id: Optional[str] = Field(
         None, description="The parent agent ID (for sub-agents in a meta-agent)."
@@ -293,7 +287,7 @@ class CreateMetaAgent(BaseModel):
         None,
         description="Optional name for the MetaAgent. If None, a random name will be generated.",
     )
-    agents: List[str] = Field(
+    agents: List[Union[str, Dict[str, Any]]] = Field(
         default_factory=lambda: [
             "core_memory_agent",
             "resource_memory_agent",
@@ -305,7 +299,7 @@ class CreateMetaAgent(BaseModel):
             "reflexion_agent",
             "background_agent",
         ],
-        description="List of memory agent names to initialize in MetaAgent.",
+        description="List of memory agent names or dicts with agent configs. Supports both 'agent_name' strings and {'agent_name': {'blocks': [...], ...}} dicts.",
     )
     system_prompts_folder: Optional[str] = Field(
         None,
@@ -322,12 +316,6 @@ class CreateMetaAgent(BaseModel):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None,
         description="Embedding configuration for memory agents. Required if no default is set.",
-    )
-    memory_blocks: Optional[List[CreateBlock]] = Field(
-        None, description="Optional memory blocks to initialize the MetaAgent with."
-    )
-    description: Optional[str] = Field(
-        None, description="Description of the MetaAgent."
     )
 
     def model_post_init(self, __context):
@@ -349,7 +337,15 @@ class CreateMetaAgent(BaseModel):
             return prompts
 
         # Load prompts for each agent
-        for agent_name in self.agents:
+        for agent_item in self.agents:
+            # Extract agent name from string or dict
+            if isinstance(agent_item, str):
+                agent_name = agent_item
+            elif isinstance(agent_item, dict):
+                agent_name = list(agent_item.keys())[0]
+            else:
+                continue
+                
             prompt_file = os.path.join(self.system_prompts_folder, f"{agent_name}.txt")
 
             if os.path.exists(prompt_file):

@@ -27,7 +27,6 @@ from mirix.agent import (
     CoreMemoryAgent,
     EpisodicMemoryAgent,
     KnowledgeVaultAgent,
-    MetaAgent,
     MetaMemoryAgent,
     ProceduralMemoryAgent,
     ReflexionAgent,
@@ -169,7 +168,7 @@ class Server(object):
 
 
 # NOTE: hack to see if single session management works
-from mirix.settings import model_settings, settings, tool_settings  # noqa: E402
+from mirix.settings import model_settings, settings  # noqa: E402
 
 config = MirixConfig.load()
 
@@ -445,7 +444,7 @@ class SyncServer(Server):
         self.resource_memory_manager = ResourceMemoryManager()
         self.semantic_memory_manager = SemanticMemoryManager()
 
-        # API Key Manager
+        # Provider Manager
         self.provider_manager = ProviderManager()
 
         # CloudFileManager
@@ -625,7 +624,6 @@ class SyncServer(Server):
         extra_messages: Optional[List[dict]] = None,
         message_queue: Optional[any] = None,
         retrieved_memories: Optional[dict] = None,
-        user_id: Optional[str] = None,
     ) -> MirixUsageStatistics:
         """Send the input message through the agent"""
         logger.debug(f"Got input messages: {input_messages}")
@@ -680,7 +678,7 @@ class SyncServer(Server):
                 put_inner_thoughts_first=put_inner_thoughts_first,
                 extra_messages=extra_messages,
                 message_queue=message_queue,
-                user_id=user_id,
+                user_id=actor.id,
             )
 
         except Exception as e:
@@ -978,7 +976,6 @@ class SyncServer(Server):
         extra_messages: Optional[List[dict]] = None,
         message_queue: Optional[any] = None,
         retrieved_memories: Optional[dict] = None,
-        user_id: Optional[str] = None,
         verbose: Optional[bool] = None,
     ) -> MirixUsageStatistics:
         """Send a list of messages to the agent."""
@@ -1014,7 +1011,6 @@ class SyncServer(Server):
                 extra_messages=extra_messages,
                 message_queue=message_queue,
                 retrieved_memories=retrieved_memories,
-                user_id=user_id,
             )
         finally:
             # Restore the old VERBOSE state if it was modified
@@ -1072,7 +1068,7 @@ class SyncServer(Server):
         request: CreateMetaAgent,
         actor: User,
         interface: Union[AgentInterface, None] = None,
-    ) -> MetaAgent:
+    ) -> Dict[str, AgentState]:
         """Create a new MetaAgent for memory management operations.
 
         Args:
@@ -1081,7 +1077,7 @@ class SyncServer(Server):
             interface (AgentInterface): Optional interface for agent interactions
 
         Returns:
-            MetaAgent: The initialized MetaAgent instance
+            Dict[str, AgentState]: Dictionary mapping agent names to their agent states
         """
 
         from mirix.schemas.memory import ChatMemory
@@ -1106,7 +1102,6 @@ class SyncServer(Server):
         # Create or update memory blocks through block_manager
         for block in memory.get_blocks():
             self.block_manager.create_or_update_block(block, actor=actor)
-
         return self.agent_manager.create_meta_agent(
             meta_agent_create=request,
             actor=actor,

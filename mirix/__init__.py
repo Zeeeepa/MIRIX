@@ -4,6 +4,7 @@ __version__ = "0.1.5"
 # import clients
 from mirix.client.client import LocalClient as LocalClient
 from mirix.client.client import create_client as create_client
+from mirix.client.remote_client import MirixClient as MirixClient
 
 # # imports for easier access
 from mirix.schemas.agent import AgentState as AgentState
@@ -28,3 +29,4 @@ from mirix.schemas.user import User as User
 
 # Import the new SDK interface
 from mirix.sdk import Mirix as Mirix
+from mirix.sdk import load_config as load_config

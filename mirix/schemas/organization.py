@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+import uuid
 
 from pydantic import Field
 
@@ -11,8 +12,16 @@ class OrganizationBase(MirixBase):
     __id_prefix__ = "org"
 
 
+def _generate_org_id() -> str:
+    """Generate a random organization ID."""
+    return f"org-{uuid.uuid4().hex[:8]}"
+
+
 class Organization(OrganizationBase):
-    id: str = OrganizationBase.generate_id_field()
+    id: str = Field(
+        default_factory=_generate_org_id,
+        description="The unique identifier of the organization.",
+    )
     name: str = Field(
         create_random_username(),
         description="The name of the organization.",
@@ -25,4 +34,5 @@ class Organization(OrganizationBase):
 
 
 class OrganizationCreate(OrganizationBase):
+    id: Optional[str] = Field(None, description="The unique identifier of the organization.")
     name: Optional[str] = Field(None, description="The name of the organization.")

@@ -94,7 +94,7 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         "Tool", secondary="tools_agents", lazy="selectin", passive_deletes=True
     )
     core_memory: Mapped[List["Block"]] = relationship(
-        "Block", secondary="blocks_agents", lazy="selectin"
+        "Block", back_populates="agent", lazy="selectin"
     )
     messages: Mapped[List["Message"]] = relationship(
         "Message",

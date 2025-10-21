@@ -16,6 +16,33 @@ from mirix.schemas.memory import Memory
 logger = logging.getLogger(__name__)
 
 
+def load_config(config_path: str) -> Dict[str, Any]:
+    """
+    Load configuration from a YAML file.
+    
+    Args:
+        config_path: Path to the YAML configuration file
+        
+    Returns:
+        Dict containing the configuration
+        
+    Example:
+        >>> config = load_config("mirix/configs/mirix.yaml")
+        >>> client = MirixClient(project="test")
+        >>> client.initialize_meta_agent(config=config)
+    """
+    import yaml
+    
+    config_file = Path(config_path)
+    if not config_file.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+    
+    return config
+
+
 class Mirix:
     """
     Simple SDK interface for Mirix memory agent.

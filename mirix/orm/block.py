@@ -1,16 +1,14 @@
 from typing import TYPE_CHECKING, Optional, Type
 
-from sqlalchemy import JSON, BigInteger, Integer, UniqueConstraint, event
+from sqlalchemy import BigInteger, ForeignKey, Integer, String, event
 from sqlalchemy.orm import (
     Mapped,
-    attributes,
     declared_attr,
     mapped_column,
     relationship,
 )
 
 from mirix.constants import CORE_MEMORY_BLOCK_CHAR_LIMIT
-from mirix.orm.blocks_agents import BlocksAgents
 from mirix.orm.mixins import OrganizationMixin, UserMixin
 from mirix.orm.sqlalchemy_base import SqlalchemyBase
 from mirix.schemas.block import Block as PydanticBlock
@@ -18,6 +16,7 @@ from mirix.schemas.block import Human, Persona
 
 if TYPE_CHECKING:
     from mirix.orm import Organization
+    from mirix.orm.agent import Agent
     from mirix.orm.user import User
 
 
@@ -26,8 +25,6 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
 
     __tablename__ = "block"
     __pydantic_model__ = PydanticBlock
-    # This may seem redundant, but is necessary for the BlocksAgents composite FK relationship
-    __table_args__ = (UniqueConstraint("id", "label", name="unique_block_id_label"),)
 
     label: Mapped[str] = mapped_column(
         doc="the type of memory block in use, ie 'human', 'persona', 'system'"
@@ -41,8 +38,23 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
         doc="Character limit of the block.",
     )
 
+    # Foreign key to agent
+    agent_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="ID of the agent this block belongs to",
+    )
+
     # relationships
     organization: Mapped[Optional["Organization"]] = relationship("Organization")
+
+    @declared_attr
+    def agent(cls) -> Mapped[Optional["Agent"]]:
+        """
+        Relationship to the Agent that owns this block.
+        """
+        return relationship("Agent", lazy="selectin")
 
     @declared_attr
     def user(cls) -> Mapped["User"]:
@@ -59,24 +71,6 @@ class Block(OrganizationMixin, UserMixin, SqlalchemyBase):
         else:
             Schema = PydanticBlock
         return Schema.model_validate(self)
-
-
-@event.listens_for(Block, "after_update")  # Changed from 'before_update'
-def block_before_update(mapper, connection, target):
-    """Handle updating BlocksAgents when a block's label changes."""
-    label_history = attributes.get_history(target, "label")
-    if not label_history.has_changes():
-        return
-
-    blocks_agents = BlocksAgents.__table__
-    connection.execute(
-        blocks_agents.update()
-        .where(
-            blocks_agents.c.block_id == target.id,
-            blocks_agents.c.block_label == label_history.deleted[0],
-        )
-        .values(block_label=label_history.added[0])
-    )
 
 
 @event.listens_for(Block, "before_insert")

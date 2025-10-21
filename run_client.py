@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """
-Simple Mirix client script to initialize client, set up meta agent,
-and demonstrate memory operations (add and retrieve).
+Simple Mirix MirixClient script to connect to a remote server,
+set up meta agent, and demonstrate memory operations (add and retrieve).
+
+Prerequisites:
+- Start the server first: python scripts/start_server.py --reload
+- Or set MIRIX_API_URL environment variable to your server URL
 """
 
 import logging
+import os
 
 import yaml
 
-from mirix.schemas.agent import AgentType, CreateMetaAgent
+from mirix.schemas.agent import AgentType
+from mirix.client import MirixClient
 
 # Configure logging
 logging.basicConfig(
@@ -18,44 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 def load_config() -> dict:
-    """Load configuration from mirix_gemini.yaml file."""
-    with open("mirix/configs/examples/mirix_gemini.yaml", "r") as f:
+    """Load configuration from mirix_openai.yaml file."""
+    with open("mirix/configs/examples/mirix_openai.yaml", "r") as f:
         return yaml.safe_load(f)
-
-
-def initialize_client():
-    """Initialize Mirix client with configuration."""
-    from mirix import EmbeddingConfig, LLMConfig, create_client
-
-    config = load_config()
-    client = create_client()
-
-    # Set LLM config from config file or use default
-    llm_config_data = config.get("llm_config")
-    if llm_config_data and isinstance(llm_config_data, dict):
-        llm_config = LLMConfig(**llm_config_data)
-        logger.info(f"Using LLM config from file: {llm_config.model}")
-    else:
-        llm_config = LLMConfig.default_config("gpt-4o-mini")
-        logger.info("Using default LLM config: gpt-4o-mini")
-
-    client.set_default_llm_config(llm_config)
-
-    # Set embedding config from config file or use default
-    embedding_config_data = config.get("embedding_config")
-    if embedding_config_data and isinstance(embedding_config_data, dict):
-        embedding_config = EmbeddingConfig(**embedding_config_data)
-        logger.info(
-            f"Using embedding config from file: {embedding_config.embedding_model}"
-        )
-    else:
-        embedding_config = EmbeddingConfig.default_config("text-embedding-004")
-        logger.info("Using default embedding config: text-embedding-004")
-
-    client.set_default_embedding_config(embedding_config)
-
-    return client, config
-
 
 def add_memory(client, memory_type="meta_memory", content=""):
     """
@@ -148,73 +119,112 @@ def retrieve_memory(client, query, memory_type="meta_memory"):
 
 
 def main():
-    """Main function to demonstrate memory operations."""
-    print("\n" + "=" * 70)
-    print("Mirix Memory Client Demo")
-    print("=" * 70 + "\n")
-
-    # 1. Initialize client
-    print("Step 1: Initializing client...")
-    client, config = initialize_client()
-    print("✓ Client initialized\n")
-
-    # 2. Setup meta agent
-    print("Step 2: Setting up MetaAgent...")
-
-    # Get configuration from config file
-    meta_agent_config_data = config.get("meta_agent_config", {})
-    system_prompts_folder = config.get("system_prompts_folder")
-
-    # Get LLM and embedding configs from client
-    llm_config = client._default_llm_config
-    embedding_config = client._default_embedding_config
-
-    # Create CreateMetaAgent request (will auto-load system prompts from folder)
-    create_request = CreateMetaAgent(
-        agents=meta_agent_config_data.get("agents", CreateMetaAgent().agents),
-        system_prompts_folder=system_prompts_folder,
-        llm_config=llm_config,
-        embedding_config=embedding_config,
+    
+    
+    # Create MirixClient (connects to server via REST API)
+    user_id = 'demo-user'
+    org_id = 'demo-org'
+    
+    client = MirixClient(
+        api_key=None, # TODO: add authentication later
+        user_id=user_id,
+        org_id=org_id,
+        debug=True,
     )
 
-    meta_agent = None
-    agents = client.list_agents()
-    for agent in agents:
-        if agent.agent_type == AgentType.meta_memory_agent:
-            meta_agent = agent
-            break
+    config = load_config()
 
-    if not meta_agent:
-        meta_agent = client.create_meta_agent(request=create_request)
-    print("✓ MetaAgent set up\n")
+    client.initialize_meta_agent(config=config)
 
-    # 3. Example: Add memories
-    print("Step 3: Adding memories...")
+    result = client.add(
+        user_id=user_id,
+        messages=[
+            {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+                }]
+            },
+            {
+                "role": "assistant",
+                "content": [{
+                    "type": "text",
+                    "text": "I've recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday."
+                }]
+            }
+        ]
+    )
+    print(f"[OK] Memory added successfully: {result.get('success', False)}")
+
+    # 4. Example: Retrieve memories using new API
+    print("Step 4: Retrieving memories with conversation context...")
     print("-" * 70)
-    client.send_message(
-        role="user",
-        agent_id=meta_agent.id,
-        message="[User] I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes. We decided to go with the blue theme and scheduled a follow-up meeting for next Wednesday.\n\n[Assistant] I've recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday.",
-        verbose=False,
-    )
-
-    # 4. Example: Retrieve memories
-    print("Step 4: Retrieving memories...")
-    print("-" * 70)
-
-    results = client.retrieve_memory(
-        agent_id=meta_agent.id,
-        query="meeting with Sarah",
-        memory_type="all",  # Search all memory types
-        search_method="embedding",  # Use semantic search
-    )
-
-    print(f"Found {results['count']} memories related to 'meeting with Sarah':")
-    for memory in results["results"]:
-        print(
-            f"  - [{memory['memory_type']}] {memory.get('summary', memory.get('name', 'N/A'))}"
+    try:
+        memories = client.retrieve_with_conversation(
+            user_id=user_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": "What did I discuss in my meeting with Sarah?"
+                    }]
+                }
+            ]
         )
+        
+        print(f"[OK] Retrieved memories successfully")
+        if memories.get("memories"):
+            for memory_type, items in memories["memories"].items():
+                if items:
+                    print(f"\n  {memory_type.upper()} memories ({len(items)}):")
+                    for item in items[:3]:  # Show first 3
+                        summary = item.get('summary', item.get('name', 'N/A'))
+                        print(f"    - {summary[:100]}...")
+        else:
+            print("  No memories found yet (may need more time to process)")
+    except Exception as e:
+        print(f"[ERROR] Error retrieving memories: {e}")
+        import traceback
+        traceback.print_exc()
     print()
+
+    # 5. Example: Search memories
+    print("Step 5: Searching memories...")
+    print("-" * 70)
+    try:
+        results = client.search(
+            user_id=user_id,
+            query="meeting with Sarah design team",
+            limit=5
+        )
+        print(f"[OK] Search completed: {results.get('success', False)}")
+        print(f"  Found {results.get('count', 0)} results")
+    except Exception as e:
+        print(f"[ERROR] Error searching: {e}")
+        import traceback
+        traceback.print_exc()
+    print()
+
+    # 6. Example: Retrieve by topic
+    print("Step 6: Retrieving by topic...")
+    print("-" * 70)
+    try:
+        topic_memories = client.retrieve_with_topic(
+            user_id=user_id,
+            topic="design"
+        )
+        print(f"[OK] Topic retrieval completed: {topic_memories.get('success', False)}")
+    except Exception as e:
+        print(f"[ERROR] Error retrieving by topic: {e}")
+        import traceback
+        traceback.print_exc()
+    print()
+
+    print("=" * 70)
+    print("Demo completed!")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

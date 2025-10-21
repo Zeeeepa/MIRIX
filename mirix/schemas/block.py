@@ -54,13 +54,17 @@ class Block(BaseBlock):
         value (str): The value of the block. This is the string that is represented in the context window.
         limit (int): The character limit of the block.
         user_id (str): The unique identifier of the user associated with the block.
+        agent_id (str): The unique identifier of the agent associated with the block.
     """
 
     id: str = BaseBlock.generate_id_field()
 
-    # associated user/agent
+    # associated user/agent/organization
     user_id: Optional[str] = Field(
         None, description="The unique identifier of the user associated with the block."
+    )
+    agent_id: Optional[str] = Field(
+        None, description="The unique identifier of the agent associated with the block."
     )
     organization_id: Optional[str] = Field(
         None,

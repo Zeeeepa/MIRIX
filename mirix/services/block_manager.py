@@ -2,7 +2,6 @@ import os
 from typing import List, Optional
 
 from mirix.orm.block import Block as BlockModel
-from mirix.orm.blocks_agents import BlocksAgents
 from mirix.orm.errors import NoResultFound
 from mirix.schemas.block import Block, BlockUpdate, Human, Persona
 from mirix.schemas.block import Block as PydanticBlock
@@ -21,7 +20,7 @@ class BlockManager:
 
     @enforce_types
     def create_or_update_block(
-        self, block: Block, actor: PydanticUser
+        self, block: Block, actor: PydanticUser, agent_id: Optional[str] = None
     ) -> PydanticBlock:
         """Create a new block based on the Block schema."""
         db_block = self.get_block_by_id(block.id, actor)
@@ -31,7 +30,7 @@ class BlockManager:
         else:
             with self.session_maker() as session:
                 data = block.model_dump(exclude_none=True)
-                block = BlockModel(**data, organization_id=actor.organization_id)
+                block = BlockModel(**data, organization_id=actor.organization_id, user_id=actor.id, agent_id=agent_id)
                 block.create(session, actor=actor)
             return block.to_pydantic()
 
@@ -74,49 +73,21 @@ class BlockManager:
     ) -> List[PydanticBlock]:
         """Retrieve blocks based on various optional filters."""
         with self.session_maker() as session:
-            # If agent_id is provided, we need to filter through the BlocksAgents junction table
+            # Build filters
+            filters = {
+                "organization_id": actor.organization_id,
+                "user_id": actor.id,
+            }
             if agent_id:
-                # Query to get block_ids associated with this agent
-                block_ids_query = session.query(BlocksAgents.block_id).filter(
-                    BlocksAgents.agent_id == agent_id
-                )
-                block_ids = [row[0] for row in block_ids_query.all()]
+                filters["agent_id"] = agent_id
+            if label:
+                filters["label"] = label
+            if id:
+                filters["id"] = id
 
-                if not block_ids:
-                    return []  # No blocks associated with this agent
-
-                # Now query blocks with the extracted block_ids
-                query = session.query(BlockModel).filter(
-                    BlockModel.id.in_(block_ids),
-                    BlockModel.organization_id == actor.organization_id,
-                    BlockModel.user_id == actor.id,
-                )
-
-                # Apply additional filters
-                if label:
-                    query = query.filter(BlockModel.label == label)
-                if id:
-                    query = query.filter(BlockModel.id == id)
-                if cursor:
-                    query = query.filter(BlockModel.id > cursor)
-
-                query = query.limit(limit)
-                blocks = query.all()
-
-            else:
-                # Use the standard list method when no agent_id filter
-                filters = {
-                    "organization_id": actor.organization_id,
-                    "user_id": actor.id,
-                }
-                if label:
-                    filters["label"] = label
-                if id:
-                    filters["id"] = id
-
-                blocks = BlockModel.list(
-                    db_session=session, cursor=cursor, limit=limit, **filters
-                )
+            blocks = BlockModel.list(
+                db_session=session, cursor=cursor, limit=limit, **filters
+            )
 
             return [block.to_pydantic() for block in blocks]
 

@@ -39,7 +39,6 @@ from mirix.schemas.agent import (
     AgentType,
     CreateAgent,
     CreateMetaAgent,
-    UpdateAgent,
 )
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
@@ -59,7 +58,7 @@ from mirix.schemas.memory import (
     Memory,
     RecallMemorySummary,
 )
-from mirix.schemas.message import Message, MessageCreate, MessageUpdate
+from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_message_content import (
     CloudFileContent,
     FileContent,
@@ -68,7 +67,6 @@ from mirix.schemas.mirix_message_content import (
     TextContent,
 )
 from mirix.schemas.mirix_response import MirixResponse
-from mirix.schemas.openai.chat_completions import ToolCall
 from mirix.schemas.organization import Organization
 from mirix.schemas.sandbox_config import (
     E2BSandboxConfig,
@@ -79,6 +77,7 @@ from mirix.schemas.sandbox_config import (
 )
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
+from mirix.schemas.user import User as PydanticUser, UserCreate
 
 
 def create_client():
@@ -103,17 +102,19 @@ class AbstractClient(object):
         agent_type: Optional[AgentType] = AgentType.chat_agent,
         embedding_config: Optional[EmbeddingConfig] = None,
         llm_config: Optional[LLMConfig] = None,
-        memory=None,
+        memory: Optional[Memory] = None,
         block_ids: Optional[List[str]] = None,
         system: Optional[str] = None,
         tool_ids: Optional[List[str]] = None,
         tool_rules: Optional[List[BaseToolRule]] = None,
         include_base_tools: Optional[bool] = True,
+        include_meta_memory_tools: Optional[bool] = False,
         metadata: Optional[Dict] = {
             "human:": DEFAULT_HUMAN,
             "persona": DEFAULT_PERSONA,
         },
         description: Optional[str] = None,
+        initial_message_sequence: Optional[List[Message]] = None,
         tags: Optional[List[str]] = None,
     ) -> AgentState:
         raise NotImplementedError
@@ -821,10 +822,10 @@ class LocalClient(AbstractClient):
         # agent config
         agent_type: Optional[AgentType] = AgentType.chat_agent,
         # model configs
-        embedding_config: EmbeddingConfig = None,
-        llm_config: LLMConfig = None,
+        embedding_config: Optional[EmbeddingConfig] = None,
+        llm_config: Optional[LLMConfig] = None,
         # memory
-        memory: Memory = None,
+        memory: Optional[Memory] = None,
         block_ids: Optional[List[str]] = None,
         system: Optional[str] = None,
         # tools
@@ -923,104 +924,28 @@ class LocalClient(AbstractClient):
             agent_state.id, actor=self.server.user_manager.get_user_by_id(self.user.id)
         )
 
-    def create_meta_agent(
-        self,
-        request: CreateMetaAgent,
-    ):
+    def create_user(self, user_id: str, user_name: str) -> PydanticUser:
+        return self.server.user_manager.create_user(UserCreate(id=user_id, name=user_name))
+
+    def create_meta_agent(self, config: dict):
         """Create a MetaAgent for memory management operations.
 
         Args:
-            request (CreateMetaAgent): Configuration for creating the MetaAgent including
-                agents list, system prompts, llm_config, embedding_config, etc.
+            config (dict): Configuration dictionary for creating the MetaAgent.
+                Can include: name, agents, system_prompts_folder, system_prompts,
+                llm_config, embedding_config, memory_blocks, description.
 
         Returns:
             MetaAgent: The initialized MetaAgent instance
         """
-        # Use client defaults if configs not provided in request
-        if request.llm_config is None:
-            request.llm_config = self._default_llm_config
-        if request.embedding_config is None:
-            request.embedding_config = self._default_embedding_config
+
+        import ipdb; ipdb.set_trace()
 
         # Create MetaAgent through server
         return self.server.create_meta_agent(
-            request=request,
+            request=CreateMetaAgent(**config),
             actor=self.server.user_manager.get_user_by_id(self.user.id),
         )
-
-    def update_message(
-        self,
-        agent_id: str,
-        message_id: str,
-        role: Optional[MessageRole] = None,
-        text: Optional[str] = None,
-        name: Optional[str] = None,
-        tool_calls: Optional[List[ToolCall]] = None,
-        tool_call_id: Optional[str] = None,
-    ) -> Message:
-        message = self.server.update_agent_message(
-            agent_id=agent_id,
-            message_id=message_id,
-            request=MessageUpdate(
-                role=role,
-                text=text,
-                name=name,
-                tool_calls=tool_calls,
-                tool_call_id=tool_call_id,
-            ),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
-        )
-        return message
-
-    def update_agent(
-        self,
-        agent_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        system: Optional[str] = None,
-        tool_ids: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        metadata: Optional[Dict] = None,
-        llm_config: Optional[LLMConfig] = None,
-        embedding_config: Optional[EmbeddingConfig] = None,
-        message_ids: Optional[List[str]] = None,
-    ):
-        """
-        Update an existing agent
-
-        Args:
-            agent_id (str): ID of the agent
-            name (str): Name of the agent
-            description (str): Description of the agent
-            system (str): System configuration
-            tools (List[str]): List of tools
-            metadata (Dict): Metadata
-            llm_config (LLMConfig): LLM configuration
-            embedding_config (EmbeddingConfig): Embedding configuration
-            message_ids (List[str]): List of message IDs
-            tags (List[str]): Tags for filtering agents
-
-        Returns:
-            agent_state (AgentState): State of the updated agent
-        """
-        # TODO: add the abilitty to reset linked block_ids
-        self.interface.clear()
-        agent_state = self.server.agent_manager.update_agent(
-            agent_id,
-            UpdateAgent(
-                name=name,
-                system=system,
-                tool_ids=tool_ids,
-                tags=tags,
-                description=description,
-                metadata_=metadata,
-                llm_config=llm_config,
-                embedding_config=embedding_config,
-                message_ids=message_ids,
-            ),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
-        )
-        return agent_state
 
     def get_tools_from_agent(self, agent_id: str) -> List[Tool]:
         """

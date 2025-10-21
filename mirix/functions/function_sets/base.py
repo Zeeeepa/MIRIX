@@ -5,7 +5,7 @@ from mirix.utils import convert_timezone_to_utc
 
 
 def send_message(
-    self: "Agent", agent_state: "AgentState", message: str, topic: str = None
+    self: "Agent", agent_state: "AgentState", message: str
 ) -> Optional[str]:
     """
     Sends a message to the human user. Meanwhile, whenever this function is called, the agent needs to include the `topic` of the current focus. It can be the same as before, it can also be updated when the agent is focusing on something different.
@@ -19,12 +19,12 @@ def send_message(
     """
     # FIXME passing of msg_obj here is a hack, unclear if guaranteed to be the correct reference
     self.interface.assistant_message(message)  # , msg_obj=self._messages[-1])
-    agent_state.topic = topic
     return None
 
 
 def send_intermediate_message(
-    self: "Agent", agent_state: "AgentState", message: str, topic: str = None
+    self: "Agent", agent_state: "AgentState", message: str, 
+    # topic: str = None
 ) -> Optional[str]:
     """
     Sends an intermediate message to the human user. Meanwhile, whenever this function is called, the agent needs to include the `topic` of the current focus. It should NEVER be any questions or requests for the user but only the agent's current progress on the task.
@@ -38,7 +38,7 @@ def send_intermediate_message(
     """
     # FIXME passing of msg_obj here is a hack, unclear if guaranteed to be the correct reference
     self.interface.assistant_message(message)  # , msg_obj=self._messages[-1])
-    agent_state.topic = topic
+    # agent_state.topic = topic
     return None
 
 

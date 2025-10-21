@@ -41,7 +41,7 @@ from mirix.llm_api.helpers import (
 from mirix.llm_api.llm_api_tools import create
 from mirix.llm_api.llm_client import LLMClient
 from mirix.memory import summarize_messages
-from mirix.orm import User
+from mirix.schemas.user import User
 from mirix.orm.enums import ToolType
 from mirix.schemas.agent import AgentState, AgentStepResponse, UpdateAgent
 from mirix.schemas.block import BlockUpdate
@@ -173,6 +173,7 @@ class Agent(BaseAgent):
 
         # state managers
         self.block_manager = BlockManager()
+        self.agent_manager = AgentManager()
 
         # Interface must implement:
         # - internal_monologue
@@ -228,26 +229,6 @@ class Agent(BaseAgent):
                         f"Invalid JSON format in message: {msg.content[0].text}"
                     )
         return None
-
-    def update_topic_if_changed(self, topic: str) -> bool:
-        """
-        Update the agent's topic if it has changed.
-
-        Args:
-            topic (str): the new topic
-
-        Returns:
-            modified (bool): whether the topic was updated
-        """
-        if self.agent_state.topic != topic:
-            self.agent_manager.update_topic(
-                agent_id=self.agent_state.id,
-                topic=topic,
-                actor=self.user,
-            )
-            self.agent_state.topic = topic
-            return True
-        return False
 
     def update_memory_if_changed(self, new_memory: Memory) -> bool:
         """
@@ -908,7 +889,7 @@ class Agent(BaseAgent):
 
                 if function_name == "trigger_memory_update":
                     function_args["user_message"] = {
-                        "message": convert_message_to_input_message(input_message),
+                        "message": input_message,
                         "existing_file_uris": existing_file_uris,
                         "retrieved_memories": retrieved_memories,
                         "chaining": CHAINING_FOR_MEMORY_UPDATE,
@@ -1411,18 +1392,19 @@ class Agent(BaseAgent):
                 )
 
         # Update ToolRulesSolver state with last called function
-        self.tool_rules_solver.update_tool_usage(function_name)
-        # Update contine_chaining request according to provided tool rules
-        if self.tool_rules_solver.has_children_tools(function_name):
-            continue_chaining = True
-        elif self.tool_rules_solver.is_terminal_tool(function_name):
-            continue_chaining = False
+        if function_name is not None:
+            self.tool_rules_solver.update_tool_usage(function_name)
+            # Update contine_chaining request according to provided tool rules
+            if self.tool_rules_solver.has_children_tools(function_name):
+                continue_chaining = True
+            elif self.tool_rules_solver.is_terminal_tool(function_name):
+                continue_chaining = False
 
         return messages, continue_chaining, function_failed
 
     def step(
         self,
-        input_messages: Union[Message, List[Message]],
+        input_messages: Union[Message, MessageCreate, List[Union[Message, MessageCreate]]],
         chaining: bool = True,
         max_chaining_steps: Optional[int] = None,
         extra_messages: Optional[List[dict]] = None,
@@ -1435,20 +1417,23 @@ class Agent(BaseAgent):
             self.user = self.user_manager.get_user_by_id(user_id)
             self.agent_state.memory = Memory(
                 blocks=[
-                    self.block_manager.get_block_by_id(block.id, actor=self.user)
+                    b
                     for block in self.block_manager.get_blocks(
                         actor=self.user, agent_id=self.agent_state.id
                     )
+                    if (b := self.block_manager.get_block_by_id(block.id, actor=self.user)) is not None
                 ]
             )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
-        first_input_message = input_messages[0]
+        first_input_message = input_messages[0] if isinstance(input_messages, list) else input_messages
 
         # Convert MessageCreate objects to Message objects
+        if not isinstance(input_messages, list):
+            input_messages = [input_messages]
         message_objects = [
-            prepare_input_message_create(
+            m if isinstance(m, Message) else prepare_input_message_create(
                 m,
                 self.agent_state.id,
                 wrap_user_message=False,
@@ -1606,6 +1591,9 @@ class Agent(BaseAgent):
             else:
                 break
 
+        # Save the message_ids
+        save_agent(self)
+
         return MirixUsageStatistics(**total_usage.model_dump(), step_count=step_count)
 
     def build_system_prompt_with_memories(
@@ -1630,15 +1618,14 @@ class Agent(BaseAgent):
         if retrieved_memories is None:
             retrieved_memories = {}
 
-        key_words = topics if topics is not None else self.agent_state.topic
-
         if "key_words" in retrieved_memories:
             key_words = retrieved_memories["key_words"]
         else:
+            key_words = topics if topics is not None else ""
             retrieved_memories["key_words"] = key_words
 
         search_method = "bm25"
-
+    
         # Prepare embedding for semantic search
         if key_words != "" and search_method == "embedding":
             embedded_text = embedding_model(
@@ -1660,8 +1647,9 @@ class Agent(BaseAgent):
         ):
             current_persisted_memory = Memory(
                 blocks=[
-                    self.block_manager.get_block_by_id(block.id, actor=self.user)
+                    b
                     for block in self.block_manager.get_blocks(actor=self.user)
+                    if (b := self.block_manager.get_block_by_id(block.id, actor=self.user)) is not None
                 ]
             )
             core_memory = current_persisted_memory.compile()
@@ -2273,6 +2261,7 @@ These keywords have been used to retrieve relevant memories from the database.
                     f"[Mirix.Agent.{self.agent_state.name}] WARNING: {CLI_WARNING_PREFIX}Attempting to run ChatCompletion without user as the last message in the queue"
                 )
 
+
             # Step 2: send the conversation and available functions to the LLM
             response = self._get_ai_reply(
                 message_sequence=input_message_sequence,
@@ -2802,16 +2791,7 @@ def save_agent(agent: Agent):
     # convert to persisted model
     agent_manager = AgentManager()
     update_agent = UpdateAgent(
-        name=agent_state.name,
-        tool_ids=[t.id for t in agent_state.tools],
-        block_ids=[b.id for b in agent_state.memory.blocks],
-        tags=agent_state.tags,
-        system=agent_state.system,
-        tool_rules=agent_state.tool_rules,
-        llm_config=agent_state.llm_config,
-        embedding_config=agent_state.embedding_config,
         message_ids=agent_state.message_ids,
-        description=agent_state.description,
         # TODO: Add this back in later
         # tool_exec_environment_variables=agent_state.get_agent_env_vars_as_dict(),
     )

@@ -1,8 +1,10 @@
+import os
 from typing import Dict, List, Optional
 
 from mirix.constants import (
     BASE_TOOLS,
     CHAT_AGENT_TOOLS,
+    CORE_MEMORY_BLOCK_CHAR_LIMIT,
     CORE_MEMORY_TOOLS,
     EPISODIC_MEMORY_TOOLS,
     EXTRAS_TOOLS,
@@ -26,11 +28,11 @@ from mirix.schemas.agent import AgentType, CreateAgent, CreateMetaAgent, UpdateA
 from mirix.schemas.block import Block as PydanticBlock
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.llm_config import LLMConfig
+from mirix.services.block_manager import BlockManager
 from mirix.schemas.message import Message as PydanticMessage
 from mirix.schemas.message import MessageCreate
 from mirix.schemas.tool_rule import ToolRule as PydanticToolRule
 from mirix.schemas.user import User as PydanticUser
-from mirix.services.block_manager import BlockManager
 from mirix.services.helpers.agent_manager_helper import (
     _process_relationship,
     check_supports_structured_output,
@@ -41,6 +43,7 @@ from mirix.services.helpers.agent_manager_helper import (
 from mirix.services.message_manager import MessageManager
 from mirix.services.tool_manager import ToolManager
 from mirix.utils import enforce_types, get_utc_time
+from mirix.schemas.block import Block
 
 logger = get_logger(__name__)
 
@@ -53,10 +56,9 @@ class AgentManager:
         from mirix.server.server import db_context
 
         self.session_maker = db_context
-        self.block_manager = BlockManager()
         self.tool_manager = ToolManager()
         self.message_manager = MessageManager()
-
+        self.block_manager = BlockManager()
     # ======================================================================================================================
     # Basic CRUD operations
     # ======================================================================================================================
@@ -79,16 +81,6 @@ class AgentManager:
                 model=agent_create.llm_config.model, tool_rules=agent_create.tool_rules
             )
 
-        # create blocks (note: cannot be linked into the agent_id is created)
-        block_ids = list(
-            agent_create.block_ids or []
-        )  # Create a local copy to avoid modifying the original
-        if agent_create.memory_blocks:
-            for create_block in agent_create.memory_blocks:
-                block = self.block_manager.create_or_update_block(
-                    PydanticBlock(**create_block.model_dump()), actor=actor
-                )
-                block_ids.append(block.id)
 
         # TODO: Remove this block once we deprecate the legacy `tools` field
         # create passed in `tools`
@@ -142,9 +134,7 @@ class AgentManager:
             agent_type=agent_create.agent_type,
             llm_config=agent_create.llm_config,
             embedding_config=agent_create.embedding_config,
-            block_ids=block_ids,
             tool_ids=tool_ids,
-            description=agent_create.description,
             tool_rules=agent_create.tool_rules,
             parent_id=agent_create.parent_id,
             actor=actor,
@@ -176,14 +166,8 @@ class AgentManager:
         if not meta_agent_create.llm_config or not meta_agent_create.embedding_config:
             raise ValueError("llm_config and embedding_config are required")
 
-        # Create blocks if provided (these will be shared across agents)
-        block_ids = []
-        if meta_agent_create.memory_blocks:
-            for create_block in meta_agent_create.memory_blocks:
-                block = self.block_manager.create_or_update_block(
-                    PydanticBlock(**create_block.model_dump()), actor=actor
-                )
-                block_ids.append(block.id)
+        # Ensure base tools are available in the database for this organization
+        self.tool_manager.upsert_base_tools(actor=actor)
 
         # Map agent names to their corresponding AgentType
         agent_name_to_type = {
@@ -199,6 +183,22 @@ class AgentManager:
             "chat_agent": AgentType.chat_agent,
         }
 
+        # Load default system prompts from base folder
+        default_system_prompts = {}
+        base_prompts_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 
+            "prompts", 
+            "system", 
+            "base"
+        )
+        
+        for filename in os.listdir(base_prompts_dir):
+            if filename.endswith(".txt"):
+                agent_name = filename[:-4]  # Strip .txt suffix
+                prompt_file = os.path.join(base_prompts_dir, filename)
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    default_system_prompts[agent_name] = f.read()
+
         # First, create the meta_memory_agent as the parent
         meta_agent_name = meta_agent_create.name or "meta_memory_agent"
         meta_system_prompt = None
@@ -207,6 +207,8 @@ class AgentManager:
             and "meta_memory_agent" in meta_agent_create.system_prompts
         ):
             meta_system_prompt = meta_agent_create.system_prompts["meta_memory_agent"]
+        else:
+            meta_system_prompt = default_system_prompts["meta_memory_agent"]
 
         meta_agent_create_schema = CreateAgent(
             name=meta_agent_name,
@@ -214,10 +216,7 @@ class AgentManager:
             system=meta_system_prompt,
             llm_config=meta_agent_create.llm_config,
             embedding_config=meta_agent_create.embedding_config,
-            block_ids=block_ids.copy() if block_ids else None,
             include_base_tools=True,
-            description=meta_agent_create.description
-            or "Meta memory agent coordinating sub-agents",
         )
 
         meta_agent_state = self.create_agent(
@@ -229,10 +228,27 @@ class AgentManager:
         )
 
         # Store the parent agent
-        created_agents = {"meta_memory_agent": meta_agent_state}
+        created_agents = {}
 
         # Now create all sub-agents with parent_id set to the meta_memory_agent
-        for agent_name in meta_agent_create.agents:
+        for agent_item in meta_agent_create.agents:
+            # Parse agent_item - can be string or dict
+            agent_name = None
+            agent_config = {}
+            
+            if isinstance(agent_item, str):
+                agent_name = agent_item
+            elif isinstance(agent_item, dict):
+                # Dict format: {agent_name: {config}}
+                agent_name = list(agent_item.keys())[0]
+                agent_config = agent_item[agent_name] or {}
+            else:
+                logger.warning(f"Invalid agent item format: {agent_item}, skipping...")
+                continue
+
+            if agent_name == 'core_memory_agent':
+                memory_block_configs = agent_config['blocks']
+            
             # Skip meta_memory_agent since we already created it as the parent
             if agent_name == "meta_memory_agent":
                 continue
@@ -243,41 +259,45 @@ class AgentManager:
                 logger.warning(f"Unknown agent type: {agent_name}, skipping...")
                 continue
 
-            # Get custom system prompt if provided
+            # Get custom system prompt if provided, fallback to default
             custom_system = None
             if (
                 meta_agent_create.system_prompts
                 and agent_name in meta_agent_create.system_prompts
             ):
                 custom_system = meta_agent_create.system_prompts[agent_name]
+            elif agent_name in default_system_prompts:
+                custom_system = default_system_prompts[agent_name]
 
             # Create the agent using CreateAgent schema with parent_id
             agent_create = CreateAgent(
                 name=f"{meta_agent_name}_{agent_name}",
                 agent_type=agent_type,
-                system=custom_system,  # Will use default if None
+                system=custom_system,  # Uses custom prompt or default from base folder
                 llm_config=meta_agent_create.llm_config,
                 embedding_config=meta_agent_create.embedding_config,
-                block_ids=block_ids.copy() if block_ids else None,
                 include_base_tools=True,
-                description=f"Sub-agent of meta agent: {meta_agent_name}",
                 parent_id=meta_agent_state.id,  # Set the parent_id
             )
 
             # Create the agent
-            try:
-                agent_state = self.create_agent(
-                    agent_create=agent_create,
-                    actor=actor,
-                )
-                created_agents[agent_name] = agent_state
-                logger.info(
-                    f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}"
-                )
-            except Exception as e:
-                logger.error(f"Failed to create agent {agent_name}: {str(e)}")
-                raise
+            agent_state = self.create_agent(
+                agent_create=agent_create,
+                actor=actor,
+            )
+            created_agents[agent_name] = agent_state
+            logger.info(
+                f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}"
+            )
 
+        if created_agents:
+            meta_agent_state.children = list(created_agents.values())
+        for block in memory_block_configs:
+            self.block_manager.create_or_update_block(
+                block=Block(value=block['value'], limit=block.get("limit", CORE_MEMORY_BLOCK_CHAR_LIMIT), label=block['label']),
+                actor=actor,
+                agent_id=meta_agent_state.id
+            )
         return meta_agent_state
 
     def update_agent_tools_and_system_prompts(
@@ -450,9 +470,7 @@ class AgentManager:
         agent_type: AgentType,
         llm_config: LLMConfig,
         embedding_config: EmbeddingConfig,
-        block_ids: List[str],
         tool_ids: List[str],
-        description: Optional[str] = None,
         tool_rules: Optional[List[PydanticToolRule]] = None,
         parent_id: Optional[str] = None,
     ) -> PydanticAgentState:
@@ -466,7 +484,6 @@ class AgentManager:
                 "llm_config": llm_config,
                 "embedding_config": embedding_config,
                 "organization_id": actor.organization_id,
-                "description": description,
                 "tool_rules": tool_rules,
                 "parent_id": parent_id,
             }
@@ -475,9 +492,6 @@ class AgentManager:
             new_agent = AgentModel(**data)
             _process_relationship(
                 session, new_agent, "tools", ToolModel, tool_ids, replace=True
-            )
-            _process_relationship(
-                session, new_agent, "core_memory", BlockModel, block_ids, replace=True
             )
             new_agent.create(session, actor=actor)
 
@@ -597,7 +611,6 @@ class AgentManager:
                 "embedding_config",
                 "message_ids",
                 "tool_rules",
-                "description",
                 "mcp_tools",
                 "parent_id",
             }
@@ -616,15 +629,6 @@ class AgentManager:
                     agent_update.tool_ids,
                     replace=True,
                 )
-            if agent_update.block_ids is not None:
-                _process_relationship(
-                    session,
-                    agent,
-                    "core_memory",
-                    BlockModel,
-                    agent_update.block_ids,
-                    replace=True,
-                )
 
             # Commit and refresh the agent
             agent.update(session, actor=actor)
@@ -636,7 +640,6 @@ class AgentManager:
     def list_agents(
         self,
         actor: PydanticUser,
-        tags: Optional[List[str]] = None,
         match_all_tags: bool = False,
         cursor: Optional[str] = None,
         limit: Optional[int] = 50,
@@ -653,7 +656,6 @@ class AgentManager:
             # Get agents filtered by parent_id (None for top-level agents, or specific parent_id)
             agents = AgentModel.list(
                 db_session=session,
-                tags=tags,
                 match_all_tags=match_all_tags,
                 cursor=cursor,
                 limit=limit,
@@ -946,123 +948,6 @@ class AgentManager:
             return self.append_to_in_context_messages(
                 [system_message], agent_id=agent_state.id, actor=actor
             )
-
-    # ======================================================================================================================
-    # Block management
-    # ======================================================================================================================
-    @enforce_types
-    def get_block_with_label(
-        self,
-        agent_id: str,
-        block_label: str,
-        actor: PydanticUser,
-    ) -> PydanticBlock:
-        """Gets a block attached to an agent by its label."""
-        with self.session_maker() as session:
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-            for block in agent.core_memory:
-                if block.label == block_label:
-                    return block.to_pydantic()
-            raise NoResultFound(
-                f"No block with label '{block_label}' found for agent '{agent_id}'"
-            )
-
-    @enforce_types
-    def update_block_with_label(
-        self,
-        agent_id: str,
-        block_label: str,
-        new_block_id: str,
-        actor: PydanticUser,
-    ) -> PydanticAgentState:
-        """Updates which block is assigned to a specific label for an agent."""
-        with self.session_maker() as session:
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-            new_block = BlockModel.read(
-                db_session=session, identifier=new_block_id, actor=actor
-            )
-
-            if new_block.label != block_label:
-                raise ValueError(
-                    f"New block label '{new_block.label}' doesn't match required label '{block_label}'"
-                )
-
-            # Remove old block with this label if it exists
-            agent.core_memory = [b for b in agent.core_memory if b.label != block_label]
-
-            # Add new block
-            agent.core_memory.append(new_block)
-            agent.update(session, actor=actor)
-            return agent.to_pydantic()
-
-    @enforce_types
-    def attach_block(
-        self, agent_id: str, block_id: str, actor: PydanticUser
-    ) -> PydanticAgentState:
-        """Attaches a block to an agent."""
-        with self.session_maker() as session:
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-            block = BlockModel.read(
-                db_session=session, identifier=block_id, actor=actor
-            )
-
-            agent.core_memory.append(block)
-            agent.update(session, actor=actor)
-            return agent.to_pydantic()
-
-    @enforce_types
-    def detach_block(
-        self,
-        agent_id: str,
-        block_id: str,
-        actor: PydanticUser,
-    ) -> PydanticAgentState:
-        """Detaches a block from an agent."""
-        with self.session_maker() as session:
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-            original_length = len(agent.core_memory)
-
-            agent.core_memory = [b for b in agent.core_memory if b.id != block_id]
-
-            if len(agent.core_memory) == original_length:
-                raise NoResultFound(
-                    f"No block with id '{block_id}' found for agent '{agent_id}' with actor id: '{actor.id}'"
-                )
-
-            agent.update(session, actor=actor)
-            return agent.to_pydantic()
-
-    @enforce_types
-    def detach_block_with_label(
-        self,
-        agent_id: str,
-        block_label: str,
-        actor: PydanticUser,
-    ) -> PydanticAgentState:
-        """Detaches a block with the specified label from an agent."""
-        with self.session_maker() as session:
-            agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
-            )
-            original_length = len(agent.core_memory)
-
-            agent.core_memory = [b for b in agent.core_memory if b.label != block_label]
-
-            if len(agent.core_memory) == original_length:
-                raise NoResultFound(
-                    f"No block with label '{block_label}' found for agent '{agent_id}' with actor id: '{actor.id}'"
-                )
-
-            agent.update(session, actor=actor)
-            return agent.to_pydantic()
 
     # ======================================================================================================================
     # Tool Management

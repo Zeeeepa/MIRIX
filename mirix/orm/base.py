@@ -89,9 +89,6 @@ class CommonSqlalchemyMetaMixins(Base):
         if not value:
             setattr(self, full_prop, None)
             return
-        # Safety check
-        prefix, id_ = value.split("-", 1)
-        assert prefix == "user", f"{prefix} is not a valid id prefix for a user id"
-
-        # Set the full value
+        
+        # Set the full value (no prefix validation - accept any user_id format)
         setattr(self, full_prop, value)

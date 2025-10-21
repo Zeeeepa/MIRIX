@@ -44,7 +44,7 @@ from mirix.schemas.mirix_message_content import (
 from mirix.schemas.openai.openai import Function as OpenAIFunction
 from mirix.schemas.openai.openai import ToolCall as OpenAIToolCall
 from mirix.system import unpack_message
-from mirix.utils import parse_json
+from mirix.helpers.json_helpers import parse_json
 
 
 def add_inner_thoughts_to_tool_call(

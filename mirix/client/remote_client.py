@@ -1,0 +1,996 @@
+"""
+MirixClient implementation for Mirix.
+This client communicates with a remote Mirix server via REST API.
+"""
+
+import os
+from typing import Any, Callable, Dict, List, Optional, Union
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from mirix.client.client import AbstractClient
+from mirix.constants import FUNCTION_RETURN_CHAR_LIMIT
+from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent
+from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.embedding_config import EmbeddingConfig
+from mirix.schemas.environment_variables import (
+    SandboxEnvironmentVariable,
+    SandboxEnvironmentVariableCreate,
+    SandboxEnvironmentVariableUpdate,
+)
+from mirix.schemas.file import FileMetadata
+from mirix.schemas.llm_config import LLMConfig
+from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
+from mirix.schemas.message import Message, MessageCreate
+from mirix.schemas.mirix_response import MirixResponse
+from mirix.schemas.organization import Organization
+from mirix.schemas.sandbox_config import (
+    E2BSandboxConfig,
+    LocalSandboxConfig,
+    SandboxConfig,
+    SandboxConfigCreate,
+    SandboxConfigUpdate,
+)
+from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
+from mirix.schemas.tool_rule import BaseToolRule
+
+
+class MirixClient(AbstractClient):
+    """
+    Client that communicates with a remote Mirix server via REST API.
+    
+    This client runs on the user's local machine and makes HTTP requests
+    to a Mirix server hosted in the cloud.
+    
+    Example:
+        >>> client = MirixClient(
+        ...     base_url="https://api.mirix.ai",
+        ...     user_id="my-user",
+        ...     org_id="my-org",
+        ... )
+        >>> agent = client.create_agent(name="my_agent")
+        >>> response = client.send_message(
+        ...     agent_id=agent.id,
+        ...     message="Hello!",
+        ...     role="user"
+        ... )
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        user_id: Optional[str] = None,
+        user_name: Optional[str] = None,
+        org_id: Optional[str] = None,
+        org_name: Optional[str] = None,
+        debug: bool = False,
+        timeout: int = 60,
+        max_retries: int = 3,
+    ):
+        """
+        Initialize MirixClient.
+        
+        Args:
+            base_url: Base URL of the Mirix API server (optional, can also be set via MIRIX_API_URL env var, default: "http://localhost:8000")
+            user_id: User ID (optional, will be auto-generated if not provided)
+            user_name: User name (optional, defaults to user_id if not provided)
+            org_id: Organization ID (optional, will be auto-generated if not provided)
+            org_name: Organization name (optional, defaults to org_id if not provided)
+            debug: Whether to enable debug logging
+            timeout: Request timeout in seconds
+            max_retries: Number of retries for failed requests
+        """
+        super().__init__(debug=debug)
+        
+        # Get base URL from parameter or environment variable
+        self.base_url = (base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8000")).rstrip("/")
+        
+        # Generate IDs if not provided
+        if not user_id:
+            import uuid
+            user_id = f"user-{uuid.uuid4().hex[:8]}"
+        
+        if not org_id:
+            import uuid
+            org_id = f"org-{uuid.uuid4().hex[:8]}"
+        
+        self.user_id = user_id
+        self.user_name = user_name or user_id
+        self.org_id = org_id
+        self.org_name = org_name or org_id
+        self.timeout = timeout
+        
+        # Track initialized meta agent for this project
+        self._meta_agent: Optional[AgentState] = None
+        
+        # Create session with retry logic
+        self.session = requests.Session()
+        
+        # Configure retries
+        retry_strategy = Retry(
+            total=max_retries,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE", "POST"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        
+        # Set headers
+        if self.user_id:
+            self.session.headers.update({"X-User-ID": self.user_id})
+        
+        if self.org_id:
+            self.session.headers.update({"X-Org-ID": self.org_id})
+        
+        self.session.headers.update({"Content-Type": "application/json"})
+
+        # Create organization and user if they don't exist
+        self._ensure_org_and_user_exist()
+
+    def _ensure_org_and_user_exist(self):
+        """
+        Ensure that the organization and user exist on the server.
+        Creates them if they don't exist.
+        """
+        try:
+
+            # Create or get organization first
+            org_response = self._request(
+                "POST",
+                "/organizations/create_or_get",
+                json={"org_id": self.org_id, "name": self.org_name}
+            )
+            if self.debug:
+                print(f"[MirixClient] Organization initialized: {self.org_id} (name: {self.org_name})")
+            
+            # Create or get user
+            user_response = self._request(
+                "POST",
+                "/users/create_or_get",
+                json={
+                    "user_id": self.user_id,
+                    "name": self.user_name,
+                    "org_id": self.org_id
+                }
+            )
+            if self.debug:
+                print(f"[MirixClient] User initialized: {self.user_id} (name: {self.user_name})")
+        except Exception as e:
+            # Don't fail initialization if this fails - the server might handle it
+            if self.debug:
+                print(f"[MirixClient] Note: Could not pre-create user/org: {e}")
+                print("[MirixClient] Server will create them on first request if needed")
+
+    def _request(
+        self,
+        method: str,
+        endpoint: str,
+        json: Optional[Dict] = None,
+        params: Optional[Dict] = None,
+    ) -> Any:
+        """
+        Make an HTTP request to the API.
+        
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint (e.g., "/agents")
+            json: JSON body for the request
+            params: Query parameters
+            
+        Returns:
+            Response data (parsed JSON)
+            
+        Raises:
+            requests.HTTPError: If the request fails
+        """
+        url = f"{self.base_url}{endpoint}"
+        
+        if self.debug:
+            print(f"[MirixClient] {method} {url}")
+            if json:
+                print(f"[MirixClient] Request body: {json}")
+        
+        response = self.session.request(
+            method=method,
+            url=url,
+            json=json,
+            params=params,
+            timeout=self.timeout,
+        )
+        
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            # Try to extract error message from response
+            try:
+                error_detail = response.json().get("detail", str(e))
+            except:
+                error_detail = str(e)
+            raise requests.HTTPError(f"API request failed: {error_detail}") from e
+        
+        # Return parsed JSON if there's content
+        if response.content:
+            return response.json()
+        return None
+
+    # ========================================================================
+    # Agent Methods
+    # ========================================================================
+
+    def list_agents(
+        self,
+        query_text: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+        cursor: Optional[str] = None,
+        parent_id: Optional[str] = None,
+    ) -> List[AgentState]:
+        """List all agents."""
+        params = {"limit": limit}
+        if query_text:
+            params["query_text"] = query_text
+        if tags:
+            params["tags"] = ",".join(tags)
+        if cursor:
+            params["cursor"] = cursor
+        if parent_id:
+            params["parent_id"] = parent_id
+        
+        data = self._request("GET", "/agents", params=params)
+        return [AgentState(**agent) for agent in data]
+
+    def agent_exists(
+        self, agent_id: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> bool:
+        """Check if an agent exists."""
+        if not (agent_id or agent_name):
+            raise ValueError("Either agent_id or agent_name must be provided")
+        if agent_id and agent_name:
+            raise ValueError("Only one of agent_id or agent_name can be provided")
+        
+        existing = self.list_agents()
+        if agent_id:
+            return str(agent_id) in [str(agent.id) for agent in existing]
+        else:
+            return agent_name in [str(agent.name) for agent in existing]
+
+    def create_agent(
+        self,
+        name: Optional[str] = None,
+        agent_type: Optional[AgentType] = AgentType.chat_agent,
+        embedding_config: Optional[EmbeddingConfig] = None,
+        llm_config: Optional[LLMConfig] = None,
+        memory: Optional[Memory] = None,
+        block_ids: Optional[List[str]] = None,
+        system: Optional[str] = None,
+        tool_ids: Optional[List[str]] = None,
+        tool_rules: Optional[List[BaseToolRule]] = None,
+        include_base_tools: Optional[bool] = True,
+        include_meta_memory_tools: Optional[bool] = False,
+        metadata: Optional[Dict] = None,
+        description: Optional[str] = None,
+        initial_message_sequence: Optional[List[Message]] = None,
+        tags: Optional[List[str]] = None,
+    ) -> AgentState:
+        """Create an agent."""
+        request_data = {
+            "name": name,
+            "agent_type": agent_type,
+            "embedding_config": embedding_config.model_dump() if embedding_config else None,
+            "llm_config": llm_config.model_dump() if llm_config else None,
+            "memory": memory.model_dump() if memory else None,
+            "block_ids": block_ids,
+            "system": system,
+            "tool_ids": tool_ids,
+            "tool_rules": [rule.model_dump() if hasattr(rule, 'model_dump') else rule for rule in (tool_rules or [])],
+            "include_base_tools": include_base_tools,
+            "include_meta_memory_tools": include_meta_memory_tools,
+            "metadata": metadata,
+            "description": description,
+            "initial_message_sequence": [msg.model_dump() if hasattr(msg, 'model_dump') else msg for msg in (initial_message_sequence or [])],
+            "tags": tags,
+        }
+        
+        data = self._request("POST", "/agents", json=request_data)
+        return AgentState(**data)
+
+    def update_agent(
+        self,
+        agent_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        system: Optional[str] = None,
+        tool_ids: Optional[List[str]] = None,
+        metadata: Optional[Dict] = None,
+        llm_config: Optional[LLMConfig] = None,
+        embedding_config: Optional[EmbeddingConfig] = None,
+        message_ids: Optional[List[str]] = None,
+        memory: Optional[Memory] = None,
+        tags: Optional[List[str]] = None,
+    ):
+        """Update an agent."""
+        request_data = {
+            "name": name,
+            "description": description,
+            "system": system,
+            "tool_ids": tool_ids,
+            "metadata": metadata,
+            "llm_config": llm_config.model_dump() if llm_config else None,
+            "embedding_config": embedding_config.model_dump() if embedding_config else None,
+            "message_ids": message_ids,
+            "memory": memory.model_dump() if memory else None,
+            "tags": tags,
+        }
+        
+        data = self._request("PATCH", f"/agents/{agent_id}", json=request_data)
+        return AgentState(**data)
+
+    def get_agent(self, agent_id: str) -> AgentState:
+        """Get an agent by ID."""
+        data = self._request("GET", f"/agents/{agent_id}")
+        return AgentState(**data)
+
+    def get_agent_id(self, agent_name: str) -> Optional[str]:
+        """Get agent ID by name."""
+        agents = self.list_agents()
+        for agent in agents:
+            if agent.name == agent_name:
+                return agent.id
+        return None
+
+    def delete_agent(self, agent_id: str):
+        """Delete an agent."""
+        self._request("DELETE", f"/agents/{agent_id}")
+
+    def rename_agent(self, agent_id: str, new_name: str):
+        """Rename an agent."""
+        self.update_agent(agent_id, name=new_name)
+
+    def get_tools_from_agent(self, agent_id: str) -> List[Tool]:
+        """Get tools from an agent."""
+        agent = self.get_agent(agent_id)
+        return agent.tools
+
+    def add_tool_to_agent(self, agent_id: str, tool_id: str):
+        """Add a tool to an agent."""
+        raise NotImplementedError("add_tool_to_agent not yet implemented in REST API")
+
+    def remove_tool_from_agent(self, agent_id: str, tool_id: str):
+        """Remove a tool from an agent."""
+        raise NotImplementedError("remove_tool_from_agent not yet implemented in REST API")
+
+    # ========================================================================
+    # Memory Methods
+    # ========================================================================
+
+    def get_in_context_memory(self, agent_id: str) -> Memory:
+        """Get in-context memory of an agent."""
+        data = self._request("GET", f"/agents/{agent_id}/memory")
+        return Memory(**data)
+
+    def update_in_context_memory(
+        self, agent_id: str, section: str, value: Union[List[str], str]
+    ) -> Memory:
+        """Update in-context memory."""
+        raise NotImplementedError("update_in_context_memory not yet implemented in REST API")
+
+    def get_archival_memory_summary(self, agent_id: str) -> ArchivalMemorySummary:
+        """Get archival memory summary."""
+        data = self._request("GET", f"/agents/{agent_id}/memory/archival")
+        return ArchivalMemorySummary(**data)
+
+    def get_recall_memory_summary(self, agent_id: str) -> RecallMemorySummary:
+        """Get recall memory summary."""
+        data = self._request("GET", f"/agents/{agent_id}/memory/recall")
+        return RecallMemorySummary(**data)
+
+    def get_in_context_messages(self, agent_id: str) -> List[Message]:
+        """Get in-context messages."""
+        raise NotImplementedError("get_in_context_messages not yet implemented in REST API")
+
+    # ========================================================================
+    # Message Methods
+    # ========================================================================
+
+    def send_message(
+        self,
+        message: str,
+        role: str,
+        agent_id: Optional[str] = None,
+        name: Optional[str] = None,
+        stream: Optional[bool] = False,
+        stream_steps: bool = False,
+        stream_tokens: bool = False,
+    ) -> MirixResponse:
+        """Send a message to an agent."""
+        if stream or stream_steps or stream_tokens:
+            raise NotImplementedError("Streaming not yet implemented in REST API")
+        
+        request_data = {
+            "message": message,
+            "role": role,
+            "name": name,
+            "stream_steps": stream_steps,
+            "stream_tokens": stream_tokens,
+        }
+        
+        data = self._request("POST", f"/agents/{agent_id}/messages", json=request_data)
+        return MirixResponse(**data)
+
+    def user_message(self, agent_id: str, message: str) -> MirixResponse:
+        """Send a user message to an agent."""
+        return self.send_message(message=message, role="user", agent_id=agent_id)
+
+    def get_messages(
+        self,
+        agent_id: str,
+        before: Optional[str] = None,
+        after: Optional[str] = None,
+        limit: Optional[int] = 1000,
+    ) -> List[Message]:
+        """Get messages from an agent."""
+        params = {"limit": limit}
+        if before:
+            params["cursor"] = before
+        
+        data = self._request("GET", f"/agents/{agent_id}/messages", params=params)
+        return [Message(**msg) for msg in data]
+
+    # ========================================================================
+    # Tool Methods
+    # ========================================================================
+
+    def list_tools(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Tool]:
+        """List all tools."""
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        
+        data = self._request("GET", "/tools", params=params)
+        return [Tool(**tool) for tool in data]
+
+    def get_tool(self, id: str) -> Tool:
+        """Get a tool by ID."""
+        data = self._request("GET", f"/tools/{id}")
+        return Tool(**data)
+
+    def create_tool(
+        self,
+        func,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT,
+    ) -> Tool:
+        """Create a tool."""
+        raise NotImplementedError(
+            "create_tool with function not supported in MirixClient. "
+            "Tools must be created on the server side."
+        )
+
+    def create_or_update_tool(
+        self,
+        func,
+        name: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT,
+    ) -> Tool:
+        """Create or update a tool."""
+        raise NotImplementedError(
+            "create_or_update_tool with function not supported in MirixClient. "
+            "Tools must be created on the server side."
+        )
+
+    def update_tool(
+        self,
+        id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        func: Optional[Callable] = None,
+        tags: Optional[List[str]] = None,
+        return_char_limit: int = FUNCTION_RETURN_CHAR_LIMIT,
+    ) -> Tool:
+        """Update a tool."""
+        raise NotImplementedError("update_tool not yet implemented in REST API")
+
+    def delete_tool(self, id: str):
+        """Delete a tool."""
+        self._request("DELETE", f"/tools/{id}")
+
+    def get_tool_id(self, name: str) -> Optional[str]:
+        """Get tool ID by name."""
+        tools = self.list_tools()
+        for tool in tools:
+            if tool.name == name:
+                return tool.id
+        return None
+
+    def upsert_base_tools(self) -> List[Tool]:
+        """Upsert base tools."""
+        raise NotImplementedError("upsert_base_tools must be done on server side")
+
+    # ========================================================================
+    # Block Methods
+    # ========================================================================
+
+    def list_blocks(
+        self, label: Optional[str] = None, templates_only: Optional[bool] = True
+    ) -> List[Block]:
+        """List blocks."""
+        params = {}
+        if label:
+            params["label"] = label
+        
+        data = self._request("GET", "/blocks", params=params)
+        return [Block(**block) for block in data]
+
+    def get_block(self, block_id: str) -> Block:
+        """Get a block by ID."""
+        data = self._request("GET", f"/blocks/{block_id}")
+        return Block(**data)
+
+    def create_block(
+        self,
+        label: str,
+        value: str,
+        limit: Optional[int] = None,
+    ) -> Block:
+        """Create a block."""
+        block_data = {
+            "label": label,
+            "value": value,
+            "limit": limit,
+        }
+        
+        block = Block(**block_data)
+        data = self._request("POST", "/blocks", json=block.model_dump())
+        return Block(**data)
+
+    def delete_block(self, id: str) -> Block:
+        """Delete a block."""
+        self._request("DELETE", f"/blocks/{id}")
+
+    # ========================================================================
+    # Human/Persona Methods
+    # ========================================================================
+
+    def create_human(self, name: str, text: str) -> Human:
+        """Create a human block."""
+        human = Human(value=text)
+        data = self._request("POST", "/blocks", json=human.model_dump())
+        return Human(**data)
+
+    def create_persona(self, name: str, text: str) -> Persona:
+        """Create a persona block."""
+        persona = Persona(value=text)
+        data = self._request("POST", "/blocks", json=persona.model_dump())
+        return Persona(**data)
+
+    def list_humans(self) -> List[Human]:
+        """List human blocks."""
+        blocks = self.list_blocks(label="human")
+        return [Human(**block.model_dump()) for block in blocks]
+
+    def list_personas(self) -> List[Persona]:
+        """List persona blocks."""
+        blocks = self.list_blocks(label="persona")
+        return [Persona(**block.model_dump()) for block in blocks]
+
+    def update_human(self, human_id: str, text: str) -> Human:
+        """Update a human block."""
+        raise NotImplementedError("update_human not yet implemented in REST API")
+
+    def update_persona(self, persona_id: str, text: str) -> Persona:
+        """Update a persona block."""
+        raise NotImplementedError("update_persona not yet implemented in REST API")
+
+    def get_persona(self, id: str) -> Persona:
+        """Get a persona block."""
+        data = self._request("GET", f"/blocks/{id}")
+        return Persona(**data)
+
+    def get_human(self, id: str) -> Human:
+        """Get a human block."""
+        data = self._request("GET", f"/blocks/{id}")
+        return Human(**data)
+
+    def get_persona_id(self, name: str) -> str:
+        """Get persona ID by name."""
+        personas = self.list_personas()
+        if personas:
+            return personas[0].id
+        return None
+
+    def get_human_id(self, name: str) -> str:
+        """Get human ID by name."""
+        humans = self.list_humans()
+        if humans:
+            return humans[0].id
+        return None
+
+    def delete_persona(self, id: str):
+        """Delete a persona."""
+        self.delete_block(id)
+
+    def delete_human(self, id: str):
+        """Delete a human."""
+        self.delete_block(id)
+
+    # ========================================================================
+    # Configuration Methods
+    # ========================================================================
+
+    def list_model_configs(self) -> List[LLMConfig]:
+        """List available LLM configurations."""
+        data = self._request("GET", "/config/llm")
+        return [LLMConfig(**config) for config in data]
+
+    def list_embedding_configs(self) -> List[EmbeddingConfig]:
+        """List available embedding configurations."""
+        data = self._request("GET", "/config/embedding")
+        return [EmbeddingConfig(**config) for config in data]
+
+    # ========================================================================
+    # Organization Methods
+    # ========================================================================
+
+    def create_org(self, name: Optional[str] = None) -> Organization:
+        """Create an organization."""
+        data = self._request("POST", "/organizations", json={"name": name})
+        return Organization(**data)
+
+    def list_orgs(
+        self, cursor: Optional[str] = None, limit: Optional[int] = 50
+    ) -> List[Organization]:
+        """List organizations."""
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        
+        data = self._request("GET", "/organizations", params=params)
+        return [Organization(**org) for org in data]
+
+    def delete_org(self, org_id: str) -> Organization:
+        """Delete an organization."""
+        raise NotImplementedError("delete_org not yet implemented in REST API")
+
+    # ========================================================================
+    # Sandbox Methods (Not Implemented)
+    # ========================================================================
+
+    def create_sandbox_config(
+        self, config: Union[LocalSandboxConfig, E2BSandboxConfig]
+    ) -> SandboxConfig:
+        """Create sandbox config."""
+        raise NotImplementedError("Sandbox config not yet implemented in REST API")
+
+    def update_sandbox_config(
+        self,
+        sandbox_config_id: str,
+        config: Union[LocalSandboxConfig, E2BSandboxConfig],
+    ) -> SandboxConfig:
+        """Update sandbox config."""
+        raise NotImplementedError("Sandbox config not yet implemented in REST API")
+
+    def delete_sandbox_config(self, sandbox_config_id: str) -> None:
+        """Delete sandbox config."""
+        raise NotImplementedError("Sandbox config not yet implemented in REST API")
+
+    def list_sandbox_configs(
+        self, limit: int = 50, cursor: Optional[str] = None
+    ) -> List[SandboxConfig]:
+        """List sandbox configs."""
+        raise NotImplementedError("Sandbox config not yet implemented in REST API")
+
+    def create_sandbox_env_var(
+        self,
+        sandbox_config_id: str,
+        key: str,
+        value: str,
+        description: Optional[str] = None,
+    ) -> SandboxEnvironmentVariable:
+        """Create sandbox environment variable."""
+        raise NotImplementedError("Sandbox env vars not yet implemented in REST API")
+
+    def update_sandbox_env_var(
+        self,
+        env_var_id: str,
+        key: Optional[str] = None,
+        value: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> SandboxEnvironmentVariable:
+        """Update sandbox environment variable."""
+        raise NotImplementedError("Sandbox env vars not yet implemented in REST API")
+
+    def delete_sandbox_env_var(self, env_var_id: str) -> None:
+        """Delete sandbox environment variable."""
+        raise NotImplementedError("Sandbox env vars not yet implemented in REST API")
+
+    def list_sandbox_env_vars(
+        self, sandbox_config_id: str, limit: int = 50, cursor: Optional[str] = None
+    ) -> List[SandboxEnvironmentVariable]:
+        """List sandbox environment variables."""
+        raise NotImplementedError("Sandbox env vars not yet implemented in REST API")
+
+    # ========================================================================
+    # New Memory API Methods
+    # ========================================================================
+
+    def _load_system_prompts(self, config: Dict[str, Any]) -> Dict[str, str]:
+        """Load all system prompts from the system_prompts_folder.
+        
+        Args:
+            config: Configuration dictionary that may contain 'system_prompts_folder'
+            
+        Returns:
+            Dict mapping agent names to their prompt text
+        """
+        import os
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        prompts = {}
+        
+        system_prompts_folder = config.get("system_prompts_folder")
+        if not system_prompts_folder:
+            return prompts
+        
+        if not os.path.exists(system_prompts_folder):
+            return prompts
+        
+        # Load all .txt files from the system prompts folder
+        for filename in os.listdir(system_prompts_folder):
+            if filename.endswith(".txt"):
+                agent_name = filename[:-4]  # Strip .txt suffix
+                prompt_file = os.path.join(system_prompts_folder, filename)
+                
+                try:
+                    with open(prompt_file, "r", encoding="utf-8") as f:
+                        prompts[agent_name] = f.read()
+                except Exception as e:
+                    # Log warning but continue
+                    logger.warning(
+                        f"Failed to load system prompt for {agent_name} from {prompt_file}: {e}"
+                    )
+
+        return prompts
+    
+    def initialize_meta_agent(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        config_path: Optional[str] = None,
+    ) -> AgentState:
+        """
+        Initialize a meta agent with the given configuration.
+        
+        This creates a meta memory agent that manages multiple specialized memory agents
+        (episodic, semantic, procedural, etc.) for the current project.
+        
+        Args:
+            config: Configuration dictionary with llm_config, embedding_config, etc.
+            config_path: Path to YAML config file (alternative to config dict)
+            
+        Returns:
+            AgentState: The initialized meta agent
+            
+        Example:
+            >>> client = MirixClient(project="test")
+            >>> config = {
+            ...     "llm_config": {"model": "gemini-2.0-flash"},
+            ...     "embedding_config": {"model": "text-embedding-004"}
+            ... }
+            >>> meta_agent = client.initialize_meta_agent(config=config)
+        """
+        # Load config from file if provided
+        if config_path:
+            import yaml
+            from pathlib import Path
+            
+            config_file = Path(config_path)
+            if config_file.exists():
+                with open(config_file, "r") as f:
+                    config = yaml.safe_load(f)
+        
+        if not config:
+            raise ValueError("Either config or config_path must be provided")
+        
+        # Load system prompts from folder if specified and not already provided
+        if config.get("meta_agent_config") and config['meta_agent_config'].get("system_prompts_folder") and not config.get("system_prompts"):
+            config['meta_agent_config']["system_prompts"] = self._load_system_prompts(config['meta_agent_config'])
+            del config['meta_agent_config']['system_prompts_folder']
+
+        # Prepare request data
+        request_data = {
+            "config": config,
+        }
+        
+        # Make API request to initialize meta agent
+        data = self._request("POST", "/agents/meta/initialize", json=request_data)
+        self._meta_agent = AgentState(**data)
+        return self._meta_agent
+    
+    def add(
+        self,
+        user_id: str,
+        messages: List[Dict[str, Any]],
+        verbose: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Add conversation turns to memory.
+        
+        This method processes conversation turns (user and assistant messages)
+        and stores them in the appropriate memory systems.
+        
+        Args:
+            user_id: User ID for the conversation
+            messages: List of message dicts with role and content.
+                     Messages should end with an assistant turn.
+                     Format: [
+                         {"role": "user", "content": [{"type": "text", "text": "..."}]},
+                         {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
+                     ]
+            verbose: If True, print verbose output during memory processing
+        
+        Returns:
+            Dict containing success status and any relevant information
+            
+        Example:
+            >>> client.add(
+            ...     user_id='user_123',
+            ...     messages=[
+            ...         {"role": "user", "content": [{"type": "text", "text": "I went to dinner"}]},
+            ...         {"role": "assistant", "content": [{"type": "text", "text": "That's great!"}]}
+            ...     ],
+            ...     verbose=True
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        request_data = {
+            "user_id": user_id,
+            "meta_agent_id": self._meta_agent.id,
+            "messages": messages,
+            "verbose": verbose,
+        }
+        
+        return self._request("POST", "/memory/add", json=request_data)
+    
+    def retrieve_with_conversation(
+        self,
+        user_id: str,
+        messages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Retrieve relevant memories based on conversation context.
+        
+        This method analyzes the conversation and retrieves relevant memories
+        from all memory systems.
+        
+        Args:
+            user_id: User ID for the conversation
+            messages: List of message dicts with role and content.
+                     Messages should end with a user turn.
+                     Format: [
+                         {"role": "user", "content": [{"type": "text", "text": "..."}]}
+                     ]
+        
+        Returns:
+            Dict containing retrieved memories organized by type
+            
+        Example:
+            >>> memories = client.retrieve_with_conversation(
+            ...     user_id='user_123',
+            ...     messages=[
+            ...         {"role": "user", "content": [{"type": "text", "text": "Where did I go yesterday?"}]}
+            ...     ]
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        request_data = {
+            "user_id": user_id,
+            "messages": messages,
+        }
+        
+        return self._request("POST", "/memory/retrieve/conversation", json=request_data)
+    
+    def retrieve_with_topic(
+        self,
+        user_id: str,
+        topic: str,
+    ) -> Dict[str, Any]:
+        """
+        Retrieve relevant memories based on a topic.
+        
+        This method searches for memories related to a specific topic or keyword.
+        
+        Args:
+            user_id: User ID for the conversation
+            topic: Topic or keyword to search for
+        
+        Returns:
+            Dict containing retrieved memories organized by type
+            
+        Example:
+            >>> memories = client.retrieve_with_topic(
+            ...     user_id='user_123',
+            ...     topic="dinner"
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        params = {
+            "user_id": user_id,
+            "topic": topic,
+        }
+        
+        return self._request("GET", "/memory/retrieve/topic", params=params)
+    
+    def search(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Search for memories using semantic search.
+        
+        This method performs a semantic search across all memory types.
+        
+        Args:
+            user_id: User ID for the conversation
+            query: Search query
+            limit: Maximum number of results to return
+        
+        Returns:
+            Dict containing search results
+            
+        Example:
+            >>> results = client.search(
+            ...     user_id='user_123',
+            ...     query="restaurants",
+            ...     limit=5
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        params = {
+            "user_id": user_id,
+            "query": query,
+            "limit": limit,
+        }
+        
+        return self._request("GET", "/memory/search", params=params)
+
+    # ========================================================================
+    # LangChain/Composio/CrewAI Integration (Not Supported)
+    # ========================================================================
+
+    def load_langchain_tool(
+        self,
+        langchain_tool: "LangChainBaseTool",
+        additional_imports_module_attr_map: dict[str, str] = None,
+    ) -> Tool:
+        """Load LangChain tool."""
+        raise NotImplementedError(
+            "load_langchain_tool not supported in MirixClient. "
+            "Tools must be created on the server side."
+        )
+
+    def load_composio_tool(self, action: "ActionType") -> Tool:
+        """Load Composio tool."""
+        raise NotImplementedError(
+            "load_composio_tool not supported in MirixClient. "
+            "Tools must be created on the server side."
+        )
+

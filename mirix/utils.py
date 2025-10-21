@@ -38,6 +38,9 @@ from mirix.constants import (
 )
 from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
+from mirix.schemas.mirix_message_content import TextContent, ImageContent, FileContent, CloudFileContent
+from mirix.schemas.message import MessageCreate, MessageRole
+
 
 DEBUG = False
 if "LOG_LEVEL" in os.environ:
@@ -1572,3 +1575,111 @@ def generate_unique_short_id(
 
     # If we can't find a unique ID after max_attempts, fall back to longer ID
     return generate_short_id(prefix, length + 2)
+
+def convert_message_to_mirix_message(message: List[dict], role='user') -> List:
+    if isinstance(message, str):
+        content = [TextContent(text=message)]
+        input_messages = [
+            MessageCreate(role=MessageRole(role), content=content, name=name)
+        ]
+    elif isinstance(message, list):
+
+        def convert_message(m):
+            if m["type"] == "text":
+                return TextContent(**m)
+            elif m["type"] == "image_url":
+                url = m["image_url"]["url"]
+                detail = m["image_url"].get("detail", "auto")
+
+                # Handle the image based on URL type
+                if url.startswith("data:"):
+                    # Base64 encoded image - save locally
+                    file_metadata = self._save_image_from_base64(url, detail)
+                else:
+                    # HTTP URL - just create FileMetadata without downloading
+                    file_metadata = self._create_file_metadata_from_url(url, detail)
+
+                return ImageContent(
+                    type=MessageContentType.image_url,
+                    image_id=file_metadata.id,
+                    detail=detail,
+                )
+
+            elif m["type"] == "image_data":
+                # Base64 image data (new format)
+                data = m["image_data"]["data"]
+                detail = m["image_data"].get("detail", "auto")
+
+                # Save the base64 image to file_manager
+                file_metadata = self._save_image_from_base64(data, detail)
+
+                return ImageContent(
+                    type=MessageContentType.image_url,
+                    image_id=file_metadata.id,
+                    detail=detail,
+                )
+            elif m["type"] == "file_uri":
+                # File URI (local file path)
+                file_path = m["file_uri"]
+
+                # Check if it's an image or other file type
+                file_type = self._determine_file_type(file_path)
+
+                if file_type.startswith("image/"):
+                    # Handle as image
+                    file_metadata = self._save_image_from_file_uri(file_path)
+                    return ImageContent(
+                        type=MessageContentType.image_url,
+                        image_id=file_metadata.id,
+                        detail="auto",
+                    )
+                else:
+                    # Handle as general file (e.g., PDF, DOC, etc.)
+                    file_metadata = self._save_file_from_path(file_path)
+                    return FileContent(
+                        type=MessageContentType.file_uri, file_id=file_metadata.id
+                    )
+
+            elif m["type"] == "google_cloud_file_uri":
+                # Google Cloud file URI
+                # Handle both the typo version and the correct version from the test file
+                file_uri = m.get("google_cloud_file_uri") or m.get("file_uri")
+
+                file_metadata = self._save_image_from_google_cloud_uri(file_uri)
+                return CloudFileContent(
+                    type=MessageContentType.google_cloud_file_uri,
+                    cloud_file_uri=file_metadata.id,
+                )
+
+            elif m["type"] == "database_image_id":
+                return ImageContent(
+                    type=MessageContentType.image_url,
+                    image_id=m["image_id"],
+                    detail="auto",
+                )
+
+            elif m["type"] == "database_file_id":
+                return FileContent(
+                    type=MessageContentType.file_uri,
+                    file_id=m["file_id"],
+                )
+
+            elif m["type"] == "database_google_cloud_file_uri":
+                return CloudFileContent(
+                    type=MessageContentType.google_cloud_file_uri,
+                    cloud_file_uri=m["cloud_file_uri"],
+                )
+
+            else:
+                raise ValueError(f"Unknown message type: {m['type']}")
+
+        content = [convert_message(m) for m in message]
+        input_messages = [
+            MessageCreate(role=MessageRole(role), content=content)
+        ]
+
+    else:
+        raise ValueError(f"Invalid message type: {type(message)}")
+
+    return input_messages
+
