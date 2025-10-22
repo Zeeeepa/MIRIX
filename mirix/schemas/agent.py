@@ -301,10 +301,6 @@ class CreateMetaAgent(BaseModel):
         ],
         description="List of memory agent names or dicts with agent configs. Supports both 'agent_name' strings and {'agent_name': {'blocks': [...], ...}} dicts.",
     )
-    system_prompts_folder: Optional[str] = Field(
-        None,
-        description="Custom folder path for system prompts. If None, uses default prompts.",
-    )
     system_prompts: Optional[Dict[str, str]] = Field(
         None,
         description="Dictionary mapping agent names to their system prompt text. Takes precedence over system_prompts_folder.",
@@ -318,50 +314,32 @@ class CreateMetaAgent(BaseModel):
         description="Embedding configuration for memory agents. Required if no default is set.",
     )
 
-    def model_post_init(self, __context):
-        """Load system prompts from folder after initialization."""
-        if self.system_prompts_folder is not None and self.system_prompts is None:
-            self.system_prompts = self._load_system_prompts()
+class UpdateMetaAgent(BaseModel):
+    """Request schema for updating a MetaAgent."""
 
-    def _load_system_prompts(self) -> Dict[str, str]:
-        """Load all system prompts from the system_prompts_folder.
+    name: Optional[str] = Field(
+        None,
+        description="Optional new name for the MetaAgent.",
+    )
+    agents: Optional[List[Union[str, Dict[str, Any]]]] = Field(
+        None,
+        description="List of memory agent names or dicts with agent configs. Will be compared with existing agents to determine what to add/remove.",
+    )
+    system_prompts: Optional[Dict[str, str]] = Field(
+        None,
+        description="Dictionary mapping agent names to their system prompt text. Updates only the specified agents.",
+    )
+    llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="LLM configuration for meta agent and its sub-agents.",
+    )
+    embedding_config: Optional[EmbeddingConfig] = Field(
+        None,
+        description="Embedding configuration for meta agent and its sub-agents.",
+    )
 
-        Returns:
-            Dict mapping agent names to their prompt text
-        """
-        import os
-
-        prompts = {}
-
-        if not self.system_prompts_folder:
-            return prompts
-
-        # Load prompts for each agent
-        for agent_item in self.agents:
-            # Extract agent name from string or dict
-            if isinstance(agent_item, str):
-                agent_name = agent_item
-            elif isinstance(agent_item, dict):
-                agent_name = list(agent_item.keys())[0]
-            else:
-                continue
-                
-            prompt_file = os.path.join(self.system_prompts_folder, f"{agent_name}.txt")
-
-            if os.path.exists(prompt_file):
-                try:
-                    with open(prompt_file, "r", encoding="utf-8") as f:
-                        prompts[agent_name] = f.read()
-                except Exception as e:
-                    # Log warning but continue
-                    import logging
-
-                    logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"Failed to load system prompt for {agent_name} from {prompt_file}: {e}"
-                    )
-
-        return prompts
+    class Config:
+        extra = "ignore"  # Ignores extra fields
 
 
 class AgentStepResponse(BaseModel):

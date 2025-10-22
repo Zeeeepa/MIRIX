@@ -765,6 +765,7 @@ class MirixClient(AbstractClient):
         self,
         config: Optional[Dict[str, Any]] = None,
         config_path: Optional[str] = None,
+        update_agents: Optional[bool] = False,
     ) -> AgentState:
         """
         Initialize a meta agent with the given configuration.
@@ -808,6 +809,7 @@ class MirixClient(AbstractClient):
         # Prepare request data
         request_data = {
             "config": config,
+            "update_agents": update_agents,
         }
         
         # Make API request to initialize meta agent

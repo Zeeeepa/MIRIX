@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 def load_config() -> dict:
     """Load configuration from mirix_openai.yaml file."""
-    with open("mirix/configs/examples/mirix_openai.yaml", "r") as f:
+    # with open("mirix/configs/examples/mirix_openai.yaml", "r") as f:
+    with open("mirix/configs/examples/mirix_gemini.yaml", "r") as f:
         return yaml.safe_load(f)
 
 def add_memory(client, memory_type="meta_memory", content=""):
@@ -134,7 +135,7 @@ def main():
 
     config = load_config()
 
-    client.initialize_meta_agent(config=config)
+    client.initialize_meta_agent(config=config, update_agents=True)
 
     result = client.add(
         user_id=user_id,

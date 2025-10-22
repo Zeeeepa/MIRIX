@@ -733,6 +733,7 @@ class InitializeMetaAgentRequest(BaseModel):
 
     config: Dict[str, Any]
     project: Optional[str] = None
+    update_agents: Optional[bool] = False
 
 
 @app.post("/agents/meta/initialize", response_model=AgentState)
@@ -779,6 +780,16 @@ async def initialize_meta_agent(
 
     if len(existing_meta_agents) == 1:
         meta_agent = existing_meta_agents[0]
+        
+        # Only update the meta agent if update_agents is True
+        if request.update_agents:
+            from mirix.schemas.agent import UpdateMetaAgent
+            # Update the existing meta agent
+            meta_agent = server.agent_manager.update_meta_agent(
+                meta_agent_id=meta_agent.id,
+                meta_agent_update=UpdateMetaAgent(**create_params),
+                actor=user
+            )
     else:
         from mirix.schemas.agent import CreateMetaAgent
         meta_agent = server.agent_manager.create_meta_agent(meta_agent_create=CreateMetaAgent(**create_params), actor=user)
@@ -826,7 +837,7 @@ async def add_memory(
 
     input_messages = convert_message_to_mirix_message(message)
 
-    usage = await server.send_messages(
+    usage = server.send_messages(
         actor=user,
         agent_id=meta_agent.id,
         input_messages=input_messages,

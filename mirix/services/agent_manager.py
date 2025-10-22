@@ -24,7 +24,7 @@ from mirix.orm import Tool as ToolModel
 from mirix.orm.enums import ToolType
 from mirix.orm.errors import NoResultFound
 from mirix.schemas.agent import AgentState as PydanticAgentState
-from mirix.schemas.agent import AgentType, CreateAgent, CreateMetaAgent, UpdateAgent
+from mirix.schemas.agent import AgentType, CreateAgent, CreateMetaAgent, UpdateAgent, UpdateMetaAgent
 from mirix.schemas.block import Block as PydanticBlock
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.llm_config import LLMConfig
@@ -298,6 +298,214 @@ class AgentManager:
                 actor=actor,
                 agent_id=meta_agent_state.id
             )
+        return meta_agent_state
+
+    def update_meta_agent(
+        self,
+        meta_agent_id: str,
+        meta_agent_update: UpdateMetaAgent,
+        actor: PydanticUser,
+    ) -> PydanticAgentState:
+        """
+        Update an existing meta agent and its sub-agents.
+
+        Args:
+            meta_agent_id: ID of the meta agent to update
+            meta_agent_update: UpdateMetaAgent schema with fields to update
+            actor: User performing the action
+
+        Returns:
+            PydanticAgentState: The updated meta agent state with children
+        """
+        # Get the existing meta agent
+        meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
+        
+        # Verify this is actually a meta_memory_agent
+        if meta_agent_state.agent_type != AgentType.meta_memory_agent:
+            raise ValueError(f"Agent {meta_agent_id} is not a meta_memory_agent")
+
+        # Map agent names to their corresponding AgentType
+        agent_name_to_type = {
+            "core_memory_agent": AgentType.core_memory_agent,
+            "resource_memory_agent": AgentType.resource_memory_agent,
+            "semantic_memory_agent": AgentType.semantic_memory_agent,
+            "episodic_memory_agent": AgentType.episodic_memory_agent,
+            "procedural_memory_agent": AgentType.procedural_memory_agent,
+            "knowledge_vault_agent": AgentType.knowledge_vault_agent,
+            "meta_memory_agent": AgentType.meta_memory_agent,
+            "reflexion_agent": AgentType.reflexion_agent,
+            "background_agent": AgentType.background_agent,
+            "chat_agent": AgentType.chat_agent,
+        }
+
+        # Load default system prompts from base folder
+        default_system_prompts = {}
+        base_prompts_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), 
+            "prompts", 
+            "system", 
+            "base"
+        )
+        
+        for filename in os.listdir(base_prompts_dir):
+            if filename.endswith(".txt"):
+                agent_name = filename[:-4]  # Strip .txt suffix
+                prompt_file = os.path.join(base_prompts_dir, filename)
+                with open(prompt_file, "r", encoding="utf-8") as f:
+                    default_system_prompts[agent_name] = f.read()
+
+        # Build update fields for meta agent
+        meta_agent_update_fields = {}
+        if meta_agent_update.name is not None:
+            meta_agent_update_fields["name"] = meta_agent_update.name
+        if meta_agent_update.llm_config is not None:
+            meta_agent_update_fields["llm_config"] = meta_agent_update.llm_config
+        if meta_agent_update.embedding_config is not None:
+            meta_agent_update_fields["embedding_config"] = meta_agent_update.embedding_config
+        
+        # Update meta agent with all fields at once
+        if meta_agent_update_fields:
+            self.update_agent(
+                agent_id=meta_agent_id,
+                agent_update=UpdateAgent(**meta_agent_update_fields),
+                actor=actor,
+            )
+            meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
+
+        # Update meta agent's system prompt if provided (separate call needed for rebuild_system_prompt)
+        if meta_agent_update.system_prompts and "meta_memory_agent" in meta_agent_update.system_prompts:
+            self.update_system_prompt(
+                agent_id=meta_agent_id,
+                system_prompt=meta_agent_update.system_prompts["meta_memory_agent"],
+                actor=actor,
+            )
+            meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
+
+        # Get existing sub-agents
+        existing_children = self.list_agents(actor=actor, parent_id=meta_agent_id)
+        existing_agent_names = set()
+        existing_agents_by_name = {}
+        
+        # for child in existing_children:
+        #     # Extract agent type name from the full name (e.g., "meta_memory_agent_core_memory_agent" -> "core_memory_agent")
+        #     for agent_type_name in agent_name_to_type.keys():
+        #         if agent_type_name in child.name:
+        #             existing_agent_names.add(agent_type_name)
+        #             existing_agents_by_name[agent_type_name] = child
+        #             break
+        existing_agent_names = set([child.name.replace("meta_memory_agent_", "") for child in existing_children])
+        existing_agents_by_name = {child.name.replace("meta_memory_agent_", ""): child for child in existing_children}
+
+        # If agents list is provided, determine what needs to be created or deleted
+        if meta_agent_update.agents is not None:
+            # Parse the desired agent names from the update request
+            desired_agent_names = set()
+            agent_configs = {}
+            
+            for agent_item in meta_agent_update.agents:
+                if isinstance(agent_item, str):
+                    agent_name = agent_item
+                    agent_configs[agent_name] = {}
+                elif isinstance(agent_item, dict):
+                    agent_name = list(agent_item.keys())[0]
+                    agent_configs[agent_name] = agent_item[agent_name] or {}
+                else:
+                    logger.warning(f"Invalid agent item format: {agent_item}, skipping...")
+                    continue
+                
+                # Skip meta_memory_agent as it's the parent
+                if agent_name != "meta_memory_agent":
+                    desired_agent_names.add(agent_name)
+
+            # Determine agents to create and delete
+            agents_to_create = desired_agent_names - existing_agent_names
+            agents_to_delete = existing_agent_names - desired_agent_names
+
+            # Delete agents that are no longer needed
+            for agent_name in agents_to_delete:
+                if agent_name in existing_agents_by_name:
+                    child_agent = existing_agents_by_name[agent_name]
+                    logger.info(f"Deleting sub-agent: {agent_name} with id: {child_agent.id}")
+                    self.delete_agent(agent_id=child_agent.id, actor=actor)
+
+            # Create new agents
+            for agent_name in agents_to_create:
+                agent_type = agent_name_to_type.get(agent_name)
+                if not agent_type:
+                    logger.warning(f"Unknown agent type: {agent_name}, skipping...")
+                    continue
+
+                # Get custom system prompt if provided, fallback to default
+                custom_system = None
+                if meta_agent_update.system_prompts and agent_name in meta_agent_update.system_prompts:
+                    custom_system = meta_agent_update.system_prompts[agent_name]
+                elif agent_name in default_system_prompts:
+                    custom_system = default_system_prompts[agent_name]
+
+                # Use the updated configs or fall back to meta agent's configs
+                llm_config = meta_agent_update.llm_config or meta_agent_state.llm_config
+                embedding_config = meta_agent_update.embedding_config or meta_agent_state.embedding_config
+
+                # Create the agent using CreateAgent schema with parent_id
+                agent_create = CreateAgent(
+                    name=f"{meta_agent_state.name}_{agent_name}",
+                    agent_type=agent_type,
+                    system=custom_system,
+                    llm_config=llm_config,
+                    embedding_config=embedding_config,
+                    include_base_tools=True,
+                    parent_id=meta_agent_id,
+                )
+
+                # Create the agent
+                new_agent_state = self.create_agent(
+                    agent_create=agent_create,
+                    actor=actor,
+                )
+                existing_agents_by_name[agent_name] = new_agent_state
+                logger.info(
+                    f"Created sub-agent: {agent_name} with id: {new_agent_state.id}, parent_id: {meta_agent_id}"
+                )
+
+        # Update system prompts for existing sub-agents
+        if meta_agent_update.system_prompts:
+            for agent_name, system_prompt in meta_agent_update.system_prompts.items():
+                # Skip meta_memory_agent as we already updated it
+                if agent_name == "meta_memory_agent":
+                    continue
+                
+                if agent_name in existing_agents_by_name:
+                    child_agent = existing_agents_by_name[agent_name]
+                    if child_agent.system != system_prompt:
+                        logger.info(f"Updating system prompt for sub-agent: {agent_name}")
+                        self.update_system_prompt(
+                            agent_id=child_agent.id,
+                            system_prompt=system_prompt,
+                            actor=actor,
+                        )
+
+        # Update llm_config and embedding_config for all sub-agents if provided
+        if meta_agent_update.llm_config or meta_agent_update.embedding_config:
+            for agent_name, child_agent in existing_agents_by_name.items():
+                update_fields = {}
+                if meta_agent_update.llm_config is not None:
+                    update_fields["llm_config"] = meta_agent_update.llm_config
+                if meta_agent_update.embedding_config is not None:
+                    update_fields["embedding_config"] = meta_agent_update.embedding_config
+                
+                if update_fields:
+                    logger.info(f"Updating configs for sub-agent: {agent_name}")
+                    self.update_agent(
+                        agent_id=child_agent.id,
+                        agent_update=UpdateAgent(**update_fields),
+                        actor=actor,
+                    )
+
+        # Refresh the meta agent state with updated children
+        meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
+        updated_children = self.list_agents(actor=actor, parent_id=meta_agent_id)
+        meta_agent_state.children = updated_children
+
         return meta_agent_state
 
     def update_agent_tools_and_system_prompts(
