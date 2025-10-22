@@ -614,23 +614,14 @@ class SyncServer(Server):
         actor: User,
         agent_id: str,
         input_messages: Union[Message, List[Message]],
-        interface: Union[AgentInterface, None] = None,  # needed to getting responses
-        put_inner_thoughts_first: bool = True,
-        existing_file_uris: Optional[List[str]] = None,
-        force_response: bool = False,
-        display_intermediate_message: any = None,
-        request_user_confirmation: any = None,
         chaining: Optional[bool] = None,
-        extra_messages: Optional[List[dict]] = None,
-        message_queue: Optional[any] = None,
-        retrieved_memories: Optional[dict] = None,
     ) -> MirixUsageStatistics:
         """Send the input message through the agent"""
         logger.debug(f"Got input messages: {input_messages}")
         mirix_agent = None
         try:
             mirix_agent = self.load_agent(
-                agent_id=agent_id, interface=interface, actor=actor
+                agent_id=agent_id, interface=None, actor=actor
             )
 
             if mirix_agent is None:
@@ -646,12 +637,6 @@ class SyncServer(Server):
             )
 
             logger.debug("Starting agent step")
-            if interface:
-                metadata = (
-                    interface.metadata if hasattr(interface, "metadata") else None
-                )
-            else:
-                metadata = None
 
             # Use provided chaining value or fall back to server default
             effective_chaining = chaining if chaining is not None else self.chaining
@@ -670,14 +655,6 @@ class SyncServer(Server):
                 max_chaining_steps=self.max_chaining_steps,
                 stream=token_streaming,
                 skip_verify=True,
-                metadata=metadata,
-                force_response=force_response,
-                existing_file_uris=existing_file_uris,
-                display_intermediate_message=display_intermediate_message,
-                request_user_confirmation=request_user_confirmation,
-                put_inner_thoughts_first=put_inner_thoughts_first,
-                extra_messages=extra_messages,
-                message_queue=message_queue,
                 user_id=actor.id,
             )
 
@@ -804,13 +781,13 @@ class SyncServer(Server):
         elif command.lower() == "contine_chaining":
             input_message = system.get_contine_chaining()
             usage = self._step(
-                actor=actor, agent_id=agent_id, input_message=input_message
+                actor=actor, agent_id=agent_id, input_messages=input_message
             )
 
         elif command.lower() == "memorywarning":
             input_message = system.get_token_limit_warning()
             usage = self._step(
-                actor=actor, agent_id=agent_id, input_message=input_message
+                actor=actor, agent_id=agent_id, input_messages=input_message
             )
 
         if not usage:
@@ -965,17 +942,7 @@ class SyncServer(Server):
         actor: User,
         agent_id: str,
         input_messages: List[MessageCreate],
-        interface: Union[AgentInterface, None] = None,  # needed for responses
-        metadata: Optional[dict] = None,  # Pass through metadata to interface
-        put_inner_thoughts_first: bool = True,
-        display_intermediate_message: callable = None,
-        request_user_confirmation: callable = None,
-        force_response: bool = False,
         chaining: Optional[bool] = True,
-        existing_file_uris: Optional[List[str]] = None,
-        extra_messages: Optional[List[dict]] = None,
-        message_queue: Optional[any] = None,
-        retrieved_memories: Optional[dict] = None,
         verbose: Optional[bool] = None,
     ) -> MirixUsageStatistics:
         """Send a list of messages to the agent."""
@@ -992,25 +959,12 @@ class SyncServer(Server):
             os.environ["MIRIX_VERBOSE"] = "true" if verbose else "false"
 
         try:
-            # Store metadata in interface if provided
-            if metadata and hasattr(interface, "metadata"):
-                interface.metadata = metadata
-
             # Run the agent state forward
             return self._step(
                 actor=actor,
                 agent_id=agent_id,
                 input_messages=input_messages,
-                interface=interface,
-                force_response=force_response,
-                put_inner_thoughts_first=put_inner_thoughts_first,
-                display_intermediate_message=display_intermediate_message,
-                request_user_confirmation=request_user_confirmation,
                 chaining=chaining,
-                existing_file_uris=existing_file_uris,
-                extra_messages=extra_messages,
-                message_queue=message_queue,
-                retrieved_memories=retrieved_memories,
             )
         finally:
             # Restore the old VERBOSE state if it was modified
@@ -1060,50 +1014,6 @@ class SyncServer(Server):
         # Invoke manager
         return self.agent_manager.create_agent(
             agent_create=request,
-            actor=actor,
-        )
-
-    def create_meta_agent(
-        self,
-        request: CreateMetaAgent,
-        actor: User,
-        interface: Union[AgentInterface, None] = None,
-    ) -> Dict[str, AgentState]:
-        """Create a new MetaAgent for memory management operations.
-
-        Args:
-            request (CreateMetaAgent): Configuration for creating the MetaAgent
-            actor (User): The user creating the meta agent
-            interface (AgentInterface): Optional interface for agent interactions
-
-        Returns:
-            Dict[str, AgentState]: Dictionary mapping agent names to their agent states
-        """
-
-        from mirix.schemas.memory import ChatMemory
-
-        # Handle LLM config
-        if request.llm_config is None:
-            raise ValueError("Must specify llm_config in CreateMetaAgent request")
-
-        # Handle embedding config
-        if request.embedding_config is None:
-            raise ValueError("Must specify embedding_config in CreateMetaAgent request")
-
-        # Create default memory
-        memory = ChatMemory(
-            human="",
-            persona="You are a memory management system that processes and stores information efficiently.",
-            actor=actor,
-        )
-
-        request.memory_blocks = memory.get_blocks()
-
-        # Create or update memory blocks through block_manager
-        for block in memory.get_blocks():
-            self.block_manager.create_or_update_block(block, actor=actor)
-        return self.agent_manager.create_meta_agent(
-            meta_agent_create=request,
             actor=actor,
         )
 

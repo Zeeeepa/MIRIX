@@ -178,10 +178,12 @@ class AbstractClient(object):
         message: str,
         role: str,
         agent_id: Optional[str] = None,
+        agent_name: Optional[str] = None,
         name: Optional[str] = None,
-        stream: Optional[bool] = False,
         stream_steps: bool = False,
         stream_tokens: bool = False,
+        chaining: Optional[bool] = None,
+        verbose: Optional[bool] = None,
     ) -> MirixResponse:
         raise NotImplementedError
 
@@ -938,9 +940,6 @@ class LocalClient(AbstractClient):
         Returns:
             MetaAgent: The initialized MetaAgent instance
         """
-
-        import ipdb; ipdb.set_trace()
-
         # Create MetaAgent through server
         return self.server.create_meta_agent(
             request=CreateMetaAgent(**config),
@@ -1211,7 +1210,7 @@ class LocalClient(AbstractClient):
         usage = self.server.send_messages(
             actor=self.server.user_manager.get_user_by_id(self.user.id),
             agent_id=agent_id,
-            messages=messages,
+            input_messages=messages,
         )
 
         # format messages
@@ -1226,15 +1225,7 @@ class LocalClient(AbstractClient):
         agent_name: Optional[str] = None,
         stream_steps: bool = False,
         stream_tokens: bool = False,
-        force_response: bool = False,
-        existing_file_uris: Optional[List[str]] = None,
-        extra_messages: Optional[List[dict]] = None,
-        display_intermediate_message: any = None,
-        request_user_confirmation: any = None,
         chaining: Optional[bool] = None,
-        message_queue: Optional[any] = None,
-        retrieved_memories: Optional[dict] = None,
-        user_id: Optional[str] = None,
         verbose: Optional[bool] = None,
     ) -> MirixResponse:
         """
@@ -1245,8 +1236,8 @@ class LocalClient(AbstractClient):
             role (str): Role of the message
             agent_id (str): ID of the agent
             name(str): Name of the sender
-            stream (bool): Stream the response (default: `False`)
-            extra_message (str): Extra message to send. It will be inserted before the last message
+            stream_steps (bool): Stream the steps (default: `False`)
+            stream_tokens (bool): Stream the tokens (default: `False`)
             chaining (bool): Whether to enable chaining for this message
             verbose (bool): Whether to print verbose logging (default: `None`, which inherits from MIRIX_VERBOSE env var)
 
@@ -1381,14 +1372,7 @@ class LocalClient(AbstractClient):
             actor=self.server.user_manager.get_user_by_id(self.user.id),
             agent_id=agent_id,
             input_messages=input_messages,
-            force_response=force_response,
-            display_intermediate_message=display_intermediate_message,
-            request_user_confirmation=request_user_confirmation,
             chaining=chaining,
-            existing_file_uris=existing_file_uris,
-            extra_messages=extra_messages,
-            message_queue=message_queue,
-            user_id=user_id,
             verbose=verbose,
         )
 

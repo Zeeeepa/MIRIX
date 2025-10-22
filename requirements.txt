@@ -50,3 +50,6 @@ ruff
 nodeenv
 pyright
 pytest
+pytest-cov
+pyyaml
+requests

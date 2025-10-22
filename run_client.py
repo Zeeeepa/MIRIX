@@ -11,8 +11,6 @@ Prerequisites:
 import logging
 import os
 
-import yaml
-
 from mirix.schemas.agent import AgentType
 from mirix.client import MirixClient
 
@@ -23,104 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> dict:
-    """Load configuration from mirix_openai.yaml file."""
-    # with open("mirix/configs/examples/mirix_openai.yaml", "r") as f:
-    with open("mirix/configs/examples/mirix_gemini.yaml", "r") as f:
-        return yaml.safe_load(f)
-
-def add_memory(client, memory_type="meta_memory", content=""):
-    """
-    Add a memory by sending a message to a specific memory agent.
-
-    Args:
-        client: Mirix client instance
-        memory_type: Type of memory ("meta_memory", "episodic", "semantic", etc.)
-        content: Memory content to add
-
-    Returns:
-        Response from the agent
-    """
-    # Map memory_type to agent names
-    memory_type_to_agent = {
-        "meta_memory": "meta_memory_agent",
-        "episodic": "episodic_memory_agent",
-        "semantic": "semantic_memory_agent",
-        "procedural": "procedural_memory_agent",
-        "resource": "resource_memory_agent",
-        "knowledge_vault": "knowledge_vault_agent",
-        "core": "core_memory_agent",
-    }
-
-    agent_name = memory_type_to_agent.get(memory_type, "meta_memory_agent")
-
-    # Get the target agent
-    agents = client.list_agents()
-    target_agent = next((a for a in agents if a.name == agent_name), None)
-
-    if not target_agent:
-        logger.error(f"Agent {agent_name} not found")
-        return None
-
-    logger.info(f"Adding memory to {agent_name}: {content[:100]}...")
-
-    # Send message to appropriate memory agent via client
-    response = client.send_message(
-        agent_id=target_agent.id, message=content, role="user"
-    )
-
-    logger.info("Memory added successfully")
-    return response
-
-
-def retrieve_memory(client, query, memory_type="meta_memory"):
-    """
-    Retrieve memories by querying a specific memory agent.
-
-    Args:
-        client: Mirix client instance
-        query: Query string to retrieve relevant memories
-        memory_type: Type of memory to query
-
-    Returns:
-        Response from the agent
-    """
-    # Map memory_type to agent names
-    memory_type_to_agent = {
-        "meta_memory": "meta_memory_agent",
-        "episodic": "episodic_memory_agent",
-        "semantic": "semantic_memory_agent",
-        "procedural": "procedural_memory_agent",
-        "resource": "resource_memory_agent",
-        "knowledge_vault": "knowledge_vault_agent",
-        "core": "core_memory_agent",
-    }
-
-    agent_name = memory_type_to_agent.get(memory_type, "meta_memory_agent")
-
-    # Get the target agent
-    agents = client.list_agents()
-    target_agent = next((a for a in agents if a.name == agent_name), None)
-
-    if not target_agent:
-        logger.error(f"Agent {agent_name} not found")
-        return None
-
-    logger.info(f"Retrieving memories from {agent_name} with query: {query[:100]}...")
-
-    # Send query to appropriate memory agent via client
-    response = client.send_message(
-        agent_id=target_agent.id,
-        message=f"Retrieve relevant information about: {query}",
-        role="user",
-    )
-
-    logger.info("Memory retrieval completed")
-    return response
-
-
 def main():
-    
     
     # Create MirixClient (connects to server via REST API)
     user_id = 'demo-user'
@@ -133,30 +34,32 @@ def main():
         debug=True,
     )
 
-    config = load_config()
+    client.initialize_meta_agent(
+        # config_path="mirix/configs/examples/mirix_gemini.yaml",
+        config_path="mirix/configs/examples/mirix_openai.yaml",
+        update_agents=False
+    )
 
-    client.initialize_meta_agent(config=config, update_agents=False)
-
-    # result = client.add(
-    #     user_id=user_id,
-    #     messages=[
-    #         {
-    #             "role": "user",
-    #             "content": [{
-    #                 "type": "text",
-    #                 "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-    #             }]
-    #         },
-    #         {
-    #             "role": "assistant",
-    #             "content": [{
-    #                 "type": "text",
-    #                 "text": "I've recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday."
-    #             }]
-    #         }
-    #     ]
-    # )
-    # print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    result = client.add(
+        user_id=user_id,
+        messages=[
+            {
+                "role": "user",
+                "content": [{
+                    "type": "text",
+                    "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+                }]
+            },
+            {
+                "role": "assistant",
+                "content": [{
+                    "type": "text",
+                    "text": "I've recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday."
+                }]
+            }
+        ]
+    )
+    print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
     # 4. Example: Retrieve memories using new API
     print("Step 4: Retrieving memories with conversation context...")

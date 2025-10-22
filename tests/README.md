@@ -1,77 +1,83 @@
 # Mirix Tests
 
-Simple testing setup using pytest.
+## Setup
 
-## Structure
-
-- `test_basic.py` - Unit tests (no API keys needed)
-- `test_api.py` - API integration tests (requires API keys, auto-skipped if not available)
-- `test_sdk.py` - Your existing SDK tests (optional)
-- `test_memory.py` - Your existing memory tests (optional)
-
-## Quick Start
-
-### Install dependencies
 ```bash
+# Install dependencies
 pip install -e .
-pip install pytest pytest-cov python-dotenv
+
+# Set API key
+export GEMINI_API_KEY=your_api_key_here
+# Or on Windows:
+# set GEMINI_API_KEY=your_api_key_here
 ```
 
-### Run all tests
+## Test Files Overview
+
+| File | Tests | Type | Speed | Description |
+|------|-------|------|-------|-------------|
+| `test_memory_server.py` | 18 | Unit | Fast (~20s) | Direct `SyncServer()` calls, no network |
+| `test_memory_integration.py` | 22 | Integration | Slow (~2-5min) | REST API via real server + client |
+
+## Run Tests
+
 ```bash
-pytest
-```
-
-### Run specific tests
-```bash
-# Just unit tests (fast, no API key needed)
-pytest tests/test_basic.py
-
-# Just API tests (needs API key)
-pytest tests/test_api.py
-
-# With verbose output
+# Run all tests (server + integration)
 pytest -v
+
+# Server-side tests only (fast, no real server needed)
+pytest tests/test_memory_server.py -v
+
+# Integration tests only (requires server startup)
+pytest tests/test_memory_integration.py -v -m integration -s
+
+# Skip integration tests (runs server tests only)
+pytest -m "not integration" -v
+```
+
+## Test Coverage
+
+Both test files cover all 5 memory types with comprehensive search testing:
+
+### Memory Operations
+- ✅ **Episodic Memory**: Insert events, search by summary/details (bm25, embedding)
+- ✅ **Procedural Memory**: Insert procedures, search by summary/steps (bm25, embedding)
+- ✅ **Resource Memory**: Insert resources, search by summary (bm25, embedding) / content (bm25 only)
+- ✅ **Knowledge Vault**: Insert knowledge, search by caption (bm25, embedding) / secret_value (bm25)
+- ✅ **Semantic Memory**: Insert items, search by name/summary/details (bm25, embedding)
+
+### Search Methods
+- **BM25**: Fast keyword-based ranking search
+- **Embedding**: Vector similarity search for semantic matches
+- **All Types**: Cross-memory search across all 5 memory types
+
+## Prerequisites
+
+**Important**: Server-side tests require existing agents in the database.
+
+### Initial Setup (one-time)
+```bash
+# Terminal 1: Start server
+python scripts/start_server.py
+
+# Terminal 2: Start client (this creates demo-user and initializes agents)
+python run_client.py
+```
+
+This creates the `demo-user` in `demo-org` organization with all required memory agents.
+
+## Common Options
+
+```bash
+# Show print statements
+pytest -v -s
+
+# Run specific test
+pytest tests/test_memory_server.py::TestDirectEpisodicMemory::test_insert_event -v
 
 # With coverage
 pytest --cov=mirix --cov-report=html
+
+# Debug on failure
+pytest --pdb
 ```
-
-## Setup for API Tests
-
-Create a `.env` file in the project root:
-```env
-GEMINI_API_KEY=your_api_key_here
-```
-
-Tests that need API keys will automatically skip if keys aren't available.
-
-## GitHub Actions
-
-Tests run automatically on every push. The workflow:
-1. Runs on Ubuntu, Windows, and macOS
-2. Tests Python 3.10, 3.11, and 3.12
-3. Runs all tests (skips API tests if no keys configured)
-
-To enable API tests in CI/CD:
-1. Go to GitHub: Settings → Secrets and variables → Actions
-2. Add secret: `GEMINI_API_KEY`
-
-## Writing Tests
-
-Use pytest fixtures and standard patterns:
-
-```python
-import pytest
-from mirix import Mirix
-
-class TestMyFeature:
-    """Test my feature."""
-    
-    def test_something(self):
-        """Test something specific."""
-        result = some_function()
-        assert result == expected
-```
-
-That's it! Keep it simple.

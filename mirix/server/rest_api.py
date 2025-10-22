@@ -394,80 +394,9 @@ async def update_agent(
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
 
-
-# ============================================================================
-# Agent Interaction Endpoints
-# ============================================================================
-
-
-class SendMessageRequest(BaseModel):
-    """Request model for sending a message to an agent."""
-
-    message: Union[str, List[Dict]]
-    role: str = "user"
-    name: Optional[str] = None
-    stream_steps: bool = False
-    stream_tokens: bool = False
-    force_response: bool = False
-    existing_file_uris: Optional[List[str]] = None
-    extra_messages: Optional[List[Dict]] = None
-
-
-@app.post("/agents/{agent_id}/messages", response_model=MirixResponse)
-async def send_message(
-    agent_id: str,
-    request: SendMessageRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
-):
-    """Send a message to an agent."""
-    server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    
-    # Import here to avoid circular imports
-    from mirix.interface import QueuingInterface
-    from mirix.schemas.enums import MessageRole
-    from mirix.schemas.mirix_message_content import TextContent
-    
-    # Create interface for this request
-    interface = QueuingInterface()
-    
-    # Prepare input messages
-    if isinstance(request.message, str):
-        content = [TextContent(text=request.message)]
-        input_messages = [
-            MessageCreate(role=MessageRole(request.role), content=content, name=request.name)
-        ]
-    else:
-        # Handle complex message types (images, files, etc.)
-        # For now, simplified implementation
-        raise HTTPException(
-            status_code=501,
-            detail="Complex message types not yet implemented in REST API",
-        )
-    
-    # Send messages
-    usage = server.send_messages(
-        actor=user,
-        agent_id=agent_id,
-        input_messages=input_messages,
-        force_response=request.force_response,
-    )
-    
-    # Get messages from interface
-    messages = interface.to_list()
-    mirix_messages = []
-    for m in messages:
-        mirix_messages.extend(m.to_mirix_message())
-    
-    return MirixResponse(messages=mirix_messages, usage=usage)
-
-
 # ============================================================================
 # Memory Endpoints
 # ============================================================================
-
 
 @app.get("/agents/{agent_id}/memory", response_model=Memory)
 async def get_agent_memory(
