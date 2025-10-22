@@ -1,4 +1,5 @@
 import os
+import datetime as dt
 from datetime import datetime
 from typing import List, Optional
 
@@ -64,7 +65,7 @@ class FileManager:
                 if hasattr(file_metadata, key) and value is not None:
                     setattr(file_metadata, key, value)
 
-            file_metadata.updated_at = datetime.utcnow()
+            file_metadata.updated_at = datetime.now(dt.UTC)
             file_metadata.update(session)
             return file_metadata.to_pydantic()
 

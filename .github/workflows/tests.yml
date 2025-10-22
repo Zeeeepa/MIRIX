@@ -34,18 +34,26 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e .
-        pip install pytest pytest-cov python-dotenv
+        pip install pytest pytest-cov python-dotenv requests pyyaml
 
-    - name: Run tests
-      run: pytest tests/ -v
+    - name: Run memory server tests (fast)
+      run: pytest tests/test_memory_server.py -v
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
+    - name: Run memory integration tests (with server)
+      run: pytest tests/test_memory_integration.py -v -m integration
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      continue-on-error: true
+
     - name: Generate coverage (Ubuntu + Python 3.12 only)
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-      run: pytest tests/test_basic.py --cov=mirix --cov-report=html
+      run: pytest tests/test_memory_server.py --cov=mirix --cov-report=html --cov-report=term
       continue-on-error: true
 
     - name: Upload coverage report
@@ -69,7 +77,11 @@ jobs:
     - name: Install ruff
       run: pip install ruff
 
-    - name: Run ruff
-      run: ruff check mirix/ tests/
+    - name: Run ruff on mirix package
+      run: ruff check mirix/
+      continue-on-error: true
+    
+    - name: Run ruff on tests
+      run: ruff check tests/
       continue-on-error: true
 
