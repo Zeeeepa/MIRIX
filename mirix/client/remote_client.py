@@ -868,6 +868,7 @@ class MirixClient(AbstractClient):
         self,
         user_id: str,
         messages: List[Dict[str, Any]],
+        limit: int = 10,
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on conversation context.
@@ -882,6 +883,7 @@ class MirixClient(AbstractClient):
                      Format: [
                          {"role": "user", "content": [{"type": "text", "text": "..."}]}
                      ]
+            limit: Maximum number of items to retrieve per memory type (default: 10)
         
         Returns:
             Dict containing retrieved memories organized by type
@@ -891,7 +893,8 @@ class MirixClient(AbstractClient):
             ...     user_id='user_123',
             ...     messages=[
             ...         {"role": "user", "content": [{"type": "text", "text": "Where did I go yesterday?"}]}
-            ...     ]
+            ...     ],
+            ...     limit=5
             ... )
         """
         if not self._meta_agent:
@@ -900,6 +903,7 @@ class MirixClient(AbstractClient):
         request_data = {
             "user_id": user_id,
             "messages": messages,
+            "limit": limit,
         }
         
         return self._request("POST", "/memory/retrieve/conversation", json=request_data)
@@ -908,6 +912,7 @@ class MirixClient(AbstractClient):
         self,
         user_id: str,
         topic: str,
+        limit: int = 10,
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on a topic.
@@ -917,6 +922,7 @@ class MirixClient(AbstractClient):
         Args:
             user_id: User ID for the conversation
             topic: Topic or keyword to search for
+            limit: Maximum number of items to retrieve per memory type (default: 10)
         
         Returns:
             Dict containing retrieved memories organized by type
@@ -924,42 +930,7 @@ class MirixClient(AbstractClient):
         Example:
             >>> memories = client.retrieve_with_topic(
             ...     user_id='user_123',
-            ...     topic="dinner"
-            ... )
-        """
-        if not self._meta_agent:
-            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
-        
-        params = {
-            "user_id": user_id,
-            "topic": topic,
-        }
-        
-        return self._request("GET", "/memory/retrieve/topic", params=params)
-    
-    def search(
-        self,
-        user_id: str,
-        query: str,
-        limit: int = 10,
-    ) -> Dict[str, Any]:
-        """
-        Search for memories using semantic search.
-        
-        This method performs a semantic search across all memory types.
-        
-        Args:
-            user_id: User ID for the conversation
-            query: Search query
-            limit: Maximum number of results to return
-        
-        Returns:
-            Dict containing search results
-            
-        Example:
-            >>> results = client.search(
-            ...     user_id='user_123',
-            ...     query="restaurants",
+            ...     topic="dinner",
             ...     limit=5
             ... )
         """
@@ -968,7 +939,80 @@ class MirixClient(AbstractClient):
         
         params = {
             "user_id": user_id,
+            "topic": topic,
+            "limit": limit,
+        }
+        
+        return self._request("GET", "/memory/retrieve/topic", params=params)
+    
+    def search(
+        self,
+        user_id: str,
+        query: str,
+        memory_type: str = "all",
+        search_field: str = "null",
+        search_method: str = "bm25",
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Search for memories using various search methods.
+        Similar to the search_in_memory tool function.
+        
+        This method performs a search across specified memory types and returns
+        a flat list of results.
+        
+        Args:
+            user_id: User ID for the conversation
+            query: Search query
+            memory_type: Type of memory to search. Options: "episodic", "resource", 
+                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+            search_field: Field to search in. Options vary by memory type:
+                         - episodic: "summary", "details"
+                         - resource: "summary", "content"
+                         - procedural: "summary", "steps"
+                         - knowledge_vault: "caption", "secret_value"
+                         - semantic: "name", "summary", "details"
+                         - For "all": use "null" (default)
+            search_method: Search method. Options: "bm25" (default), "embedding"
+            limit: Maximum number of results per memory type (default: 10)
+        
+        Returns:
+            Dict containing:
+                - success: bool
+                - query: str (the search query)
+                - memory_type: str (the memory type searched)
+                - search_field: str (the field searched)
+                - search_method: str (the search method used)
+                - results: List[Dict] (flat list of results from all memory types)
+                - count: int (total number of results)
+            
+        Example:
+            >>> # Search all memory types
+            >>> results = client.search(
+            ...     user_id='user_123',
+            ...     query="restaurants",
+            ...     limit=5
+            ... )
+            >>> print(f"Found {results['count']} results")
+            >>> 
+            >>> # Search only episodic memories in details field
+            >>> episodic_results = client.search(
+            ...     user_id='user_123',
+            ...     query="meeting",
+            ...     memory_type="episodic",
+            ...     search_field="details",
+            ...     limit=10
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        params = {
+            "user_id": user_id,
             "query": query,
+            "memory_type": memory_type,
+            "search_field": search_field,
+            "search_method": search_method,
             "limit": limit,
         }
         

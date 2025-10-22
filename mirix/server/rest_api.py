@@ -4,6 +4,8 @@ This provides HTTP endpoints that wrap the SyncServer functionality,
 allowing MirixClient instances to communicate with a cloud-hosted server.
 """
 
+import copy
+import json
 import traceback
 from typing import Any, Dict, List, Optional, Union
 
@@ -12,6 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from mirix.helpers.message_helpers import prepare_input_message_create
+from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
@@ -23,6 +27,7 @@ from mirix.schemas.environment_variables import (
 )
 from mirix.schemas.file import FileMetadata
 from mirix.schemas.llm_config import LLMConfig
+from mirix.schemas.enums import MessageRole
 from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
@@ -95,6 +100,114 @@ def get_user_and_org(
         org_id = server.organization_manager.DEFAULT_ORG_ID
     
     return user_id, org_id
+
+
+def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
+    """
+    Extract topics from a list of messages using LLM.
+
+    Args:
+        messages: List of message dictionaries (OpenAI format)
+        llm_config: LLM configuration to use for topic extraction
+
+    Returns:
+        Extracted topics as a string (separated by ';') or None if extraction fails
+    """
+    try:
+
+        if isinstance(messages, list) and "role" in messages[0].keys():
+            # This means the input is in the format of [{"role": "user", "content": [{"type": "text", "text": "..."}]}, {"role": "assistant", "content": [{"type": "text", "text": "..."}]}]
+
+            # We need to convert the message to the format in "content"
+            new_messages = []
+            for msg in messages:
+                new_messages.append({'type': "text", "text": "[USER]" if msg["role"] == "user" else "[ASSISTANT]"})
+                new_messages.extend(msg["content"])
+            messages = new_messages
+
+        temporary_messages = convert_message_to_mirix_message(messages)
+        temporary_messages = [prepare_input_message_create(msg, agent_id="topic_extraction", wrap_user_message=False, wrap_system_message=True) for msg in temporary_messages]
+
+        # Add instruction message for topic extraction
+        temporary_messages.append(
+            prepare_input_message_create(
+                MessageCreate(
+                    role=MessageRole.user,
+                    content='The above are the inputs from the user, please look at these content and extract the topic (brief description of what the user is focusing on) from these content. If there are multiple focuses in these content, then extract them all and put them into one string separated by ";". Call the function `update_topic` to update the topic with the extracted topics.',
+                ),
+                agent_id="topic_extraction",
+                wrap_user_message=False,
+                wrap_system_message=True,
+            )
+        )
+
+        # Prepend system message
+        temporary_messages = [
+            prepare_input_message_create(
+                MessageCreate(
+                    role=MessageRole.system,
+                    content="You are a helpful assistant that extracts the topic from the user's input.",
+                ),
+                agent_id="topic_extraction",
+                wrap_user_message=False,
+                wrap_system_message=True,
+            ),
+        ] + temporary_messages
+
+        # Define the function for topic extraction
+        functions = [
+            {
+                "name": "update_topic",
+                "description": "Update the topic of the conversation/content. The topic will be used for retrieving relevant information from the database",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": 'The topic of the current conversation/content. If there are multiple topics then separate them with ";".',
+                        }
+                    },
+                    "required": ["topic"],
+                },
+            }
+        ]
+
+        # Use LLMClient to extract topics
+        llm_client = LLMClient.create(
+            llm_config=llm_config,
+            put_inner_thoughts_first=True,
+        )
+
+        if llm_client:
+            response = llm_client.send_llm_request(
+                messages=temporary_messages,
+                tools=functions,
+                stream=False,
+                force_tool_call="update_topic",
+            )
+            
+            # Extract topics from the response
+            for choice in response.choices:
+                if (
+                    hasattr(choice.message, "tool_calls")
+                    and choice.message.tool_calls is not None
+                    and len(choice.message.tool_calls) > 0
+                ):
+                    try:
+                        function_args = json.loads(
+                            choice.message.tool_calls[0].function.arguments
+                        )
+                        topics = function_args.get("topic")
+                        logger.info(f"Extracted topics: {topics}")
+                        return topics
+                    except (json.JSONDecodeError, KeyError) as parse_error:
+                        logger.warning(f"Failed to parse topic extraction response: {parse_error}")
+                        continue
+
+    except Exception as e:
+        logger.warning(f"Error in extracting topics from messages: {e}")
+
+    return None
 
 
 # ============================================================================
@@ -857,6 +970,201 @@ class RetrieveMemoryRequest(BaseModel):
 
     user_id: str
     messages: List[Dict[str, Any]]
+    limit: int = 10  # Maximum number of items to retrieve per memory type
+
+
+def retrieve_memories_by_keywords(
+    server: SyncServer,
+    user: User,
+    agent_state: AgentState,
+    key_words: str = "",
+    limit: int = 10,
+) -> dict:
+    """
+    Helper function to retrieve memories based on keywords using BM25 search.
+    
+    Args:
+        server: The Mirix server instance
+        user: The user whose memories to retrieve
+        agent_state: Agent state (used as dummy for function signatures, not accessed in BM25)
+        key_words: Keywords to search for (empty string returns recent items)
+        limit: Maximum number of items to retrieve per memory type
+        
+    Returns:
+        Dictionary containing all memory types with their items
+    """
+    search_method = "bm25"
+    timezone_str = server.user_manager.get_user_by_id(user.id).timezone
+    memories = {}
+    
+    # Get episodic memories (recent + relevant)
+    try:
+        episodic_manager = server.episodic_memory_manager
+        
+        # Get recent episodic memories
+        recent_episodic = episodic_manager.list_episodic_memory(
+            agent_state=agent_state,  # Not accessed during BM25 search
+            actor=user,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        
+        # Get relevant episodic memories based on keywords
+        relevant_episodic = []
+        if key_words:
+            relevant_episodic = episodic_manager.list_episodic_memory(
+                agent_state=agent_state,  # Not accessed during BM25 search
+                actor=user,
+                query=key_words,
+                search_field="details",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+        
+        memories["episodic"] = {
+            "total_count": episodic_manager.get_total_number_of_items(actor=user),
+            "recent": [
+                {
+                    "id": event.id,
+                    "timestamp": event.occurred_at.isoformat() if event.occurred_at else None,
+                    "summary": event.summary,
+                    "details": event.details,
+                }
+                for event in recent_episodic
+            ],
+            "relevant": [
+                {
+                    "id": event.id,
+                    "timestamp": event.occurred_at.isoformat() if event.occurred_at else None,
+                    "summary": event.summary,
+                    "details": event.details,
+                }
+                for event in relevant_episodic
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving episodic memories: {e}")
+        memories["episodic"] = {"total_count": 0, "recent": [], "relevant": []}
+    
+    # Get semantic memories
+    try:
+        semantic_manager = server.semantic_memory_manager
+        
+        semantic_items = semantic_manager.list_semantic_items(
+            agent_state=agent_state,  # Not accessed during BM25 search
+            actor=user,
+            query=key_words,
+            search_field="details",
+            search_method=search_method,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        
+        memories["semantic"] = {
+            "total_count": semantic_manager.get_total_number_of_items(actor=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "summary": item.summary,
+                    "details": item.details,
+                }
+                for item in semantic_items
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving semantic memories: {e}")
+        memories["semantic"] = {"total_count": 0, "items": []}
+    
+    # Get resource memories
+    try:
+        resource_manager = server.resource_memory_manager
+        
+        resources = resource_manager.list_resources(
+            agent_state=agent_state,  # Not accessed during BM25 search
+            actor=user,
+            query=key_words,
+            search_field="summary",
+            search_method=search_method,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        
+        memories["resource"] = {
+            "total_count": resource_manager.get_total_number_of_items(actor=user),
+            "items": [
+                {
+                    "id": resource.id,
+                    "title": resource.title,
+                    "summary": resource.summary,
+                    "resource_type": resource.resource_type,
+                }
+                for resource in resources
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving resource memories: {e}")
+        memories["resource"] = {"total_count": 0, "items": []}
+    
+    # Get procedural memories
+    try:
+        procedural_manager = server.procedural_memory_manager
+        
+        procedures = procedural_manager.list_procedures(
+            agent_state=agent_state,  # Not accessed during BM25 search
+            actor=user,
+            query=key_words,
+            search_field="summary",
+            search_method=search_method,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        
+        memories["procedural"] = {
+            "total_count": procedural_manager.get_total_number_of_items(actor=user),
+            "items": [
+                {
+                    "id": procedure.id,
+                    "entry_type": procedure.entry_type,
+                    "summary": procedure.summary,
+                }
+                for procedure in procedures
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving procedural memories: {e}")
+        memories["procedural"] = {"total_count": 0, "items": []}
+    
+    # Get knowledge vault items
+    try:
+        knowledge_vault_manager = server.knowledge_vault_manager
+        
+        knowledge_items = knowledge_vault_manager.list_knowledge(
+            agent_state=agent_state,  # Not accessed during BM25 search
+            actor=user,
+            query=key_words,
+            search_field="caption",
+            search_method=search_method,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        
+        memories["knowledge_vault"] = {
+            "total_count": knowledge_vault_manager.get_total_number_of_items(actor=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "caption": item.caption,
+                }
+                for item in knowledge_items
+            ],
+        }
+    except Exception as e:
+        logger.error(f"Error retrieving knowledge vault items: {e}")
+        memories["knowledge_vault"] = {"total_count": 0, "items": []}
+    
+    return memories
 
 
 @app.post("/memory/retrieve/conversation")
@@ -867,88 +1175,44 @@ async def retrieve_memory_with_conversation(
 ):
     """
     Retrieve relevant memories based on conversation context.
+    Extracts topics from the conversation messages and uses them to retrieve relevant memories.
     """
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
     
-    # Extract query from last user message
-    last_message = request.messages[-1]
-    query_text = ""
-    
-    if isinstance(last_message["content"], str):
-        query_text = last_message["content"]
-    else:
-        for item in last_message["content"]:
-            if item["type"] == "text":
-                query_text = item["text"]
-                break
-    
-    # Retrieve memories using various memory managers
-    memories = {}
-    
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
     
-    # Get episodic memories
-    try:
-        episodic_manager = server.episodic_memory_manager
-        episodic_agents = [
-            agent for agent in all_agents 
-            if agent.agent_type == AgentType.episodic_memory_agent
-        ]
-        
-        episodic_memories = []
-        for episodic_agent in episodic_agents:
-            events = episodic_manager.list_episodic_memory(
-                agent_state=episodic_agent,
-                actor=user,
-                limit=10,
-            )
-            episodic_memories.extend([
-                {
-                    "timestamp": event.occurred_at.isoformat() if event.occurred_at else None,
-                    "summary": event.summary,
-                    "details": event.details,
-                }
-                for event in events
-            ])
-        
-        memories["episodic"] = episodic_memories
-    except Exception:
-        memories["episodic"] = []
+    if not all_agents:
+        return {
+            "success": False,
+            "error": "No agents found for this user",
+            "topics": None,
+            "memories": {},
+        }
     
-    # Get semantic memories
-    try:
-        semantic_manager = server.semantic_memory_manager
-        semantic_agents = [
-            agent for agent in all_agents 
-            if agent.agent_type == AgentType.semantic_memory_agent
-        ]
-        
-        semantic_memories = []
-        for semantic_agent in semantic_agents:
-            items = semantic_manager.list_semantic_items(
-                agent_state=semantic_agent,
-                actor=user,
-                limit=10,
-            )
-            semantic_memories.extend([
-                {
-                    "name": item.name,
-                    "summary": item.summary,
-                    "details": item.details,
-                }
-                for item in items
-            ])
-        
-        memories["semantic"] = semantic_memories
-    except Exception:
-        memories["semantic"] = []
+    # Extract topics from the conversation
+    # TODO: Consider allowing custom model selection in the future
+    llm_config = all_agents[0].llm_config
+    topics = extract_topics_from_messages(request.messages, llm_config)
+    logger.info(f"Extracted topics from conversation: {topics}")
+    
+    # Use topics as search keywords
+    key_words = topics if topics else ""
+    
+    # Retrieve memories using the helper function
+    memories = retrieve_memories_by_keywords(
+        server=server,
+        user=user,
+        agent_state=all_agents[0],
+        key_words=key_words,
+        limit=request.limit,
+    )
     
     return {
         "success": True,
-        "query": query_text,
+        "topics": topics,
         "memories": memories,
     }
 
@@ -957,22 +1221,42 @@ async def retrieve_memory_with_conversation(
 async def retrieve_memory_with_topic(
     user_id: str,
     topic: str,
+    limit: int = 10,
     x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Retrieve relevant memories based on a topic.
+    Retrieve relevant memories based on a topic using BM25 search.
+    
+    Args:
+        user_id: The user ID to retrieve memories for
+        topic: The topic/keywords to search for
+        limit: Maximum number of items to retrieve per memory type (default: 10)
     """
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
     
-    # Search memories by topic
-    memories = {}
+    # Get all agents for this user
+    all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
     
-    # Use semantic search across memory types
-    # This is a simplified implementation - you may want to add more sophisticated search
+    if not all_agents:
+        return {
+            "success": False,
+            "error": "No agents found for this user",
+            "topic": topic,
+            "memories": {},
+        }
     
+    # Retrieve memories using the helper function
+    memories = retrieve_memories_by_keywords(
+        server=server,
+        user=user,
+        agent_state=all_agents[0],
+        key_words=topic,
+        limit=limit,
+    )
+
     return {
         "success": True,
         "topic": topic,
@@ -984,27 +1268,215 @@ async def retrieve_memory_with_topic(
 async def search_memory(
     user_id: str,
     query: str,
+    memory_type: str = "all",
+    search_field: str = "null",
+    search_method: str = "bm25",
     limit: int = 10,
     x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Search for memories using semantic search.
+    Search for memories using various search methods.
+    Similar to the search_in_memory tool function.
+    
+    Args:
+        user_id: The user ID to retrieve memories for
+        query: The search query string
+        memory_type: Type of memory to search. Options: "episodic", "resource", "procedural", 
+                    "knowledge_vault", "semantic", "all" (default: "all")
+        search_field: Field to search in. Options vary by memory type:
+                     - episodic: "summary", "details"
+                     - resource: "summary", "content"
+                     - procedural: "summary", "steps"
+                     - knowledge_vault: "caption", "secret_value"
+                     - semantic: "name", "summary", "details"
+                     - For "all": use "null" (default)
+        search_method: Search method. Options: "bm25" (default), "embedding"
+        limit: Maximum number of results per memory type (default: 10)
     """
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
     
-    # Perform semantic search across all memory types
-    results = []
+    # Get all agents for this user
+    all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
     
-    # This is a placeholder - implement actual semantic search logic
+    if not all_agents:
+        return {
+            "success": False,
+            "error": "No agents found for this user",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+    
+    agent_state = all_agents[0]
+    timezone_str = server.user_manager.get_user_by_id(user.id).timezone
+    
+    # Validate search parameters
+    if memory_type == "resource" and search_field == "content" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for resource memory's 'content' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+    
+    if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+    
+    if memory_type == "all":
+        search_field = "null"
+    
+    # Collect results from requested memory types
+    all_results = []
+    
+    # Search episodic memories
+    if memory_type in ["episodic", "all"]:
+        try:
+            episodic_memories = server.episodic_memory_manager.list_episodic_memory(
+                actor=user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "episodic",
+                    "id": x.id,
+                    "timestamp": x.occurred_at.isoformat() if x.occurred_at else None,
+                    "event_type": x.event_type,
+                    "actor": x.actor,
+                    "summary": x.summary,
+                    "details": x.details,
+                }
+                for x in episodic_memories
+            ])
+        except Exception as e:
+            logger.error(f"Error searching episodic memories: {e}")
+    
+    # Search resource memories
+    if memory_type in ["resource", "all"]:
+        try:
+            resource_memories = server.resource_memory_manager.list_resources(
+                actor=user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "resource",
+                    "id": x.id,
+                    "resource_type": x.resource_type,
+                    "title": x.title,
+                    "summary": x.summary,
+                    "content": x.content[:200] if x.content else None,  # Truncate content for response
+                }
+                for x in resource_memories
+            ])
+        except Exception as e:
+            logger.error(f"Error searching resource memories: {e}")
+    
+    # Search procedural memories
+    if memory_type in ["procedural", "all"]:
+        try:
+            procedural_memories = server.procedural_memory_manager.list_procedures(
+                actor=user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "procedural",
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "summary": x.summary,
+                    "steps": x.steps,
+                }
+                for x in procedural_memories
+            ])
+        except Exception as e:
+            logger.error(f"Error searching procedural memories: {e}")
+    
+    # Search knowledge vault
+    if memory_type in ["knowledge_vault", "all"]:
+        try:
+            knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge(
+                actor=user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "caption",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "knowledge_vault",
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "source": x.source,
+                    "sensitivity": x.sensitivity,
+                    "secret_value": x.secret_value,
+                    "caption": x.caption,
+                }
+                for x in knowledge_vault_memories
+            ])
+        except Exception as e:
+            logger.error(f"Error searching knowledge vault: {e}")
+    
+    # Search semantic memories
+    if memory_type in ["semantic", "all"]:
+        try:
+            semantic_memories = server.semantic_memory_manager.list_semantic_items(
+                actor=user,
+                agent_state=agent_state,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str=timezone_str,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "semantic",
+                    "id": x.id,
+                    "name": x.name,
+                    "summary": x.summary,
+                    "details": x.details,
+                    "source": x.source,
+                }
+                for x in semantic_memories
+            ])
+        except Exception as e:
+            logger.error(f"Error searching semantic memories: {e}")
     
     return {
         "success": True,
         "query": query,
-        "results": results,
-        "count": len(results),
+        "memory_type": memory_type,
+        "search_field": search_field,
+        "search_method": search_method,
+        "results": all_results,
+        "count": len(all_results),
     }
 
 
