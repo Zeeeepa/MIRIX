@@ -2,8 +2,13 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env file if it exists before initializing settings
+# This ensures environment variables from .env are available when settings are instantiated
+load_dotenv()
 
 
 class ToolSettings(BaseSettings):
@@ -164,6 +169,13 @@ class Settings(BaseSettings):
 
     # experimental toggle
     use_experimental: bool = False
+
+    # logging configuration
+    log_level: str = Field("INFO", env="MIRIX_LOG_LEVEL")
+    log_file: Optional[Path] = Field(None, env="MIRIX_LOG_FILE")  # If set, enables file logging
+    log_to_console: bool = Field(True, env="MIRIX_LOG_TO_CONSOLE")  # Console logging is default
+    log_max_bytes: int = Field(10 * 1024 * 1024, env="MIRIX_LOG_MAX_BYTES")  # 10 MB
+    log_backup_count: int = Field(5, env="MIRIX_LOG_BACKUP_COUNT")
 
     # LLM provider client settings
     httpx_max_retries: int = 5

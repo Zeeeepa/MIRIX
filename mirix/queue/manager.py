@@ -4,16 +4,13 @@ Separates implementation logic from the public API
 """
 import atexit
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Any
 
 from mirix.queue import config
 from mirix.queue.queue_interface import QueueInterface
 from mirix.queue.memory_queue import MemoryQueue
 from mirix.queue.worker import QueueWorker
 from mirix.queue.message_pb2 import QueueMessage
-
-if TYPE_CHECKING:
-    from mirix.server.server import SyncServer
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +25,10 @@ class QueueManager:
         """Initialize the queue manager"""
         self._queue: Optional[QueueInterface] = None
         self._worker: Optional[QueueWorker] = None
-        self._server: Optional['SyncServer'] = None
+        self._server: Optional[Any] = None
         self._initialized = False
     
-    def initialize(self, server: Optional['SyncServer'] = None) -> None:
+    def initialize(self, server: Optional[Any] = None) -> None:
         """
         Initialize the queue and start the background worker
         Creates appropriate queue type based on configuration
@@ -40,16 +37,16 @@ class QueueManager:
         will only initialize once. The queue uses a singleton pattern.
         
         Args:
-            server: Optional SyncServer instance to process messages through
+            server: Optional server instance for worker to invoke APIs on
         """
         if self._initialized:
             logger.debug("Queue manager already initialized - skipping duplicate initialization")
-            # If a server is provided and we don't have one yet, update it
-            if server and not self._server:
+            # Allow updating server if provided
+            if server:
                 logger.info("Updating queue manager with server instance")
                 self._server = server
                 if self._worker:
-                    self._worker.server = server
+                    self._worker.set_server(server)
             return  # Already initialized
         
         logger.info(f"Initializing queue manager with type: {config.QUEUE_TYPE}, server={'provided' if server else 'None'}")
@@ -135,31 +132,10 @@ class QueueManager:
         
         logger.debug("Queue manager cleanup complete")
     
-    def register_server(self, server: 'SyncServer') -> None:
-        """
-        Register a server instance with the queue manager
-        This allows the worker to process messages through the server
-        
-        Args:
-            server: SyncServer instance to register
-        """
-        logger.info("Registering server with queue manager")
-        self._server = server
-        
-        # Update worker's server reference if worker exists
-        if self._worker:
-            self._worker.server = server
-            logger.debug("Updated worker's server reference")
-    
     @property
     def is_initialized(self) -> bool:
         """Check if the manager is initialized"""
         return self._initialized
-    
-    @property
-    def has_server(self) -> bool:
-        """Check if a server is registered"""
-        return self._server is not None
     
     @property
     def queue_type(self) -> str:

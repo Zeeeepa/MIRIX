@@ -1,14 +1,14 @@
 import os
 
-# Load .env BEFORE importing mirix - this is critical!
-# The database engine is initialized at module import time
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility and explicit clarity
 from dotenv import load_dotenv  # noqa: E402
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 mirix_root = os.path.dirname(current_dir)
 load_dotenv(os.path.join(mirix_root, ".env"))
 
-# Now import mirix after environment variables are loaded
+# Import mirix
 from mirix import Mirix  # noqa: E402
 
 # Initialize LangChain and Mirix

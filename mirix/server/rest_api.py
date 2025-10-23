@@ -7,6 +7,7 @@ allowing MirixClient instances to communicate with a cloud-hosted server.
 import copy
 import json
 import traceback
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Header, Request, Body
@@ -47,11 +48,58 @@ from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
 
-# Initialize FastAPI app
+# Import queue components
+from mirix.queue import initialize_queue
+from mirix.queue.manager import get_manager as get_queue_manager
+from mirix.queue.queue_util import put_messages
+
+# Initialize server (single instance shared across all requests)
+_server: Optional[SyncServer] = None
+
+
+def get_server() -> SyncServer:
+    """Get or create the singleton SyncServer instance."""
+    global _server
+    if _server is None:
+        logger.info("Creating SyncServer instance")
+        _server = SyncServer()
+    return _server
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application.
+    Handles startup and shutdown events.
+    """
+    # Startup
+    logger.info("Starting Mirix REST API server")
+    
+    # Initialize SyncServer (singleton)
+    server = get_server()
+    logger.info("SyncServer initialized")
+    
+    # Initialize queue with server reference
+    initialize_queue(server)
+    logger.info("Queue service started with SyncServer integration")
+    
+    yield  # Server runs here
+    
+    # Shutdown
+    logger.info("Shutting down Mirix REST API server")
+    
+    # Cleanup queue
+    queue_manager = get_queue_manager()
+    queue_manager.cleanup()
+    logger.info("Queue service stopped")
+
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="Mirix API",
     description="REST API for Mirix - Memory-augmented AI Agent System",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Add CORS middleware
@@ -62,17 +110,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Initialize server (single instance shared across all requests)
-_server: Optional[SyncServer] = None
-
-
-def get_server() -> SyncServer:
-    """Get or create the singleton SyncServer instance."""
-    global _server
-    if _server is None:
-        _server = SyncServer()
-    return _server
 
 
 # ============================================================================
@@ -854,9 +891,10 @@ async def add_memory(
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Add conversation turns to memory.
+    Add conversation turns to memory (async via queue).
     
-    Processes conversation messages and stores them in appropriate memory systems.
+    Messages are queued for asynchronous processing by queue workers.
+    Processing happens in the background, allowing for fast API response times.
     """
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
@@ -879,18 +917,24 @@ async def add_memory(
 
     input_messages = convert_message_to_mirix_message(message)
 
-    usage = server.send_messages(
+    # Queue for async processing instead of synchronous execution
+    put_messages(
         actor=user,
         agent_id=meta_agent.id,
         input_messages=input_messages,
-        # chaining=chaining, TODO: add back later
+        chaining=True,
+        user_id=request.user_id,
         verbose=request.verbose,
     )
     
+    logger.debug(f"Memory queued for processing: {meta_agent.id}")
+
     return {
         "success": True,
-        "message": "Memory added successfully",
-        "usage": usage.model_dump() if usage else None,
+        "message": "Memory queued for processing",
+        "status": "queued",
+        "agent_id": meta_agent.id,
+        "message_count": len(input_messages),
     }
 
 

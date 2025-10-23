@@ -216,7 +216,8 @@ def db_error_handler():
 USE_PGLITE = os.environ.get("MIRIX_USE_PGLITE", "false").lower() == "true"
 
 if USE_PGLITE:
-    print("PGlite mode detected - setting up PGlite adapter")
+
+    logger.info("DATABASE CONNECTION: PGlite mode detected")
 
     # Import PGlite connector
     try:
@@ -294,7 +295,8 @@ if USE_PGLITE:
         config.archival_storage_type = "pglite"
         config.archival_storage_uri = "pglite://local"
 
-        print("PGlite adapter initialized successfully")
+        logger.info(f"PGlite Bridge URL: {pglite_connector.bridge_url}")
+        logger.info("PGlite adapter initialized successfully")
 
     except ImportError as e:
         print(f"Failed to import PGlite connector: {e}")
@@ -302,6 +304,24 @@ if USE_PGLITE:
         USE_PGLITE = False
 
 if not USE_PGLITE and settings.mirix_pg_uri_no_default:
+    logger.info("DATABASE CONNECTION: PostgreSQL mode")
+
+    # Mask password in connection string for logging
+    pg_uri_for_log = settings.mirix_pg_uri
+    if "@" in pg_uri_for_log:
+        # Format: postgresql+pg8000://user:password@host:port/db
+        parts = pg_uri_for_log.split("@")
+        credentials_part = parts[0]
+        if ":" in credentials_part and "//" in credentials_part:
+            protocol_user = credentials_part.rsplit(":", 1)[0]  # Keep protocol and user
+            pg_uri_for_log = f"{protocol_user}:****@{parts[1]}"
+    
+    logger.info(f"Connection String: {pg_uri_for_log}")
+    logger.info(f"Pool Size: {settings.pg_pool_size}")
+    logger.info(f"Max Overflow: {settings.pg_max_overflow}")
+    logger.info(f"Pool Timeout: {settings.pg_pool_timeout}s")
+    logger.info(f"Pool Recycle: {settings.pg_pool_recycle}s")
+    
     print("Creating engine", settings.mirix_pg_uri)
     config.recall_storage_type = "postgres"
     config.recall_storage_uri = settings.mirix_pg_uri_no_default
@@ -323,6 +343,9 @@ if not USE_PGLITE and settings.mirix_pg_uri_no_default:
 elif not USE_PGLITE:
     # TODO: don't rely on config storage
     sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
+
+    logger.info("DATABASE CONNECTION: SQLite mode")
+    logger.info(f"Connection String: sqlite:///{sqlite_db_path}")
 
     # Configure SQLite engine with proper concurrency settings
     engine = create_engine(
@@ -1484,3 +1507,5 @@ class SyncServer(Server):
 
             traceback.print_exc()
             raise HTTPException(status_code=500, detail=f"{e}")
+
+

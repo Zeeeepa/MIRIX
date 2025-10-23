@@ -8,30 +8,26 @@ import "google/protobuf/struct.proto";
 
 // Main request message for send_messages
 message QueueMessage {
-  // Unique identifier for the server that should process this message
-  // This ensures messages are routed to the correct server in a shared queue
-  string server_id = 1;
-  
   // Actor/User information
-  User actor = 2;
+  User actor = 1;
   
   // Required agent identifier
-  string agent_id = 3;
+  string agent_id = 2;
   
   // List of input messages to send
-  repeated MessageCreate input_messages = 4;
+  repeated MessageCreate input_messages = 3;
   
   // Optional chaining flag
-  optional bool chaining = 5;
+  optional bool chaining = 4;
   
   // Optional user identifier
-  optional string user_id = 6;
+  optional string user_id = 5;
   
   // Optional verbose flag
-  optional bool verbose = 7;
+  optional bool verbose = 6;
   
   // Filter tags as flexible JSON structure
-  google.protobuf.Struct filter_tags = 8;
+  google.protobuf.Struct filter_tags = 7;
 }
 
 // User representation

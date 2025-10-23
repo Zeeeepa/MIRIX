@@ -27,6 +27,8 @@ from pathlib import Path
 import pytest
 from dotenv import load_dotenv
 
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility
 load_dotenv()
 
 # Add project root to path

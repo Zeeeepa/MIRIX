@@ -18,7 +18,6 @@ def put_messages(
         actor: User,
         agent_id: str,
         input_messages: List[MessageCreate],
-        server_id: Optional[str] = None,
         chaining: Optional[bool] = True,
         user_id: Optional[str] = None,
         verbose: Optional[bool] = None,
@@ -31,13 +30,12 @@ def put_messages(
             actor: The user/actor sending the message
             agent_id: ID of the agent to send message to
             input_messages: List of messages to send
-            server_id: Optional server ID for routing (ensures correct server processes the message)
             chaining: Enable/disable chaining
             user_id: Optional user ID
             verbose: Enable verbose logging
             filter_tags: Filter tags dictionary
         """
-        logger.debug(f"Creating queue message for server_id={server_id}, agent_id={agent_id}, user={actor.id}")
+        logger.debug(f"Creating queue message for agent_id={agent_id}, user={actor.id}")
         
         # Convert Pydantic User to protobuf User
         proto_user = ProtoUser()
@@ -91,10 +89,6 @@ def put_messages(
         
         # Build the QueueMessage
         queue_msg = QueueMessage()
-        
-        # Set server_id for routing (required for multi-client scenarios)
-        if server_id:
-            queue_msg.server_id = server_id
         
         queue_msg.actor.CopyFrom(proto_user)
         queue_msg.agent_id = agent_id

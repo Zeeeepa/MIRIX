@@ -824,10 +824,10 @@ class MirixClient(AbstractClient):
         verbose: bool = False,
     ) -> Dict[str, Any]:
         """
-        Add conversation turns to memory.
+        Add conversation turns to memory (asynchronous processing).
         
-        This method processes conversation turns (user and assistant messages)
-        and stores them in the appropriate memory systems.
+        This method queues conversation turns for background processing by queue workers.
+        The messages are stored in the appropriate memory systems asynchronously.
         
         Args:
             user_id: User ID for the conversation
@@ -837,13 +837,22 @@ class MirixClient(AbstractClient):
                          {"role": "user", "content": [{"type": "text", "text": "..."}]},
                          {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
                      ]
-            verbose: If True, print verbose output during memory processing
+            verbose: If True, enable verbose output during memory processing
         
         Returns:
-            Dict containing success status and any relevant information
+            Dict containing:
+                - success (bool): True if message was queued successfully
+                - message (str): Status message
+                - status (str): "queued" - indicates async processing
+                - agent_id (str): Meta agent ID processing the messages
+                - message_count (int): Number of messages queued
+            
+        Note:
+            Processing happens asynchronously. The response indicates the message
+            was successfully queued, not that processing is complete.
             
         Example:
-            >>> client.add(
+            >>> response = client.add(
             ...     user_id='user_123',
             ...     messages=[
             ...         {"role": "user", "content": [{"type": "text", "text": "I went to dinner"}]},
@@ -851,6 +860,14 @@ class MirixClient(AbstractClient):
             ...     ],
             ...     verbose=True
             ... )
+            >>> print(response)
+            {
+                "success": True,
+                "message": "Memory queued for processing",
+                "status": "queued",
+                "agent_id": "agent-456",
+                "message_count": 2
+            }
         """
         if not self._meta_agent:
             raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")

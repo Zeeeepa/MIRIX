@@ -1,20 +1,16 @@
 """
 Background worker that consumes messages from the queue
 Runs in a daemon thread and processes messages through the server
-
-Uses server registry to route messages to the correct server based on server_id
 """
 import logging
 import threading
-from typing import TYPE_CHECKING, Optional, List
+from typing import TYPE_CHECKING, Optional, Any
 from datetime import datetime
 
 from mirix.queue.message_pb2 import QueueMessage
-from mirix.queue.server_registry import get_registry
 
 if TYPE_CHECKING:
     from .queue_interface import QueueInterface
-    from mirix.server.server import SyncServer
     from mirix.schemas.user import User
     from mirix.schemas.message import MessageCreate
 
@@ -23,20 +19,21 @@ logger = logging.getLogger(__name__)
 class QueueWorker:
     """Background worker that processes messages from the queue"""
     
-    def __init__(self, queue: 'QueueInterface', server: Optional['SyncServer'] = None):
+    def __init__(self, queue: 'QueueInterface', server: Optional[Any] = None):
         """
         Initialize the queue worker
         
         Args:
             queue: Queue implementation to consume from
-            server: Optional SyncServer instance to process messages through
+            server: Optional server instance to invoke APIs on
         """
         logger.debug(f"Initializing queue worker with server={'provided' if server else 'None'}")
         
         self.queue = queue
-        self.server = server
+        self._server = server
         self._running = False
         self._thread = None
+        self._lock = threading.RLock()
     
     def _convert_proto_user_to_pydantic(self, proto_user) -> 'User':
         """
@@ -96,40 +93,32 @@ class QueueWorker:
             group_id=proto_msg.group_id if proto_msg.HasField('group_id') else None
         )
     
+    def set_server(self, server: Any) -> None:
+        """
+        Set or update the server instance.
+        
+        Args:
+            server: Server instance to invoke APIs on
+        """
+        with self._lock:
+            self._server = server
+            logger.info("Updated worker server instance")
+    
     def _process_message(self, message: QueueMessage) -> None:
         """
         Process a queue message by calling server.send_messages()
         
-        Routes the message to the correct server using the server_id field.
-        Falls back to self.server if server_id is not set or server not found in registry.
-        
         Args:
             message: QueueMessage protobuf to process
         """
-        # Get the server registry
-        registry = get_registry()
+        # Check if server is available
+        with self._lock:
+            server = self._server
         
-        # Determine which server should process this message
-        target_server = None
-        if message.server_id:
-            # Try to get server from registry using server_id
-            target_server = registry.get(message.server_id)
-            if target_server is None:
-                logger.warning(
-                    f"Server {message.server_id} not found in registry, "
-                    f"falling back to worker's default server"
-                )
-        
-        # Fall back to worker's default server if no server_id or not found
-        if target_server is None:
-            target_server = self.server
-        
-        # If still no server available, just log
-        if target_server is None:
+        if server is None:
             log_msg = (
-                f"No server available - logging only: server_id={message.server_id}, "
+                f"No server available - skipping message: "
                 f"agent_id={message.agent_id}, "
-                f"user_id={message.user_id if message.HasField('user_id') else 'None'}, "
                 f"input_messages_count={len(message.input_messages)}"
             )
             logger.warning(log_msg)
@@ -145,32 +134,21 @@ class QueueWorker:
             
             # Extract optional parameters
             chaining = message.chaining if message.HasField('chaining') else True
-            user_id = message.user_id if message.HasField('user_id') else None
-            verbose = message.verbose if message.HasField('verbose') else None
-            
-            # Convert filter_tags from Struct to dict
-            filter_tags = None
-            if message.HasField('filter_tags'):
-                filter_tags = dict(message.filter_tags)
             
             # Log the processing
             log_msg = (
-                f"Processing message: server_id={message.server_id}, "
+                f"Processing message via server: "
                 f"agent_id={message.agent_id}, "
-                f"user_id={user_id or 'None'}, "
                 f"input_messages_count={len(input_messages)}"
             )
             logger.info(log_msg)
             
-            # Call server.send_messages() on the target server
-            usage = target_server.send_messages(
+            # Call server.send_messages()
+            usage = server.send_messages(
                 actor=actor,
                 agent_id=message.agent_id,
                 input_messages=input_messages,
                 chaining=chaining,
-                user_id=user_id,
-                verbose=verbose,
-                filter_tags=filter_tags
             )
             
             # Log successful processing

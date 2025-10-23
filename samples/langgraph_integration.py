@@ -6,8 +6,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 mirix_root = os.path.dirname(current_dir)
 sys.path.insert(0, mirix_root)
 
-# Load .env BEFORE importing mirix - this is critical!
-# The database engine is initialized at module import time
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility and explicit clarity
 from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(mirix_root, ".env"))
