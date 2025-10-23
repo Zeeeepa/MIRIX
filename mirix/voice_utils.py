@@ -4,7 +4,10 @@ import tempfile
 
 import speech_recognition as sr
 from pydub import AudioSegment
+from mirix.log import get_logger
 
+
+logger = get_logger(__name__)
 
 def convert_base64_to_audio_segment(voice_file_b64):
     """Convert base64 voice data to AudioSegment using temporary file"""
@@ -25,7 +28,7 @@ def convert_base64_to_audio_segment(voice_file_b64):
 
         return audio_segment
     except Exception as e:
-        print(f"❌ Error converting voice data to AudioSegment: {str(e)}")
+        logger.error(f"❌ Error converting voice data to AudioSegment: {str(e)}")
         return None
 
 
@@ -34,7 +37,7 @@ def process_voice_files(voice_items):
     if not voice_items:
         return None
 
-    print(f"🎵 Agent processing {len(voice_items)} voice files")
+    logger.debug(f"🎵 Agent processing {len(voice_items)} voice files")
     temp_files = []
 
     try:
@@ -92,11 +95,11 @@ def process_voice_files(voice_items):
                             return combined_transcription
 
                         except sr.UnknownValueError:
-                            print("❌ Could not understand combined audio")
+                            logger.error("❌ Could not understand combined audio")
                             return None
 
                         except sr.RequestError as e:
-                            print(
+                            logger.error(
                                 f"⚠️ Google Speech Recognition failed for combined audio: {str(e)}"
                             )
                             # Fallback to offline methods if Google fails
@@ -108,12 +111,12 @@ def process_voice_files(voice_items):
                                 combined_transcription = (
                                     f"[{first_timestamp}] {transcription}"
                                 )
-                                print(
+                                logger.error(
                                     f"✅ Sphinx transcribed combined audio: '{transcription[:100]}{'...' if len(transcription) > 100 else ''}'"
                                 )
                                 return combined_transcription
                             except Exception:
-                                print(
+                                logger.error(
                                     "❌ All recognition methods failed for combined audio"
                                 )
                                 return None
@@ -123,32 +126,32 @@ def process_voice_files(voice_items):
                     if temp_audio_file and os.path.exists(temp_audio_file):
                         try:
                             os.unlink(temp_audio_file)
-                            print(f"🗑️ Deleted temporary audio file: {temp_audio_file}")
+                            logger.debug(f"🗑️ Deleted temporary audio file: {temp_audio_file}")
                         except Exception as cleanup_error:
-                            print(
+                            logger.error(
                                 f"⚠️ Failed to delete temporary audio file {temp_audio_file}: {str(cleanup_error)}"
                             )
 
             except Exception as e:
-                print(f"💥 Error in concatenation and transcription: {str(e)}")
+                logger.error(f"💥 Error in concatenation and transcription: {str(e)}")
                 return None
         else:
-            print("❌ No valid audio segments to process")
+            logger.debug("❌ No valid audio segments to process")
             return None
 
     except Exception as e:
-        print(f"💥 Critical error in voice processing: {str(e)}")
+        logger.exception(f"💥 Critical error in voice processing: {str(e)}")
         return None
 
     finally:
         # Clean up any temporary files that might have been created
-        print(f"🧹 Cleaning up {len(temp_files)} temporary voice files...")
+        logger.debug(f"🧹 Cleaning up {len(temp_files)} temporary voice files...")
         for temp_file in temp_files:
             if os.path.exists(temp_file):
                 try:
                     os.unlink(temp_file)
-                    print(f"🗑️ Deleted temp voice file: {temp_file}")
+                    logger.debug(f"🗑️ Deleted temp voice file: {temp_file}")
                 except Exception as cleanup_error:
-                    print(
+                    logger.debug(
                         f"⚠️ Failed to delete temp voice file {temp_file}: {str(cleanup_error)}"
                     )

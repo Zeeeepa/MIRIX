@@ -1,5 +1,9 @@
 from typing import Optional
 
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
+
 # def message_chatgpt(self, message: str):
 #     """
 #     Send a message to a more basic AI, ChatGPT. A useful resource for asking questions. ChatGPT does not retain memory of previous interactions.
@@ -24,7 +28,6 @@ from typing import Optional
 
 #     reply = response.choices[0].message.content
 #     return reply
-
 
 # def read_from_text_file(self, filename: str, line_start: int, num_lines: Optional[int] = 1):
 #     """
@@ -67,7 +70,6 @@ from typing import Optional
 
 #     return "\n".join(lines)
 
-
 # def append_to_text_file(self, filename: str, content: str):
 #     """
 #     Append to a text file.
@@ -84,7 +86,6 @@ from typing import Optional
 
 #     with open(filename, "a", encoding="utf-8") as file:
 #         file.write(content + "\n")
-
 
 # def http_request(self, method: str, url: str, payload_json: Optional[str] = None):
 #     """
@@ -103,7 +104,7 @@ from typing import Optional
 
 #         # For GET requests, ignore the payload
 #         if method.upper() == "GET":
-#             print(f"[HTTP] launching GET request to {url}")
+#             logger.debug(f"[HTTP] launching GET request to {url}")
 #             response = requests.get(url, headers=headers)
 #         else:
 #             # Validate and convert the payload for other types of requests
@@ -111,13 +112,12 @@ from typing import Optional
 #                 payload = json_loads(payload_json)
 #             else:
 #                 payload = {}
-#             print(f"[HTTP] launching {method} request to {url}, payload=\n{json_dumps(payload, indent=2)}")
+#             logger.debug(f"[HTTP] launching {method} request to {url}, payload=\n{json_dumps(payload, indent=2)}")
 #             response = requests.request(method, url, json=payload, headers=headers)
 
 #         return {"status_code": response.status_code, "headers": dict(response.headers), "body": response.text}
 #     except Exception as e:
 #         return {"error": str(e)}
-
 
 def fetch_and_read_pdf(self, url: str, max_pages: Optional[int] = 10):
     """
@@ -131,7 +131,7 @@ def fetch_and_read_pdf(self, url: str, max_pages: Optional[int] = 10):
         str: Extracted text content from the PDF file.
     """
     try:
-        print(f"[PDF_READER] Fetching PDF from: {url}")
+        logger.debug(f"[PDF_READER] Fetching PDF from: {url}")
 
         # Import libraries for PDF processing
         try:
@@ -158,7 +158,7 @@ def fetch_and_read_pdf(self, url: str, max_pages: Optional[int] = 10):
         if "pdf" not in content_type and not url.lower().endswith(".pdf"):
             return f"The URL does not appear to point to a PDF file. Content-Type: {content_type}"
 
-        print(
+        logger.debug(
             f"[PDF_READER] PDF fetched successfully, size: {len(response.content)} bytes"
         )
 
@@ -169,7 +169,7 @@ def fetch_and_read_pdf(self, url: str, max_pages: Optional[int] = 10):
         num_pages = len(pdf_reader.pages)
         max_pages = min(max_pages or 10, num_pages)
 
-        print(
+        logger.debug(
             f"[PDF_READER] PDF has {num_pages} pages, reading first {max_pages} pages"
         )
 
@@ -201,13 +201,12 @@ def fetch_and_read_pdf(self, url: str, max_pages: Optional[int] = 10):
                 + f"\n\n[Text truncated - showing first 10,000 characters of {len(full_text)} total]"
             )
 
-        print(f"[PDF_READER] Successfully extracted text from {max_pages} pages")
+        logger.debug(f"[PDF_READER] Successfully extracted text from {max_pages} pages")
         return full_text
 
     except Exception as e:
-        print(f"[PDF_READER] Error: {e}")
+        logger.debug(f"[PDF_READER] Error: {e}")
         return f"Error reading PDF: {str(e)}"
-
 
 def web_search(self, query: str, num_results: Optional[int] = 5):
     """
@@ -224,11 +223,12 @@ def web_search(self, query: str, num_results: Optional[int] = 5):
         # Limit num_results to reasonable bounds
         num_results = min(max(1, num_results or 5), 10)
 
-        print(f"[WEB_SEARCH] Searching for: {query}")
+        logger.debug(f"[WEB_SEARCH] Searching for: {query}")
 
         # Import ddgs here to avoid import errors if not available
         try:
             from ddgs import DDGS
+
         except ImportError:
             return "Web search library not available. Please install 'ddgs' library to enable web search functionality."
 
@@ -262,10 +262,10 @@ def web_search(self, query: str, num_results: Optional[int] = 5):
             formatted_results.pop()
 
         result_text = "\n".join(formatted_results)
-        print(f"[WEB_SEARCH] Found {len(search_results)} results")
+        logger.debug(f"[WEB_SEARCH] Found {len(search_results)} results")
 
         return result_text
 
     except Exception as e:
-        print(f"[WEB_SEARCH] Error: {e}")
+        logger.debug(f"[WEB_SEARCH] Error: {e}")
         return f"Search error: {str(e)}. Try rephrasing your search query."

@@ -35,6 +35,9 @@ from mirix.schemas.sandbox_config import (
 )
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
 
 
 class MirixClient(AbstractClient):
@@ -146,7 +149,7 @@ class MirixClient(AbstractClient):
                 json={"org_id": self.org_id, "name": self.org_name}
             )
             if self.debug:
-                print(f"[MirixClient] Organization initialized: {self.org_id} (name: {self.org_name})")
+                logger.debug(f"[MirixClient] Organization initialized: {self.org_id} (name: {self.org_name})")
             
             # Create or get user
             user_response = self._request(
@@ -159,12 +162,12 @@ class MirixClient(AbstractClient):
                 }
             )
             if self.debug:
-                print(f"[MirixClient] User initialized: {self.user_id} (name: {self.user_name})")
+                logger.debug(f"[MirixClient] User initialized: {self.user_id} (name: {self.user_name})")
         except Exception as e:
             # Don't fail initialization if this fails - the server might handle it
             if self.debug:
-                print(f"[MirixClient] Note: Could not pre-create user/org: {e}")
-                print("[MirixClient] Server will create them on first request if needed")
+                logger.debug(f"[MirixClient] Note: Could not pre-create user/org: {e}")
+                logger.debug("[MirixClient] Server will create them on first request if needed")
 
     def _request(
         self,
@@ -191,9 +194,9 @@ class MirixClient(AbstractClient):
         url = f"{self.base_url}{endpoint}"
         
         if self.debug:
-            print(f"[MirixClient] {method} {url}")
+            logger.debug(f"[MirixClient] {method} {url}")
             if json:
-                print(f"[MirixClient] Request body: {json}")
+                logger.debug(f"[MirixClient] Request body: {json}")
         
         response = self.session.request(
             method=method,
@@ -860,7 +863,7 @@ class MirixClient(AbstractClient):
             ...     ],
             ...     verbose=True
             ... )
-            >>> print(response)
+            >>> logger.debug(response)
             {
                 "success": True,
                 "message": "Memory queued for processing",
@@ -1010,7 +1013,7 @@ class MirixClient(AbstractClient):
             ...     query="restaurants",
             ...     limit=5
             ... )
-            >>> print(f"Found {results['count']} results")
+            >>> logger.debug(f"Found {results['count']} results")
             >>> 
             >>> # Search only episodic memories in details field
             >>> episodic_results = client.search(

@@ -9,14 +9,16 @@ from mirix.llm_api.azure_openai import (
     get_azure_embeddings_endpoint,
 )
 from mirix.llm_api.azure_openai_constants import AZURE_MODEL_TO_CONTEXT_LENGTH
+from mirix.log import get_logger
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.mirix_base import MirixBase
 
+logger = get_logger(__name__)
+
 
 class ProviderBase(MirixBase):
     __id_prefix__ = "provider"
-
 
 class Provider(ProviderBase):
     id: Optional[str] = Field(
@@ -54,16 +56,13 @@ class Provider(ProviderBase):
     def get_handle(self, model_name: str) -> str:
         return f"{self.name}/{model_name}"
 
-
 class ProviderCreate(ProviderBase):
     name: str = Field(..., description="The name of the provider.")
     api_key: str = Field(..., description="API key used for requests to the provider.")
 
-
 class ProviderUpdate(ProviderBase):
     id: str = Field(..., description="The id of the provider to update.")
     api_key: str = Field(..., description="API key used for requests to the provider.")
-
 
 class MirixProvider(Provider):
     name: str = "mirix"
@@ -90,7 +89,6 @@ class MirixProvider(Provider):
                 handle=self.get_handle("mirix-free"),
             )
         ]
-
 
 class OpenAIProvider(Provider):
     name: str = "openai"
@@ -209,7 +207,6 @@ class OpenAIProvider(Provider):
         else:
             return None
 
-
 class AnthropicProvider(Provider):
     name: str = "anthropic"
     api_key: str = Field(..., description="API key for the Anthropic API.")
@@ -235,7 +232,6 @@ class AnthropicProvider(Provider):
 
     def list_embedding_models(self) -> List[EmbeddingConfig]:
         return []
-
 
 class MistralProvider(Provider):
     name: str = "mistral"
@@ -286,7 +282,6 @@ class MistralProvider(Provider):
 
         return None
 
-
 class OllamaProvider(OpenAIProvider):
     """Ollama provider that uses the native /api/generate endpoint
 
@@ -316,7 +311,7 @@ class OllamaProvider(OpenAIProvider):
         for model in response_json["models"]:
             context_window = self.get_model_context_window(model["name"])
             if context_window is None:
-                print(f"Ollama model {model['name']} has no context window")
+                logger.debug(f"Ollama model {model['name']} has no context window")
                 continue
             configs.append(
                 LLMConfig(
@@ -359,7 +354,7 @@ class OllamaProvider(OpenAIProvider):
         # parse model cards: nous, dolphon, llama
         if "model_info" not in response_json:
             if "error" in response_json:
-                print(
+                logger.error(
                     f"Ollama fetch model info error for {model_name}: {response_json['error']}"
                 )
             return None
@@ -377,7 +372,7 @@ class OllamaProvider(OpenAIProvider):
         response_json = response.json()
         if "model_info" not in response_json:
             if "error" in response_json:
-                print(
+                logger.error(
                     f"Ollama fetch model info error for {model_name}: {response_json['error']}"
                 )
             return None
@@ -399,7 +394,7 @@ class OllamaProvider(OpenAIProvider):
         for model in response_json["models"]:
             embedding_dim = self.get_model_embedding_dim(model["name"])
             if not embedding_dim:
-                print(f"Ollama model {model['name']} has no embedding dimension")
+                logger.debug(f"Ollama model {model['name']} has no embedding dimension")
                 continue
             configs.append(
                 EmbeddingConfig(
@@ -412,7 +407,6 @@ class OllamaProvider(OpenAIProvider):
                 )
             )
         return configs
-
 
 class GroqProvider(OpenAIProvider):
     name: str = "groq"
@@ -443,7 +437,6 @@ class GroqProvider(OpenAIProvider):
 
     def get_model_context_window_size(self, model_name: str):
         raise NotImplementedError
-
 
 class TogetherProvider(OpenAIProvider):
     """TogetherAI provider that uses the /completions API
@@ -555,7 +548,6 @@ class TogetherProvider(OpenAIProvider):
 
         # return configs
 
-
 class GoogleAIProvider(Provider):
     # gemini
     name: str = "google_ai"
@@ -639,7 +631,6 @@ class GoogleAIProvider(Provider):
             self.base_url, self.api_key, model_name
         )
 
-
 class AzureProvider(Provider):
     name: str = "azure"
     latest_api_version: str = "2024-09-01-preview"  # https://learn.microsoft.com/en-us/azure/ai-services/openai/api-version-deprecation
@@ -720,7 +711,6 @@ class AzureProvider(Provider):
         """
         return AZURE_MODEL_TO_CONTEXT_LENGTH.get(model_name, 4096)
 
-
 class VLLMChatCompletionsProvider(Provider):
     """vLLM provider that treats vLLM as an OpenAI /chat/completions proxy"""
 
@@ -751,7 +741,6 @@ class VLLMChatCompletionsProvider(Provider):
     def list_embedding_models(self) -> List[EmbeddingConfig]:
         # not supported with vLLM
         return []
-
 
 class VLLMCompletionsProvider(Provider):
     """This uses /completions API as the backend, not /chat/completions, so we need to specify a model wrapper"""
@@ -788,10 +777,8 @@ class VLLMCompletionsProvider(Provider):
         # not supported with vLLM
         return []
 
-
 class CohereProvider(OpenAIProvider):
     pass
-
 
 class AnthropicBedrockProvider(Provider):
     name: str = "bedrock"

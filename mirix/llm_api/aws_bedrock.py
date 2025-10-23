@@ -5,6 +5,9 @@ from anthropic import AnthropicBedrock
 
 from mirix.settings import model_settings
 
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
 
 def has_valid_aws_credentials() -> bool:
     """
@@ -16,7 +19,6 @@ def has_valid_aws_credentials() -> bool:
         and os.getenv("AWS_REGION")
     )
     return valid_aws_credentials
-
 
 def get_bedrock_client():
     """
@@ -40,7 +42,6 @@ def get_bedrock_client():
     )
     return bedrock
 
-
 def bedrock_get_model_list(region_name: str) -> List[dict]:
     """
     Get list of available models from Bedrock.
@@ -60,9 +61,8 @@ def bedrock_get_model_list(region_name: str) -> List[dict]:
         response = bedrock.list_inference_profiles()
         return response["inferenceProfileSummaries"]
     except Exception as e:
-        print(f"Error getting model list: {str(e)}")
+        logger.error(f"Error getting model list: {str(e)}")
         raise e
-
 
 def bedrock_get_model_details(region_name: str, model_id: str) -> Dict[str, Any]:
     """
@@ -76,9 +76,8 @@ def bedrock_get_model_details(region_name: str, model_id: str) -> Dict[str, Any]
         response = bedrock.get_foundation_model(modelIdentifier=model_id)
         return response["modelDetails"]
     except ClientError as e:
-        print(f"Error getting model details: {str(e)}")
+        logger.error(f"Error getting model details: {str(e)}")
         raise e
-
 
 def bedrock_get_model_context_window(model_id: str) -> int:
     """
@@ -94,7 +93,6 @@ def bedrock_get_model_context_window(model_id: str) -> int:
         "anthropic.claude-3-sonnet-20240229-v1:0": 200000,
     }
     return context_windows.get(model_id, 200000)  # default to 100k if unknown
-
 
 """
 {

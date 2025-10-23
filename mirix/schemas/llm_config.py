@@ -6,7 +6,6 @@ from mirix.log import get_logger
 
 logger = get_logger(__name__)
 
-
 class LLMConfig(BaseModel):
     """
     Configuration for a Language Model (LLM) model. This object specifies all the information necessary to access an LLM model to usage with Letta, except for secret keys.

@@ -235,14 +235,14 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
                             choice.message.tool_calls[0].function.arguments
                         )
                         topics = function_args.get("topic")
-                        logger.info(f"Extracted topics: {topics}")
+                        logger.debug(f"Extracted topics: {topics}")
                         return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
                         logger.warning(f"Failed to parse topic extraction response: {parse_error}")
                         continue
 
     except Exception as e:
-        logger.warning(f"Error in extracting topics from messages: {e}")
+        logger.error(f"Error in extracting topics from messages: {e}")
 
     return None
 
@@ -726,7 +726,7 @@ async def create_or_get_organization(
     org = server.organization_manager.create_organization(
         pydantic_org=Organization(**org_create.model_dump())
     )
-    logger.info(f"Created new organization: {org_id}")
+    logger.debug(f"Created new organization: {org_id}")
     return org
 
 
@@ -799,7 +799,7 @@ async def create_or_get_user(
             status="active"
         )
     )
-    logger.info(f"Created new user: {user_id}")
+    logger.debug(f"Created new user: {user_id}")
     return user
 
 # ============================================================================
@@ -1169,7 +1169,7 @@ async def retrieve_memory_with_conversation(
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
     topics = extract_topics_from_messages(request.messages, llm_config)
-    logger.info(f"Extracted topics from conversation: {topics}")
+    logger.debug(f"Extracted topics from conversation: {topics}")
     
     # Use topics as search keywords
     key_words = topics if topics else ""

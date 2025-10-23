@@ -191,7 +191,7 @@ class Mirix:
         Example:
             users = memory_agent.list_users()
             for user in users:
-                print(f"User: {user.name} (ID: {user.id})")
+                logger.debug(f"User: {user.name} (ID: {user.id})")
         """
         users = self._client.server.user_manager.list_users()
         return users
@@ -229,9 +229,9 @@ class Mirix:
         Example:
             user = memory_agent.get_user_by_name("Alice")
             if user:
-                print(f"Found user: {user.name} (ID: {user.id})")
+                logger.debug(f"Found user: {user.name} (ID: {user.id})")
             else:
-                print("User not found")
+                logger.debug("User not found")
         """
         users = self.list_users()
         for user in users:
@@ -251,9 +251,9 @@ class Mirix:
 
         Example:
             result = memory_agent.clear()
-            print(result['warning'])
+            logger.debug(result['warning'])
             for step in result['instructions']:
-                print(step)
+                logger.debug(step)
         """
         return {
             "success": False,
@@ -292,9 +292,9 @@ class Mirix:
             result = memory_agent.clear_conversation_history(user_id="user_123")
 
             if result['success']:
-                print(f"Cleared {result['messages_deleted']} messages")
+                logger.debug(f"Cleared {result['messages_deleted']} messages")
             else:
-                print(f"Failed to clear: {result['error']}")
+                logger.debug(f"Failed to clear: {result['error']}")
         """
         try:
             if user_id is None:
@@ -445,7 +445,7 @@ class Mirix:
 
         Example:
             user = memory_agent.create_user("Alice")
-            print(f"Created user: {user.name}")
+            logger.debug(f"Created user: {user.name}")
         """
         from mirix.schemas.user import UserCreate
         from mirix.services.organization_manager import OrganizationManager
@@ -658,8 +658,8 @@ class Mirix:
 
         Example:
             memories = memory_agent.visualize_memories(user_id="user_123")
-            print(f"Episodic memories: {len(memories['episodic'])}")
-            print(f"Semantic memories: {len(memories['semantic'])}")
+            logger.debug(f"Episodic memories: {len(memories['episodic'])}")
+            logger.debug(f"Semantic memories: {len(memories['semantic'])}")
         """
         try:
             # Find the target user
@@ -985,9 +985,9 @@ class Mirix:
             )
 
             if result['success']:
-                print("Core memory updated successfully")
+                logger.debug("Core memory updated successfully")
             else:
-                print(f"Update failed: {result['message']}")
+                logger.debug(f"Update failed: {result['message']}")
         """
         try:
             # If user_id is provided, get the specific user

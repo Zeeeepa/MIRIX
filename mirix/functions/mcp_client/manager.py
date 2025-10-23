@@ -254,7 +254,6 @@ class MCPClientManager:
         """Load and restore server configurations from disk"""
         if not os.path.exists(self.config_file):
             logger.debug("No persistent MCP server configurations found")
-            print("📝 No persistent MCP configurations found")
             return
 
         try:
@@ -263,13 +262,11 @@ class MCPClientManager:
 
             if not configs_data:
                 logger.info("No MCP server configurations to restore")
-                print("📝 No MCP server configurations to restore")
                 return
 
             logger.info(
                 f"Loading {len(configs_data)} persistent MCP server configurations"
             )
-            print(f"🔄 Loading {len(configs_data)} persistent MCP configurations...")
 
             restored_count = 0
             failed_count = 0
@@ -297,47 +294,33 @@ class MCPClientManager:
                         logger.warning(
                             f"Unsupported server type {server_type} for {server_name}"
                         )
-                        print(
-                            f"⚠️  Unsupported server type {server_type} for {server_name}"
-                        )
                         failed_count += 1
                         continue
 
                     # Try to reconnect (but don't save to disk to avoid recursion)
-                    print(
+                    logger.debug(
                         f"🔗 Attempting to restore {server_name} ({server_type.value})..."
                     )
                     if self._add_server_without_persistence(config):
-                        logger.info(
-                            f"✅ Successfully restored connection to {server_name}"
-                        )
-                        print(f"✅ Restored MCP connection: {server_name}")
+                        logger.debug(f"✅ Restored MCP connection: {server_name}")
                         restored_count += 1
                     else:
-                        logger.warning(
-                            f"❌ Failed to restore connection to {server_name}"
-                        )
-                        print(f"❌ Failed to restore MCP connection: {server_name}")
+                        logger.debug(f"❌ Failed to restore MCP connection: {server_name}")
                         failed_count += 1
 
                 except Exception as e:
                     logger.error(f"Failed to restore server {server_name}: {str(e)}")
-                    print(f"❌ Error restoring {server_name}: {str(e)}")
                     failed_count += 1
                     continue
 
-            print(
+            logger.debug(
                 f"🏁 MCP Restoration Complete: {restored_count} successful, {failed_count} failed"
-            )
-            logger.info(
-                f"MCP restoration complete: {restored_count} successful, {failed_count} failed"
             )
 
         except Exception as e:
             logger.error(
                 f"Failed to load persistent MCP server configurations: {str(e)}"
             )
-            print(f"❌ Failed to load MCP configurations: {str(e)}")
 
 
 class AsyncMCPClientManager:

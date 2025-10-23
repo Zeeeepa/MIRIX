@@ -2827,7 +2827,7 @@ def validate_json(user_message_text: str) -> str:
         user_message_json_val = json_dumps(user_message_json)
         return user_message_json_val
     except Exception as e:
-        print(f"{CLI_WARNING_PREFIX}couldn't parse user input message as JSON: {e}")
+        logger.debug(f"{CLI_WARNING_PREFIX}couldn't parse user input message as JSON: {e}")
         raise e
 
 

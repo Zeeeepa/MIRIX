@@ -3,6 +3,10 @@ from datetime import datetime
 
 import demjson3 as demjson
 
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
+
 
 def json_loads(data):
     return json.loads(data, strict=False)
@@ -24,21 +28,20 @@ def parse_json(string) -> dict:
         result = json_loads(string)
         return result
     except Exception as e:
-        print(f"Error parsing json with json package: {e}")
+        logger.debug(f"Error parsing json with json package: {e}")
 
     try:
         result = demjson.decode(string)
         return result
     except demjson.JSONDecodeError as e:
-        print(f"Error parsing json with demjson package: {e}")
+        logger.debug(f"Error parsing json with demjson package: {e}")
 
     try:
         from json_repair import repair_json
-
         string = repair_json(string)
         result = json_loads(string)
         return result
 
     except Exception as e:
-        print(f"Error repairing json with json_repair package: {e}")
+        logger.debug(f"Error repairing json with json_repair package: {e}")
         raise e

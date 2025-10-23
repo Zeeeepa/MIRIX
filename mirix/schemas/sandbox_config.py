@@ -8,9 +8,12 @@ from pydantic import BaseModel, Field, model_validator
 from mirix.schemas.agent import AgentState
 from mirix.schemas.mirix_base import MirixBase, OrmMetadataBase
 from mirix.settings import tool_settings
+from mirix.log import get_logger
 
 
 # Sandbox Config
+
+logger = get_logger(__name__)
 class SandboxType(str, Enum):
     E2B = "e2b"
     LOCAL = "local"
