@@ -9,9 +9,11 @@ from mirix.constants import (
     EMBEDDING_TO_TOKENIZER_MAP,
     MAX_EMBEDDING_DIM,
 )
+from mirix.log import get_logger
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.utils import is_valid_url, printd
 
+logger = get_logger(__name__)
 
 def parse_and_chunk_text(text: str, chunk_size: int) -> List[str]:
     from llama_index.core import Document as LlamaIndexDocument
@@ -22,12 +24,10 @@ def parse_and_chunk_text(text: str, chunk_size: int) -> List[str]:
     nodes = parser.get_nodes_from_documents(llama_index_docs)
     return [n.text for n in nodes]
 
-
 def truncate_text(text: str, max_length: int, encoding) -> str:
     # truncate the text based on max_length and encoding
     encoded_text = encoding.encode(text)[:max_length]
     return encoding.decode(encoded_text)
-
 
 def check_and_split_text(text: str, embedding_model: str) -> List[str]:
     """Split text into chunks of max_length tokens or less"""
@@ -35,7 +35,7 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
     if embedding_model in EMBEDDING_TO_TOKENIZER_MAP:
         encoding = tiktoken.get_encoding(EMBEDDING_TO_TOKENIZER_MAP[embedding_model])
     else:
-        print(
+        logger.debug(
             f"Warning: couldn't find tokenizer for model {embedding_model}, using default tokenizer {EMBEDDING_TO_TOKENIZER_DEFAULT}"
         )
         encoding = tiktoken.get_encoding(EMBEDDING_TO_TOKENIZER_DEFAULT)
@@ -55,14 +55,13 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
 
     # truncate text if too long
     if num_tokens > max_length:
-        print(
+        logger.debug(
             f"Warning: text is too long ({num_tokens} tokens), truncating to {max_length} tokens."
         )
         # Truncate the text
         text = truncate_text(text, max_length, encoding)
 
     return [text]
-
 
 class EmbeddingEndpoint:
     """Implementation for OpenAI compatible endpoint"""
@@ -135,7 +134,6 @@ class EmbeddingEndpoint:
     def get_text_embedding(self, text: str) -> List[float]:
         return self._call_api(text)
 
-
 class AzureOpenAIEmbedding:
     def __init__(self, api_endpoint: str, api_key: str, api_version: str, model: str):
         from openai import AzureOpenAI
@@ -152,7 +150,6 @@ class AzureOpenAIEmbedding:
             .embedding
         )
         return embeddings
-
 
 class OllamaEmbeddings:
     # Format:
@@ -183,7 +180,6 @@ class OllamaEmbeddings:
         response_json = response.json()
         return response_json["embedding"]
 
-
 def query_embedding(embedding_model, query_text: str):
     """Generate padded embedding for querying database"""
     query_vec = embedding_model.get_text_embedding(query_text)
@@ -192,7 +188,6 @@ def query_embedding(embedding_model, query_text: str):
         query_vec, (0, MAX_EMBEDDING_DIM - query_vec.shape[0]), mode="constant"
     ).tolist()
     return query_vec
-
 
 def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None):
     """Return LlamaIndex embedding model to use for embeddings"""
@@ -226,6 +221,7 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
         from mirix.services.provider_manager import ProviderManager
 
         # Check for database-stored API key first, fall back to model_settings
+
         override_key = ProviderManager().get_gemini_override_key()
         api_key = override_key if override_key else model_settings.gemini_api_key
 

@@ -9,6 +9,7 @@ from sqlalchemy import func, select, text
 from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.helpers.converters import deserialize_vector
+from mirix.log import get_logger
 from mirix.orm.errors import NoResultFound
 from mirix.orm.resource_memory import ResourceMemoryItem
 from mirix.schemas.agent import AgentState
@@ -20,6 +21,8 @@ from mirix.schemas.user import User as PydanticUser
 from mirix.services.utils import build_query, update_timezone
 from mirix.settings import settings
 from mirix.utils import enforce_types
+
+logger = get_logger(__name__)
 
 
 class ResourceMemoryManager:
@@ -136,7 +139,7 @@ class ResourceMemoryManager:
             return None
 
         except Exception as e:
-            print(f"Warning: Failed to parse embedding field: {e}")
+            logger.error(f"Warning: Failed to parse embedding field: {e}")
             return None
 
     def _postgresql_fulltext_search(
@@ -276,7 +279,7 @@ class ResourceMemoryManager:
                 return [resource.to_pydantic() for resource in resources]
 
         except Exception as e:
-            print(f"PostgreSQL AND query error: {e}")
+            logger.error(f"PostgreSQL AND query error: {e}")
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -328,7 +331,7 @@ class ResourceMemoryManager:
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
-            print(f"PostgreSQL full-text search error: {e}")
+            logger.error(f"PostgreSQL full-text search error: {e}")
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(ResourceMemoryItem, search_field)

@@ -27,6 +27,7 @@ import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
 
 import mirix
+from mirix.log import get_logger
 from mirix.constants import (
     CLI_WARNING_PREFIX,
     CORE_MEMORY_HUMAN_CHAR_LIMIT,
@@ -41,6 +42,7 @@ from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 from mirix.schemas.mirix_message_content import TextContent, ImageContent, FileContent, CloudFileContent
 from mirix.schemas.message import MessageCreate, MessageRole
 
+logger = get_logger(__name__)
 
 DEBUG = False
 if "LOG_LEVEL" in os.environ:
@@ -613,7 +615,7 @@ def annotate_message_json_list_with_tool_calls(
             # We should have a new tool call id in the buffer
             if tool_call_id is None:
                 # raise ValueError(
-                print(
+                logger.debug(
                     f"Got a function call role, but did not have a saved tool_call_id ready to use (i={i}, total={len(messages)}):\n{messages[:i]}\n{message}"
                 )
                 # allow a soft fail in this case
@@ -668,7 +670,7 @@ def annotate_message_json_list_with_tool_calls(
             # We should have a new tool call id in the buffer
             if tool_call_id is None:
                 # raise ValueError(
-                print(
+                logger.debug(
                     f"Got a tool call role, but did not have a saved tool_call_id ready to use (i={i}, total={len(messages)}):\n{messages[:i]}\n{message}"
                 )
                 # allow a soft fail in this case
@@ -864,13 +866,13 @@ def count_tokens(s: str, model: str = "gpt-4") -> int:
 
 def printd(*args, **kwargs):
     if DEBUG:
-        print(*args, **kwargs)
+        logger.debug(*args, **kwargs)
 
 
 def printv(*args, **kwargs):
     """Print verbose logging output. Controlled by MIRIX_VERBOSE environment variable."""
     if VERBOSE:
-        print(*args, **kwargs)
+        logger.info(*args, **kwargs)
 
 
 def united_diff(str1, str2):
@@ -953,13 +955,13 @@ def parse_json(string) -> dict:
         result = json_loads(string)
         return result
     except Exception as e:
-        print(f"Error parsing json with json package: {e}")
+        logger.error(f"Error parsing json with json package: {e}")
 
     try:
         result = demjson.decode(string)
         return result
     except demjson.JSONDecodeError as e:
-        print(f"Error parsing json with demjson package: {e}")
+        logger.error(f"Error parsing json with demjson package: {e}")
 
     try:
         from json_repair import repair_json
@@ -969,7 +971,7 @@ def parse_json(string) -> dict:
         return result
 
     except Exception as e:
-        print(f"Error repairing json with json_repair package: {e}")
+        logger.error(f"Error repairing json with json_repair package: {e}")
         raise e
 
 
@@ -1016,7 +1018,7 @@ def validate_function_response(
     # Now check the length and make sure it doesn't go over the limit
     # TODO we should change this to a max token limit that's variable based on tokens remaining (or context-window)
     if truncate and len(function_response_string) > return_char_limit:
-        print(
+        logger.debug(
             f"{CLI_WARNING_PREFIX}function return was over limit ({len(function_response_string)} > {return_char_limit}) and was truncated"
         )
         function_response_string = f"{function_response_string[:return_char_limit]}... [NOTE: function output was truncated since it exceeded the character limit ({len(function_response_string)} > {return_char_limit})]"
@@ -1356,7 +1358,7 @@ def num_tokens_from_tool_calls(
     try:
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
-        # print("Warning: model not found. Using cl100k_base encoding.")
+        # logger.debug("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")
 
     num_tokens = 0
@@ -1403,7 +1405,7 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
         # Attempt to search for the encoding based on the model string
         encoding = tiktoken.encoding_for_model(model)
     except KeyError:
-        # print("Warning: model not found. Using cl100k_base encoding.")
+        # logger.error("Warning: model not found. Using cl100k_base encoding.")
         encoding = tiktoken.get_encoding("cl100k_base")
     if model in {
         "gpt-3.5-turbo-0613",
@@ -1421,10 +1423,10 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
         )
         tokens_per_name = -1  # if there's a name, the role is omitted
     elif "gpt-3.5-turbo" in model:
-        # print("Warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613.")
+        # logger.debug("Warning: gpt-3.5-turbo may update over time. Returning num tokens assuming gpt-3.5-turbo-0613.")
         return num_tokens_from_messages(messages, model="gpt-3.5-turbo-0613")
     elif "gpt-4" in model:
-        # print("Warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613.")
+        # logger.debug("Warning: gpt-4 may update over time. Returning num tokens assuming gpt-4-0613.")
         return num_tokens_from_messages(messages, model="gpt-4-0613")
     else:
         from mirix.utils import printd
@@ -1466,7 +1468,7 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
                     num_tokens += tokens_per_name
 
             except TypeError as e:
-                print(f"tiktoken encoding failed on: {value}")
+                logger.error(f"tiktoken encoding failed on: {value}")
                 raise e
 
     num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>

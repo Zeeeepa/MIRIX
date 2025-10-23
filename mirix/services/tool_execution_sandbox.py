@@ -240,7 +240,7 @@ class ToolExecutionSandbox:
                 stdout=[stdout] if stdout else [],
                 stderr=[result.stderr] if result.stderr else [],
                 status="success",
-                sandbox_config_fingerprint=sbx_config.fingerprint(),
+                sandbox_config_fingerprint=sbx_config.fingerlogger.debug(),
             )
 
         except subprocess.CalledProcessError as e:
@@ -256,7 +256,7 @@ class ToolExecutionSandbox:
                 stdout=[e.stdout] if e.stdout else [],
                 stderr=[e.stderr] if e.stderr else [],
                 status="error",
-                sandbox_config_fingerprint=sbx_config.fingerprint(),
+                sandbox_config_fingerprint=sbx_config.fingerlogger.debug(),
             )
 
         except subprocess.TimeoutExpired:

@@ -13,6 +13,9 @@ from mirix.constants import (
     OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING,
 )
 from mirix.errors import LLMError
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mirix.interface import (
@@ -54,7 +57,6 @@ from mirix.utils import (
 )
 
 OPENAI_SSE_DONE = "[DONE]"
-
 
 def openai_get_model_list(
     url: str,
@@ -114,7 +116,6 @@ def openai_get_model_list(
             pass
         printd(f"Got unknown Exception, exception={e}, response={response}")
         raise e
-
 
 def build_openai_chat_completions_request(
     llm_config: LLMConfig,
@@ -189,7 +190,6 @@ def build_openai_chat_completions_request(
 
     return data
 
-
 def openai_chat_completions_process_stream(
     url: str,
     api_key: str,
@@ -212,7 +212,7 @@ def openai_chat_completions_process_stream(
     chat_history = [
         m.model_dump(exclude_none=True) for m in chat_completion_request.messages
     ]
-    # print(chat_history)
+    # logger.debug(chat_history)
 
     prompt_tokens = num_tokens_from_messages(
         messages=chat_history,
@@ -425,7 +425,7 @@ def openai_chat_completions_process_stream(
     except Exception as e:
         if stream_interface:
             stream_interface.stream_end()
-        print(f"Parsing ChatCompletion stream failed with error:\n{str(e)}")
+        logger.error(f"Parsing ChatCompletion stream failed with error:\n{str(e)}")
         raise e
     finally:
         if stream_interface:
@@ -459,7 +459,6 @@ def openai_chat_completions_process_stream(
     # printd(chat_completion_response)
     return chat_completion_response
 
-
 def _sse_post(
     url: str, data: dict, headers: dict
 ) -> Generator[ChatCompletionChunkResponse, None, None]:
@@ -488,7 +487,7 @@ def _sse_post(
                 except LLMError:
                     raise
                 except Exception:
-                    print(
+                    logger.eror(
                         "Failed to parse SSE message, throwing SSE HTTP error up the stack"
                     )
                     event_source.response.raise_for_status()
@@ -497,13 +496,13 @@ def _sse_post(
                 for sse in event_source.iter_sse():
                     # printd(sse.event, sse.data, sse.id, sse.retry)
                     if sse.data == OPENAI_SSE_DONE:
-                        # print("finished")
+                        # logger.debug("finished")
                         break
                     else:
                         chunk_data = json.loads(sse.data)
-                        # print("chunk_data::", chunk_data)
+                        # logger.debug("chunk_data::", chunk_data)
                         chunk_object = ChatCompletionChunkResponse(**chunk_data)
-                        # print("chunk_object::", chunk_object)
+                        # logger.debug("chunk_object::", chunk_object)
                         # id=chunk_data["id"],
                         # choices=[ChunkChoice],
                         # model=chunk_data["model"],
@@ -512,7 +511,7 @@ def _sse_post(
                         yield chunk_object
 
             except SSEError as e:
-                print("Caught an error while iterating the SSE stream:", str(e))
+                logger.error("Caught an error while iterating the SSE stream:", str(e))
                 if "application/json" in str(
                     e
                 ):  # Check if the error is because of JSON response
@@ -524,27 +523,26 @@ def _sse_post(
                         error_details = (
                             response.json()
                         )  # Parse the JSON to get the error message
-                        print("Request:", vars(response.request))
-                        print("POST Error:", error_details)
-                        print("Original SSE Error:", str(e))
+                        logger.debug("Request:", vars(response.request))
+                        logger.debug("POST Error:", error_details)
+                        logger.debug("Original SSE Error:", str(e))
                     else:
-                        print("Failed to retrieve JSON error message via retry.")
+                        logger.debug("Failed to retrieve JSON error message via retry.")
                 else:
-                    print("SSEError not related to 'application/json' content type.")
+                    logger.debug("SSEError not related to 'application/json' content type.")
 
                 # Optionally re-raise the exception if you need to propagate it
                 raise e
 
             except Exception as e:
                 if event_source.response.request is not None:
-                    print("HTTP Request:", vars(event_source.response.request))
+                    logger.error("HTTP Request:", vars(event_source.response.request))
                 if event_source.response is not None:
-                    print("HTTP Status:", event_source.response.status_code)
-                    print("HTTP Headers:", event_source.response.headers)
-                    # print("HTTP Body:", event_source.response.text)
-                print("Exception message:", str(e))
+                    logger.error("HTTP Status:", event_source.response.status_code)
+                    logger.error("HTTP Headers:", event_source.response.headers)
+                    # logger.debug("HTTP Body:", event_source.response.text)
+                logger.error("Exception message:", str(e))
                 raise e
-
 
 def openai_chat_completions_request_stream(
     url: str,
@@ -582,7 +580,7 @@ def openai_chat_completions_request_stream(
                     f"Failed to convert tool function to structured output, tool={tool}, error={e}"
                 )
 
-    # print(f"\n\n\n\nData[tools]: {json.dumps(data['tools'], indent=2)}")
+    # logger.debug(f"\n\n\n\nData[tools]: {json.dumps(data['tools'], indent=2)}")
 
     printd(f"Sending request to {url}")
     try:
@@ -600,7 +598,6 @@ def openai_chat_completions_request_stream(
         printd(f"Got unknown Exception, exception={e}")
         raise e
 
-
 def extract_content(content):
     import re
 
@@ -615,7 +612,6 @@ def extract_content(content):
             result.append({"type": "image_url", "image_url": image.strip()})
 
     return result
-
 
 def openai_chat_completions_request(
     url: str,
@@ -670,7 +666,6 @@ def openai_chat_completions_request(
     response_json = make_post_request(url, headers, data)
 
     return ChatCompletionResponse(**response_json)
-
 
 def openai_embeddings_request(url: str, api_key: str, data: dict) -> EmbeddingResponse:
     """https://platform.openai.com/docs/api-reference/embeddings/create"""

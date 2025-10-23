@@ -140,7 +140,7 @@ class SemanticMemoryManager:
             return None
 
         except Exception as e:
-            print(f"Warning: Failed to parse embedding field: {e}")
+            logger.debug(f"Warning: Failed to parse embedding field: {e}")
             return None
 
     def _count_word_matches(
@@ -333,7 +333,7 @@ class SemanticMemoryManager:
                 return [item.to_pydantic() for item in semantic_items]
 
         except Exception as e:
-            print(f"PostgreSQL AND query error: {e}")
+            logger.debug(f"PostgreSQL AND query error: {e}")
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -390,7 +390,7 @@ class SemanticMemoryManager:
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
-            print(f"PostgreSQL full-text search error: {e}")
+            logger.debug(f"PostgreSQL full-text search error: {e}")
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(SemanticMemoryItem, search_field)

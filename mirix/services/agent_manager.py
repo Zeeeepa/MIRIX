@@ -122,7 +122,7 @@ class AgentManager:
             if tool:
                 tool_ids.append(tool.id)
             else:
-                print(f"Tool {tool_name} not found")
+                logger.debug(f"Tool {tool_name} not found")
 
         # Remove duplicates
         tool_ids = list(set(tool_ids))
@@ -223,7 +223,7 @@ class AgentManager:
             agent_create=meta_agent_create_schema,
             actor=actor,
         )
-        logger.info(
+        logger.debug(
             f"Created meta_memory_agent: {meta_agent_name} with id: {meta_agent_state.id}"
         )
 
@@ -286,7 +286,7 @@ class AgentManager:
                 actor=actor,
             )
             created_agents[agent_name] = agent_state
-            logger.info(
+            logger.debug(
                 f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}"
             )
 
@@ -425,7 +425,7 @@ class AgentManager:
             for agent_name in agents_to_delete:
                 if agent_name in existing_agents_by_name:
                     child_agent = existing_agents_by_name[agent_name]
-                    logger.info(f"Deleting sub-agent: {agent_name} with id: {child_agent.id}")
+                    logger.debug(f"Deleting sub-agent: {agent_name} with id: {child_agent.id}")
                     self.delete_agent(agent_id=child_agent.id, actor=actor)
 
             # Create new agents
@@ -463,7 +463,7 @@ class AgentManager:
                     actor=actor,
                 )
                 existing_agents_by_name[agent_name] = new_agent_state
-                logger.info(
+                logger.debug(
                     f"Created sub-agent: {agent_name} with id: {new_agent_state.id}, parent_id: {meta_agent_id}"
                 )
 
@@ -477,7 +477,7 @@ class AgentManager:
                 if agent_name in existing_agents_by_name:
                     child_agent = existing_agents_by_name[agent_name]
                     if child_agent.system != system_prompt:
-                        logger.info(f"Updating system prompt for sub-agent: {agent_name}")
+                        logger.debug(f"Updating system prompt for sub-agent: {agent_name}")
                         self.update_system_prompt(
                             agent_id=child_agent.id,
                             system_prompt=system_prompt,
@@ -494,7 +494,7 @@ class AgentManager:
                     update_fields["embedding_config"] = meta_agent_update.embedding_config
                 
                 if update_fields:
-                    logger.info(f"Updating configs for sub-agent: {agent_name}")
+                    logger.debug(f"Updating configs for sub-agent: {agent_name}")
                     self.update_agent(
                         agent_id=child_agent.id,
                         agent_update=UpdateAgent(**update_fields),

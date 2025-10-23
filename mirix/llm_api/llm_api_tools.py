@@ -9,6 +9,9 @@ from mirix.constants import (
     INNER_THOUGHTS_KWARG,
     INNER_THOUGHTS_KWARG_DESCRIPTION,
 )
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mirix.interface import AgentChunkStreamingInterface
@@ -51,7 +54,6 @@ LLM_API_PROVIDER_OPTIONS = [
     "local",
     "groq",
 ]
-
 
 def retry_with_exponential_backoff(
     func,
@@ -98,7 +100,7 @@ def retry_with_exponential_backoff(
 
                     # Sleep for the delay
                     # printd(f"Got a rate limit error ('{http_err}') on LLM backend request, waiting {int(delay)}s then retrying...")
-                    print(
+                    logger.debug(
                         f"{CLI_WARNING_PREFIX}Got a rate limit error ('{http_err}') on LLM backend request, waiting {int(delay)}s then retrying..."
                     )
                     time.sleep(delay)
@@ -111,7 +113,6 @@ def retry_with_exponential_backoff(
                 raise e
 
     return wrapper
-
 
 @retry_with_exponential_backoff
 def create(

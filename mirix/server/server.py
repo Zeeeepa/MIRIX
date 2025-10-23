@@ -206,7 +206,7 @@ def db_error_handler():
         yield
     except Exception as e:
         # Handle other SQLAlchemy errors
-        print(e)
+        logger.error(e)
         print_sqlite_schema_error()
         # raise ValueError(f"SQLite DB error: {str(e)}")
         exit(1)
@@ -295,16 +295,16 @@ if USE_PGLITE:
         config.archival_storage_type = "pglite"
         config.archival_storage_uri = "pglite://local"
 
-        logger.info(f"PGlite Bridge URL: {pglite_connector.bridge_url}")
+        logger.debug(f"PGlite Bridge URL: {pglite_connector.bridge_url}")
         logger.info("PGlite adapter initialized successfully")
 
     except ImportError as e:
-        print(f"Failed to import PGlite connector: {e}")
-        print("Falling back to SQLite mode")
+        logger.error(f"Failed to import PGlite connector: {e}")
+        logger.error("Falling back to SQLite mode")
         USE_PGLITE = False
 
 if not USE_PGLITE and settings.mirix_pg_uri_no_default:
-    logger.info("DATABASE CONNECTION: PostgreSQL mode")
+    logger.debug("DATABASE CONNECTION: PostgreSQL mode")
 
     # Mask password in connection string for logging
     pg_uri_for_log = settings.mirix_pg_uri
@@ -316,13 +316,13 @@ if not USE_PGLITE and settings.mirix_pg_uri_no_default:
             protocol_user = credentials_part.rsplit(":", 1)[0]  # Keep protocol and user
             pg_uri_for_log = f"{protocol_user}:****@{parts[1]}"
     
-    logger.info(f"Connection String: {pg_uri_for_log}")
-    logger.info(f"Pool Size: {settings.pg_pool_size}")
-    logger.info(f"Max Overflow: {settings.pg_max_overflow}")
-    logger.info(f"Pool Timeout: {settings.pg_pool_timeout}s")
-    logger.info(f"Pool Recycle: {settings.pg_pool_recycle}s")
+    logger.debug(f"Connection String: {pg_uri_for_log}")
+    logger.debug(f"Pool Size: {settings.pg_pool_size}")
+    logger.debug(f"Max Overflow: {settings.pg_max_overflow}")
+    logger.debug(f"Pool Timeout: {settings.pg_pool_timeout}s")
+    logger.debug(f"Pool Recycle: {settings.pg_pool_recycle}s")
     
-    print("Creating engine", settings.mirix_pg_uri)
+    logger.debug("Creating engine", settings.mirix_pg_uri)
     config.recall_storage_type = "postgres"
     config.recall_storage_uri = settings.mirix_pg_uri_no_default
     config.archival_storage_type = "postgres"
@@ -345,7 +345,7 @@ elif not USE_PGLITE:
     sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
 
     logger.info("DATABASE CONNECTION: SQLite mode")
-    logger.info(f"Connection String: sqlite:///{sqlite_db_path}")
+    logger.debug(f"Connection String: sqlite:///{sqlite_db_path}")
 
     # Configure SQLite engine with proper concurrency settings
     engine = create_engine(
@@ -683,7 +683,7 @@ class SyncServer(Server):
 
         except Exception as e:
             logger.error(f"Error in server._step: {e}")
-            print(traceback.print_exc())
+            logger.error(traceback.print_exc())
             raise
         finally:
             logger.debug("Calling step_yield()")
@@ -1502,7 +1502,7 @@ class SyncServer(Server):
         except HTTPException:
             raise
         except Exception as e:
-            print(e)
+            logger.error(e)
             import traceback
 
             traceback.print_exc()

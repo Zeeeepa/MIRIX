@@ -20,6 +20,9 @@ from mirix.services.utils import build_query, update_timezone
 from mirix.settings import settings
 from mirix.utils import enforce_types
 
+from mirix.log import get_logger
+
+logger = get_logger(__name__)
 
 class EpisodicMemoryManager:
     """Manager class to handle business logic related to Episodic episodic_memory items."""
@@ -685,7 +688,7 @@ class EpisodicMemoryManager:
                 return [event.to_pydantic() for event in episodic_memory]
 
         except Exception as e:
-            print(f"PostgreSQL AND query error: {e}")
+            logger.debug(f"PostgreSQL AND query error: {e}")
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -738,7 +741,7 @@ class EpisodicMemoryManager:
 
         except Exception as e:
             # If there's an error with the tsquery (e.g., invalid syntax), fall back to simpler search
-            print(f"PostgreSQL full-text search error: {e}")
+            logger.debug(f"PostgreSQL full-text search error: {e}")
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(EpisodicEvent, search_field)
@@ -859,5 +862,5 @@ class EpisodicMemoryManager:
             return None
 
         except Exception as e:
-            print(f"Warning: Failed to parse embedding field: {e}")
+            logger.debug(f"Warning: Failed to parse embedding field: {e}")
             return None

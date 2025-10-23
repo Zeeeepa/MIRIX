@@ -115,6 +115,7 @@ if "--use-file-pg-uri" in sys.argv:
     try:
         with open(Path.home() / ".mirix/pg_uri", "r") as f:
             default_pg_uri = f.read()
+            # Note: Using print instead of logger to avoid circular import with mirix.log
             print("Read pg_uri from ~/.mirix/pg_uri")
     except FileNotFoundError:
         pass

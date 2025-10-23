@@ -417,7 +417,7 @@ class TemporaryMessageAccumulator:
                                         continue
                                     elif upload_status["status"] == "unknown":
                                         # Upload was cleaned up, treat as failed
-                                        print(
+                                        logger.debug(
                                             "Skipping unknown/cleaned upload in absorb_content_into_memory"
                                         )
                                         # Only clean up local tracking since upload manager already cleaned up

@@ -14,6 +14,7 @@ from mirix.schemas.openai.chat_completion_response import (
     ToolCall,
     UsageStatistics,
 )
+from mirix.log import get_logger
 from mirix.utils import (
     clean_json_string_extra_backslash,
     count_tokens,
@@ -22,6 +23,7 @@ from mirix.utils import (
     json_dumps,
 )
 
+logger = get_logger(__name__)
 
 def get_gemini_endpoint_and_headers(
     base_url: str,
@@ -53,7 +55,6 @@ def get_gemini_endpoint_and_headers(
 
     return url, headers
 
-
 def google_ai_get_model_details(
     base_url: str, api_key: str, model: str, key_in_header: bool = True
 ) -> List[dict]:
@@ -77,9 +78,9 @@ def google_ai_get_model_details(
         # Handle HTTP errors (e.g., response 4XX, 5XX)
         printd(f"Got HTTPError, exception={http_err}")
         # Print the HTTP status code
-        print(f"HTTP Error: {http_err.response.status_code}")
+        logger.debug(f"HTTP Error: {http_err.response.status_code}")
         # Print the response content (error message from server)
-        print(f"Message: {http_err.response.text}")
+        logger.debug(f"Message: {http_err.response.text}")
         raise http_err
 
     except requests.exceptions.RequestException as req_err:
@@ -92,7 +93,6 @@ def google_ai_get_model_details(
         printd(f"Got unknown Exception, exception={e}")
         raise e
 
-
 def google_ai_get_model_context_window(
     base_url: str, api_key: str, model: str, key_in_header: bool = True
 ) -> int:
@@ -102,7 +102,6 @@ def google_ai_get_model_context_window(
     # TODO should this be:
     # return model_details["inputTokenLimit"] + model_details["outputTokenLimit"]
     return int(model_details["inputTokenLimit"])
-
 
 def google_ai_get_model_list(
     base_url: str, api_key: str, key_in_header: bool = True
@@ -126,9 +125,9 @@ def google_ai_get_model_list(
         # Handle HTTP errors (e.g., response 4XX, 5XX)
         printd(f"Got HTTPError, exception={http_err}")
         # Print the HTTP status code
-        print(f"HTTP Error: {http_err.response.status_code}")
+        logger.debug(f"HTTP Error: {http_err.response.status_code}")
         # Print the response content (error message from server)
-        print(f"Message: {http_err.response.text}")
+        logger.debug(f"Message: {http_err.response.text}")
         raise http_err
 
     except requests.exceptions.RequestException as req_err:
@@ -140,7 +139,6 @@ def google_ai_get_model_list(
         # Handle other potential errors
         printd(f"Got unknown Exception, exception={e}")
         raise e
-
 
 def add_dummy_model_messages(messages: List[dict]) -> List[dict]:
     """Google AI API requires all function call returns are immediately followed by a 'model' role message.
@@ -171,7 +169,6 @@ def add_dummy_model_messages(messages: List[dict]) -> List[dict]:
 
     return messages_with_padding
 
-
 # TODO use pydantic model as input
 def to_google_ai(openai_message_dict: dict) -> dict:
     # TODO supports "parts" as part of multimodal support
@@ -198,7 +195,6 @@ def to_google_ai(openai_message_dict: dict) -> dict:
             f"Unsupported conversion (OpenAI -> Google AI) from role {openai_message_dict['role']}"
         )
     return google_ai_message_dict
-
 
 # TODO convert return type to pydantic
 def convert_tools_to_google_ai_format(
@@ -278,7 +274,6 @@ def convert_tools_to_google_ai_format(
                 func["parameters"]["required"].append(INNER_THOUGHTS_KWARG)
 
     return [{"functionDeclarations": function_list}]
-
 
 def convert_google_ai_response_to_chatcompletion(
     response_json: dict,  # REST response from Google AI API
@@ -466,7 +461,6 @@ def convert_google_ai_response_to_chatcompletion(
     except KeyError as e:
         raise e
 
-
 def extract_content(content):
     import re
 
@@ -481,7 +475,6 @@ def extract_content(content):
             result.append({"type": "image_url", "image_url": image.strip()})
 
     return result
-
 
 # TODO convert 'data' type to pydantic
 def google_ai_chat_completions_request(
@@ -566,7 +559,7 @@ def google_ai_chat_completions_request(
     s1 = time.time()
     response_json = make_post_request(url, headers, data)
     s2 = time.time()
-    print("Query Takes time:", s2 - s1)
+    logger.debug("Query Takes time:", s2 - s1)
 
     if len(response_json["candidates"][0]["content"]) == 0:
         raise ValueError("Empty response from Google AI API")

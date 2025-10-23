@@ -14,6 +14,8 @@ from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 from mirix.settings import summarizer_settings
 from mirix.utils import count_tokens, json_dumps, printd
 
+logger = logging.getLogger(__name__)
+
 
 def _convert_to_structured_output_helper(property: dict) -> dict:
     """Convert a single JSON schema property to structured output format (recursive)"""
@@ -349,7 +351,7 @@ def calculate_summarizer_cutoff(
     in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
 
     if summarizer_settings.evict_all_messages:
-        logger.info("Evicting all messages...")
+        logger.debug("Evicting all messages...")
         return len(in_context_messages)
     else:
         # Start at index 1 (past the system message),
@@ -358,7 +360,7 @@ def calculate_summarizer_cutoff(
         desired_token_count_to_summarize = int(
             sum(token_counts) * (1 - summarizer_settings.desired_memory_token_pressure)
         )
-        logger.info(
+        logger.debug(
             f"desired_token_count_to_summarize={desired_token_count_to_summarize}"
         )
 
@@ -391,7 +393,7 @@ def calculate_summarizer_cutoff(
         while in_context_messages_openai[cutoff + 1]["role"] == MessageRole.tool:
             cutoff += 1
 
-        logger.info(f"Evicting {cutoff}/{len(in_context_messages)} messages...")
+        logger.debug(f"Evicting {cutoff}/{len(in_context_messages)} messages...")
         return cutoff + 1
 
 
