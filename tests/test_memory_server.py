@@ -1,21 +1,17 @@
 """
 Memory System Server-Side Tests for Mirix
 
-Tests memory operations using FastAPI TestClient (no real server needed).
-Tests cover all memory types and operations as outlined:
+Tests memory operations using SyncServer directly (no network, fast).
+Automatically initializes users and agents on first run.
 
-ADD MEMORY:
-- Direct Updates using Managers
+Prerequisites:
+    export GEMINI_API_KEY=your_api_key_here
 
-READ FROM MEMORY:
-- Retrieve with conversation
-- Retrieve with topic
-- Search in memory (bm25, embedding, string_match)
-  - Episodic Memory
-  - Procedural Memory
-  - Resource Memory
-  - Knowledge Vault
-  - Semantic Memory
+Test Coverage:
+- Direct memory operations via SyncServer managers
+- All 5 memory types (Episodic, Procedural, Resource, Knowledge Vault, Semantic)
+- All search methods (bm25, embedding) across relevant fields
+- Retrieve with conversation and topic
 
 Usage:
     pytest tests/test_memory_server.py -v
@@ -54,27 +50,90 @@ def server():
 
 @pytest.fixture(scope="module")
 def user(server):
-    """Get the demo user that has agents initialized."""
+    """Get or create the demo user."""
+    from mirix.schemas.organization import Organization, OrganizationCreate
+    from mirix.schemas.user import User as PydanticUser
+    
+    org_id = "demo-org"
+    user_id = "demo-user"
+    
+    # Try to get existing user
     try:
-        # Try to get the demo-user (created by run_client.py)
-        return server.user_manager.get_user_by_id("demo-user")
-    except:
-        # Fall back to default user
-        return server.user_manager.create_default_user()
+        user = server.user_manager.get_user_by_id(user_id)
+        if user:
+            return user
+    except Exception:
+        pass
+    
+    # Create organization if it doesn't exist
+    try:
+        org = server.organization_manager.get_organization_by_id(org_id)
+    except Exception:
+        org_create = OrganizationCreate(
+            id=org_id,
+            name=org_id
+        )
+        org = server.organization_manager.create_organization(
+            pydantic_org=Organization(**org_create.model_dump())
+        )
+    
+    # Create user
+    user = server.user_manager.create_user(
+        pydantic_user=PydanticUser(
+            id=user_id,
+            name=user_id,
+            organization_id=org.id,
+            timezone=server.user_manager.DEFAULT_TIME_ZONE,
+        )
+    )
+    
+    return user
 
 
 @pytest.fixture(scope="module")
 def meta_agent(server, user):
-    """Get existing meta agent (assumes it's already initialized)."""
-    agents = server.agent_manager.list_agents(actor=user)
+    """Get or create meta agent with all sub-agents."""
+    from mirix.schemas.agent import CreateMetaAgent
+    from mirix import LLMConfig, EmbeddingConfig
     
-    for agent in agents:
+    # Check if meta agent already exists
+    existing_agents = server.agent_manager.list_agents(actor=user, limit=1000)
+    
+    for agent in existing_agents:
         if agent.agent_type == AgentType.meta_memory_agent:
+            print(f"\n[OK] Using existing meta agent: {agent.id}")
             return agent
     
-    raise ValueError(
-        "No meta agent found. Please run the server/client once to initialize agents."
+    # Meta agent doesn't exist, create it
+    print("\n[SETUP] Initializing meta agent and sub-agents...")
+    
+    # Load config (same pattern as rest_api.py)
+    config_path = Path("mirix/configs/examples/mirix_gemini.yaml")
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+    
+    # Build create_params by flattening meta_agent_config (same as rest_api.py)
+    create_params = {
+        "llm_config": LLMConfig(**config["llm_config"]),
+        "embedding_config": EmbeddingConfig(**config["embedding_config"]),
+    }
+    
+    # Flatten meta_agent_config fields into create_params
+    if "meta_agent_config" in config and config["meta_agent_config"]:
+        meta_config = config["meta_agent_config"]
+        if "agents" in meta_config:
+            create_params["agents"] = meta_config["agents"]
+        if "system_prompts" in meta_config:
+            create_params["system_prompts"] = meta_config["system_prompts"]
+    
+    # Create meta agent using agent_manager (same as rest_api.py)
+    meta_agent = server.agent_manager.create_meta_agent(
+        meta_agent_create=CreateMetaAgent(**create_params),
+        actor=user
     )
+    
+    print(f"[OK] Meta agent created: {meta_agent.id}")
+    return meta_agent
 
 
 def get_sub_agent(server, user, meta_agent, agent_type):
