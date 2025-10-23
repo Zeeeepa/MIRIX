@@ -644,7 +644,22 @@ def trigger_memory_update(
             user=self.user,
         )
 
-        user_message["message"].content.append(TextContent(text='[System Message] According to the instructions, the retrieved memories and the above content, update the corresponding memory.'))
+        # Add system message to the content
+        # Handle both str and List[MirixMessageContentUnion] content types
+        system_msg = TextContent(text='[System Message] According to the instructions, the retrieved memories and the above content, update the corresponding memory.')
+        
+        if isinstance(user_message["message"].content, str):
+            # Convert string content to list and append system message
+            user_message["message"].content = [
+                TextContent(text=user_message["message"].content),
+                system_msg
+            ]
+        elif isinstance(user_message["message"].content, list):
+            # Already a list, just append
+            user_message["message"].content.append(system_msg)
+        else:
+            # Fallback: create new list
+            user_message["message"].content = [system_msg]
 
         # Call step on the memory agent
         memory_agent.step(

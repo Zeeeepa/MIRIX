@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 
 from mirix import Mirix
 
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility
 load_dotenv()
 
 # Configuration

@@ -1,0 +1,106 @@
+// Protocol Buffer definition for queue messages
+syntax = "proto3";
+
+package mirix;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// Main request message for send_messages
+message QueueMessage {
+  // Actor/User information
+  User actor = 1;
+  
+  // Required agent identifier
+  string agent_id = 2;
+  
+  // List of input messages to send
+  repeated MessageCreate input_messages = 3;
+  
+  // Optional chaining flag
+  optional bool chaining = 4;
+  
+  // Optional user identifier
+  optional string user_id = 5;
+  
+  // Optional verbose flag
+  optional bool verbose = 6;
+  
+  // Filter tags as flexible JSON structure
+  google.protobuf.Struct filter_tags = 7;
+}
+
+// User representation
+message User {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  string status = 4;
+  string timezone = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  bool is_deleted = 8;
+}
+
+// Message creation request
+message MessageCreate {
+  enum Role {
+    ROLE_UNSPECIFIED = 0;
+    ROLE_USER = 1;
+    ROLE_SYSTEM = 2;
+  }
+  
+  // The role of the participant
+  Role role = 1;
+  
+  // Content can be either simple text or complex structured content
+  oneof content_type {
+    string text_content = 2;
+    MessageContentList structured_content = 3;
+  }
+  
+  // Optional name of the participant
+  optional string name = 4;
+  
+  // Optional offline threading id
+  optional string otid = 5;
+  
+  // Optional sender identifier
+  optional string sender_id = 6;
+  
+  // Optional multi-agent group id
+  optional string group_id = 7;
+}
+
+// List of message content parts (for structured content)
+message MessageContentList {
+  repeated MessageContentPart parts = 1;
+}
+
+// Individual content part (text, image, file, etc.)
+message MessageContentPart {
+  oneof content {
+    TextContent text = 1;
+    ImageContent image = 2;
+    FileContent file = 3;
+    CloudFileContent cloud_file = 4;
+  }
+}
+
+message TextContent {
+  string text = 1;
+}
+
+message ImageContent {
+  string image_id = 1;
+  optional string detail = 2;
+}
+
+message FileContent {
+  string file_id = 1;
+}
+
+message CloudFileContent {
+  string cloud_file_uri = 1;
+}
+

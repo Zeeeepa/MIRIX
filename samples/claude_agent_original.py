@@ -8,6 +8,8 @@ import asyncio
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from dotenv import load_dotenv
 
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility
 load_dotenv()
 
 

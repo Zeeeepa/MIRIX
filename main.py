@@ -11,6 +11,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Load .env file (optional - Mirix now loads .env automatically in mirix/settings.py)
+# Kept here for backward compatibility when running main.py directly
 load_dotenv()
 
 # Add the project root to the Python path

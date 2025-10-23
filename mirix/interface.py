@@ -230,8 +230,8 @@ class CLIInterface(AgentInterface):
                                         f"{Style.BRIGHT}\t{Fore.RED} {msg_dict['old_content']}\n\t{Fore.GREEN}→ {msg_dict['new_content']}{Style.RESET_ALL}"
                                     )
                         except Exception as e:
-                            printd(str(e))
-                            printd(msg_dict)
+                            printd(f"Error parsing function args: {str(e)}")
+                            printd(f"function_args: {function_args}")
                     elif function_name in [
                         "conversation_search",
                         "conversation_search_date",
@@ -247,8 +247,8 @@ class CLIInterface(AgentInterface):
                             else:
                                 print(f"{Fore.RED}{output}{Style.RESET_ALL}")
                         except Exception as e:
-                            printd(str(e))
-                            printd(msg_dict)
+                            printd(f"Error parsing function args: {str(e)}")
+                            printd(f"function_args: {function_args}")
                 else:
                     printd(f"{CLI_WARNING_PREFIX}did not recognize function message")
                     printd_function_message("", msg)
