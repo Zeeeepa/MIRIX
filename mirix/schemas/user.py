@@ -4,6 +4,7 @@ import uuid
 
 from pydantic import Field
 
+from mirix.helpers.datetime_helpers import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
 from mirix.services.organization_manager import OrganizationManager
 
@@ -40,10 +41,10 @@ class User(UserBase):
     status: str = Field("active", description="Whether the user is active or not.")
     timezone: str = Field(..., description="The timezone of the user.")
     created_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow, description="The creation date of the user."
+        default_factory=get_utc_time, description="The creation date of the user."
     )
     updated_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow, description="The update date of the user."
+        default_factory=get_utc_time, description="The update date of the user."
     )
     is_deleted: bool = Field(False, description="Whether this user is deleted or not.")
 
