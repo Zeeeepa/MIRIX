@@ -3,6 +3,7 @@ from typing import Optional
 
 from pydantic import Field
 
+from mirix.helpers.datetime_helpers import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
 
 
@@ -48,9 +49,9 @@ class FileMetadata(FileMetadataBase):
 
     # orm metadata, optional fields
     created_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow, description="The creation date of the file."
+        default_factory=get_utc_time, description="The creation date of the file."
     )
     updated_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow, description="The update date of the file."
+        default_factory=get_utc_time, description="The update date of the file."
     )
     is_deleted: bool = Field(False, description="Whether this file is deleted or not.")

@@ -482,9 +482,9 @@ class ProceduralMemoryManager:
             )
             update_data = item_update.model_dump(exclude_unset=True)
             for k, v in update_data.items():
-                if k not in ["id", "updated_at"]:  # or allow updated_at if you want
+                if k not in ["id", "updated_at"]:  # Exclude updated_at - handled by update() method
                     setattr(item, k, v)
-            item.updated_at = item_update.updated_at  # or get_utc_time
+            # updated_at is automatically set to current UTC time by item.update()
             item.update(session, actor=actor)
             return item.to_pydantic()
 
