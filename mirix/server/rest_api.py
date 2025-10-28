@@ -881,6 +881,7 @@ class AddMemoryRequest(BaseModel):
     user_id: str
     meta_agent_id: str
     messages: List[Dict[str, Any]]
+    chaining: bool = True
     verbose: bool = False
 
 
@@ -922,7 +923,7 @@ async def add_memory(
         actor=user,
         agent_id=meta_agent.id,
         input_messages=input_messages,
-        chaining=True,
+        chaining=request.chaining,
         user_id=request.user_id,
         verbose=request.verbose,
     )

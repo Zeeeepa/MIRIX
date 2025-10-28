@@ -948,11 +948,23 @@ class AgentManager:
     # TODO: 2) These messages are ordered from oldest to newest
     # TODO: This can be fixed by having an actual relationship in the ORM for message_ids
     # TODO: This can also be made more efficient, instead of getting, setting, we can do it all in one db session for one query.
+    # @enforce_types
+    # def get_in_context_messages(
+    #     self, agent_id: str, actor: PydanticUser
+    # ) -> List[PydanticMessage]:
+    #     message_ids = self.get_agent_by_id(agent_id=agent_id, actor=actor).message_ids
+    #     messages = self.message_manager.get_messages_by_ids(
+    #         message_ids=message_ids, actor=actor
+    #     )
+    #     messages = [messages[0]] + [
+    #         message for message in messages[1:] if message.user_id == actor.id
+    #     ]
+    #     return messages
     @enforce_types
     def get_in_context_messages(
-        self, agent_id: str, actor: PydanticUser
+        self, agent_state: PydanticAgentState, actor: PydanticUser
     ) -> List[PydanticMessage]:
-        message_ids = self.get_agent_by_id(agent_id=agent_id, actor=actor).message_ids
+        message_ids = agent_state.message_ids
         messages = self.message_manager.get_messages_by_ids(
             message_ids=message_ids, actor=actor
         )

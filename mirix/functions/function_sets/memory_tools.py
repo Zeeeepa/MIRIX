@@ -1,4 +1,7 @@
 import re
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from copy import deepcopy
 from typing import List, Optional
 
 from mirix.agent import Agent, AgentState
@@ -627,51 +630,75 @@ def trigger_memory_update(
         agent_state.agent_type: agent_state for agent_state in child_agent_states
     }
 
-    response = ""
-    for memory_type in memory_types:
+    def _run_single_memory_update(memory_type: str) -> str:
         agent_class = memory_type_to_agent_class[memory_type]
         agent_type_str = f"{memory_type}_memory_agent"
-        
-        # Find the corresponding agent state
+
         agent_state = agent_type_to_state.get(agent_type_str)
         if agent_state is None:
             raise ValueError(f"No agent found with type '{agent_type_str}'")
 
-        # Instantiate the memory agent
         memory_agent = agent_class(
             agent_state=agent_state,
             interface=self.interface,
             user=self.user,
         )
 
-        # Add system message to the content
-        # Handle both str and List[MirixMessageContentUnion] content types
-        system_msg = TextContent(text='[System Message] According to the instructions, the retrieved memories and the above content, update the corresponding memory.')
-        
-        if isinstance(user_message["message"].content, str):
-            # Convert string content to list and append system message
-            user_message["message"].content = [
-                TextContent(text=user_message["message"].content),
-                system_msg
-            ]
-        elif isinstance(user_message["message"].content, list):
-            # Already a list, just append
-            user_message["message"].content.append(system_msg)
-        else:
-            # Fallback: create new list
-            user_message["message"].content = [system_msg]
+        # Work on a copy of the user message so parallel updates do not interfere
+        if "message" not in user_message:
+            raise KeyError("user_message must contain a 'message' field")
 
-        # Call step on the memory agent
+        if hasattr(user_message["message"], "model_copy"):
+            message_copy = user_message["message"].model_copy(deep=True)  # type: ignore[attr-defined]
+        else:
+            message_copy = deepcopy(user_message["message"])
+
+        system_msg = TextContent(
+            text=(
+                "[System Message] According to the instructions, the retrieved memories "
+                "and the above content, update the corresponding memory."
+            )
+        )
+
+        if isinstance(message_copy.content, str):
+            message_copy.content = [TextContent(text=message_copy.content), system_msg]
+        elif isinstance(message_copy.content, list):
+            message_copy.content = list(message_copy.content) + [system_msg]
+        else:
+            message_copy.content = [system_msg]
+
         memory_agent.step(
-            input_messages=user_message["message"],
+            input_messages=message_copy,
             chaining=user_message.get("chaining", False),
         )
 
-        response += (
+        return (
             f"[System Message] Agent {agent_state.name} has been triggered to update the memory.\n"
         )
 
-    return response.strip()
+    max_workers = min(len(memory_types), max(os.cpu_count() or 1, 1))
+    responses: dict[int, str] = {}
+
+    if not memory_types:
+        return ""
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_index = {
+            executor.submit(_run_single_memory_update, memory_type): index
+            for index, memory_type in enumerate(memory_types)
+        }
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            memory_type = memory_types[index]
+            try:
+                responses[index] = future.result()
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to trigger memory update for '{memory_type}'"
+                ) from exc
+
+    ordered_responses = [responses[i] for i in range(len(memory_types)) if i in responses]
+    return "".join(ordered_responses).strip()
 
 
 def finish_memory_update(self: "Agent"):

@@ -672,13 +672,16 @@ class SyncServer(Server):
                     )
                 )
 
+            # TODO: should we directly pass "actor"?
+            user = self.user_manager.get_user_by_id(actor.id)
+
             usage_stats = mirix_agent.step(
                 input_messages=input_messages,
                 chaining=effective_chaining,
                 max_chaining_steps=self.max_chaining_steps,
                 stream=token_streaming,
                 skip_verify=True,
-                user_id=actor.id,
+                user=user
             )
 
         except Exception as e:

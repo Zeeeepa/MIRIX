@@ -824,6 +824,7 @@ class MirixClient(AbstractClient):
         self,
         user_id: str,
         messages: List[Dict[str, Any]],
+        chaining: bool = True,
         verbose: bool = False,
     ) -> Dict[str, Any]:
         """
@@ -879,6 +880,7 @@ class MirixClient(AbstractClient):
             "user_id": user_id,
             "meta_agent_id": self._meta_agent.id,
             "messages": messages,
+            "chaining": chaining,
             "verbose": verbose,
         }
         

@@ -188,7 +188,6 @@ class Agent(BaseAgent):
         self.message_manager = MessageManager()
         self.agent_manager = AgentManager()
         self.step_manager = StepManager()
-        self.user_manager = UserManager()
 
         # Create the memory managers
         self.episodic_memory_manager = EpisodicMemoryManager()
@@ -215,7 +214,7 @@ class Agent(BaseAgent):
     def load_last_function_response(self):
         """Load the last function response from message history"""
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_id=self.agent_state.id, actor=self.user
+            agent_state=self.agent_state, actor=self.user
         )
         for i in range(len(in_context_messages) - 1, -1, -1):
             msg = in_context_messages[i]
@@ -380,13 +379,11 @@ class Agent(BaseAgent):
                         if "occurred_at" in item:
                             item["occurred_at"] = convert_timezone_to_utc(
                                 item["occurred_at"],
-                                self.user_manager.get_user_by_id(self.user.id).timezone,
+                                self.user.timezone,
                             )
 
             if function_name in ["search_in_memory", "list_memory_within_timerange"]:
-                function_args["timezone_str"] = self.user_manager.get_user_by_id(
-                    self.user.id
-                ).timezone
+                function_args["timezone_str"] = self.user.timezone
 
             if target_mirix_tool.tool_type == ToolType.MIRIX_CORE:
                 # base tools are allowed to access the `Agent` object and run on the database
@@ -402,8 +399,8 @@ class Agent(BaseAgent):
                         agent_state_copy  # need to attach self to arg since it's dynamically linked
                     )
                 function_response = callable_func(**function_args)
-                if function_name in ["send_message", "send_intermediate_message"]:
-                    self.update_topic_if_changed(agent_state_copy.topic)
+                # if function_name in ["send_message", "send_intermediate_message"]:
+                #     self.update_topic_if_changed(agent_state_copy.topic)
                 if function_name == "send_intermediate_message":
                     # send intermediate message to the user
                     if display_intermediate_message:
@@ -421,9 +418,7 @@ class Agent(BaseAgent):
                         agent_state_copy  # need to attach self to arg since it's dynamically linked
                     )
                 if function_name in ["check_episodic_memory", "check_semantic_memory"]:
-                    function_args["timezone_str"] = self.user_manager.get_user_by_id(
-                        self.user.id
-                    ).timezone
+                    function_args["timezone_str"] = self.user.timezone
                 function_args["self"] = self
                 function_response = callable_func(**function_args)
                 if function_name in ["core_memory_append", "core_memory_rewrite"]:
@@ -1106,7 +1101,7 @@ class Agent(BaseAgent):
                     continue_chaining = False
 
                     in_context_messages = self.agent_manager.get_in_context_messages(
-                        agent_id=self.agent_state.id, actor=self.user
+                        agent_state=self.agent_state, actor=self.user
                     )
                     message_ids = [message.id for message in in_context_messages]
                     message_ids = [message_ids[0]]
@@ -1118,9 +1113,7 @@ class Agent(BaseAgent):
                     if self.agent_state.name == "episodic_memory_agent":
                         memory_item = self.episodic_memory_manager.get_most_recently_updated_event(
                             actor=self.user,
-                            timezone_str=self.user_manager.get_user_by_id(
-                                self.user.id
-                            ).timezone,
+                            timezone_str=self.user.timezone,
                         )
                         if memory_item:
                             memory_item = memory_item[0]
@@ -1153,9 +1146,7 @@ class Agent(BaseAgent):
                     elif self.agent_state.name == "procedural_memory_agent":
                         memory_item = self.procedural_memory_manager.get_most_recently_updated_item(
                             actor=self.user,
-                            timezone_str=self.user_manager.get_user_by_id(
-                                self.user.id
-                            ).timezone,
+                            timezone_str=self.user.timezone,
                         )
                         if memory_item:
                             memory_item = memory_item[0]
@@ -1187,9 +1178,7 @@ class Agent(BaseAgent):
                         memory_item = (
                             self.resource_memory_manager.get_most_recently_updated_item(
                                 actor=self.user,
-                                timezone_str=self.user_manager.get_user_by_id(
-                                    self.user.id
-                                ).timezone,
+                                timezone_str=self.user.timezone,
                             )
                         )
                         if memory_item:
@@ -1223,9 +1212,7 @@ class Agent(BaseAgent):
                         memory_item = (
                             self.knowledge_vault_manager.get_most_recently_updated_item(
                                 actor=self.user,
-                                timezone_str=self.user_manager.get_user_by_id(
-                                    self.user.id
-                                ).timezone,
+                                timezone_str=self.user.timezone,
                             )
                         )
 
@@ -1270,9 +1257,7 @@ class Agent(BaseAgent):
                         memory_item = (
                             self.semantic_memory_manager.get_most_recently_updated_item(
                                 actor=self.user,
-                                timezone_str=self.user_manager.get_user_by_id(
-                                    self.user.id
-                                ).timezone,
+                                timezone_str=self.user.timezone,
                             )
                         )
                         if memory_item:
@@ -1408,13 +1393,13 @@ class Agent(BaseAgent):
         chaining: bool = True,
         max_chaining_steps: Optional[int] = None,
         extra_messages: Optional[List[dict]] = None,
-        user_id: Optional[str] = None,
+        user: Optional[User] = None,
         **kwargs,
     ) -> MirixUsageStatistics:
         """Run Agent.step in a loop, handling chaining via contine_chaining requests and function failures"""
 
-        if user_id:
-            self.user = self.user_manager.get_user_by_id(user_id)
+        if user:
+            self.user = user
             self.agent_state.memory = Memory(
                 blocks=[
                     b
@@ -1462,14 +1447,14 @@ class Agent(BaseAgent):
 
         initial_message_count = len(
             self.agent_manager.get_in_context_messages(
-                agent_id=self.agent_state.id, actor=self.user
+                agent_state=self.agent_state, actor=self.user
             )
         )
 
         if self.agent_state.name == "reflexion_agent":
             # clear previous messages
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_id=self.agent_state.id, actor=self.user
+                agent_state=self.agent_state, actor=self.user
             )
             in_context_messages = in_context_messages[:1]
             self.agent_manager.set_in_context_messages(
@@ -1492,7 +1477,6 @@ class Agent(BaseAgent):
 
                     if topics is not None:
                         kwargs["topics"] = topics
-                        self.update_topic_if_changed(topics)
                     else:
                         printv(
                             f"[Mirix.Agent.{self.agent_state.name}] WARNING: No topics extracted from screenshots"
@@ -1613,7 +1597,7 @@ class Agent(BaseAgent):
         Returns:
             Tuple[str, dict]: The complete system prompt and the retrieved memories dict
         """
-        timezone_str = self.user_manager.get_user_by_id(self.user.id).timezone
+        timezone_str = self.user.timezone
 
         if retrieved_memories is None:
             retrieved_memories = {}
@@ -1886,7 +1870,7 @@ These keywords have been used to retrieve relevant memories from the database.
 {episodic_memory}
 </episodic_memory>
 """
-        user_timezone_str = self.user_manager.get_user_by_id(self.user.id).timezone
+        user_timezone_str = self.user.timezone
         user_tz = pytz.timezone(user_timezone_str.split(" (")[0])
         current_time = datetime.now(user_tz).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -2164,7 +2148,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Step 2: build system prompt with topic
         # Get the raw system prompt
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_id=self.agent_state.id, actor=self.user
+            agent_state=self.agent_state, actor=self.user
         )
         raw_system = (
             in_context_messages[0].content[0].text
@@ -2216,9 +2200,12 @@ These keywords have been used to retrieve relevant memories from the database.
                     f"[Mirix.Agent.{self.agent_state.name}] INFO: Step topics: {topics}"
                 )
 
+            # previous_in_context_messages = self.agent_state.message_ids
+            # new_message_ids = self.agent_manager.get_agent_by_id(agent_id=self.agent_state.id, actor=self.user).message_ids
+
             # Step 0: get in-context messages and get the raw system prompt
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_id=self.agent_state.id, actor=self.user
+                agent_state=self.agent_state, actor=self.user
             )
 
             assert in_context_messages[0].role == MessageRole.system
@@ -2438,7 +2425,7 @@ These keywords have been used to retrieve relevant memories from the database.
             # If we got a context alert, try trimming the messages length, then try again
             if is_context_overflow_error(e):
                 in_context_messages = self.agent_manager.get_in_context_messages(
-                    agent_id=self.agent_state.id, actor=self.user
+                    agent_state=self.agent_state, actor=self.user
                 )
 
                 if (
@@ -2548,7 +2535,7 @@ These keywords have been used to retrieve relevant memories from the database.
         self, existing_file_uris: Optional[List[str]] = None
     ):
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_id=self.agent_state.id, actor=self.user
+            agent_state=self.agent_state, actor=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
         in_context_messages_openai_no_system = in_context_messages_openai[1:]
@@ -2639,7 +2626,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # reset alert
         self.agent_alerted_about_memory_pressure = False
         curr_in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_id=self.agent_state.id, actor=self.user
+            agent_state=self.agent_state, actor=self.user
         )
 
         self.logger.info(
@@ -2677,7 +2664,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Grab the in-context messages
         # conversion of messages to OpenAI dict format, which is passed to the token counter
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_id=self.agent_state.id, actor=self.user
+            agent_state=self.agent_state, actor=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
 
