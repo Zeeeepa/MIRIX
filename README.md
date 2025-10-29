@@ -51,7 +51,8 @@ For more details, please refer to [Backend Usage](https://docs.mirix.io/user-gui
 
 We've created a simple [Python SDK](https://pypi.org/project/mirix/0.1.5/) that makes it incredibly easy to integrate Mirix's memory capabilities into your applications:
 
-### Installationhttps://pypi.org/project/mirix/0.1.5/
+### Installation
+https://pypi.org/project/mirix/0.1.5
 ```bash
 pip install mirix
 ```
@@ -73,6 +74,129 @@ print(response)  # "Yes, according to my memory, the moon has a president."
 
 response = memory_agent.chat("What does John like to eat?") 
 print(response)  # "John loves Italian food. However, he's allergic to peanuts."
+```
+
+## Integration with Claude Agent SDK 🤝
+
+Mirix can be integrated with [Anthropic's Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/python) to give Claude persistent memory across conversations. This allows Claude to remember context, user preferences, and past interactions.
+
+### Basic Setup
+
+Here's a simple example of integrating Mirix with the Claude Agent SDK:
+
+```python
+#!/usr/bin/env python3
+import os
+import asyncio
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage
+from mirix import Mirix
+from collections import deque
+from dotenv import load_dotenv
+load_dotenv()
+
+# Configuration
+MEMORY_UPDATE_INTERVAL = 3  # Update memory every N turns
+REINIT_INTERVAL = 1  # Rebuild system prompt (retrieve from Mirix) every N turns
+KEEP_LAST_N_TURNS = 50  # Keep last N turns in memory buffer
+
+def build_system_prompt(mirix_agent=None, user_id=None, conversation_buffer=""):
+    """Build system prompt with optional Mirix memory context"""
+    system_prompt = """You are a helpful assistant."""
+    
+    # Add Mirix memory context if available
+    if mirix_agent and user_id and conversation_buffer:
+        memory_context = mirix_agent.extract_memory_for_system_prompt(
+            conversation_buffer, user_id
+        )
+        if memory_context:
+            system_prompt += "\n\nRelevant Memory Context:\n" + memory_context
+    
+    return system_prompt
+
+async def run_agent():
+    """Run Claude Agent SDK with Mirix memory integration"""
+    
+    # Initialize Mirix memory agent
+    mirix_agent = Mirix(
+        model_name="gemini-2.0-flash",
+        api_key=os.getenv("GEMINI_API_KEY"),
+    )
+    user = mirix_agent.create_user(user_name="Alice")
+    
+    # Track conversation for memory updates
+    conversation_history = deque(maxlen=KEEP_LAST_N_TURNS)
+    turn_count = 0
+    turns_since_reinit = 0
+    session_id = None
+    
+    while True:
+        # Build system prompt with memory context
+        options = ClaudeAgentOptions(
+            resume=session_id,
+            allowed_tools=["Task", "Bash", "Read", "Edit", "Write", "WebSearch"],
+            system_prompt=build_system_prompt(
+                mirix_agent, user.id, 
+                "\n".join([f"User: {u}\nAssistant: {a}" for u, a in conversation_history])
+            ),
+            model="claude-sonnet-4-5",
+            max_turns=50
+        )
+        
+        user_input = input("User: ").strip()
+        if user_input.lower() in ['exit', 'quit', 'bye']:
+            break
+        
+        # Get Claude's response
+        assistant_response = ""
+        async for message in query(prompt=user_input, options=options):
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                session_id = message.data.get('session_id')
+            
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if hasattr(block, 'text'):
+                        assistant_response += block.text
+                        print(block.text, flush=True)
+        
+        # Update conversation history
+        conversation_history.append((user_input, assistant_response))
+        turn_count += 1
+        turns_since_reinit += 1
+        
+        # Periodically update Mirix memory
+        if turn_count % MEMORY_UPDATE_INTERVAL == 0:
+            combined = "\n".join([
+                f"[User] {u}\n[Assistant] {a}" 
+                for u, a in conversation_history
+            ])
+            await asyncio.to_thread(mirix_agent.add, combined, user_id=user.id)
+            print("✅ Memory updated!")
+
+if __name__ == "__main__":
+    asyncio.run(run_agent())
+```
+
+### Key Benefits
+
+- **Persistent Memory:** Mirix helps Claude remember facts, preferences, and context across sessions
+- **Intelligent Retrieval:** Mirix automatically retrieves relevant memories for each conversation
+- **Scalable:** Works with conversations of any length without token limit issues
+- **Flexible Updates:** Configure how often to update memory (e.g., every N turns)
+
+### Example Usage
+
+```bash
+cd samples
+
+# Install dependencies
+pip install mirix claude-agent-sdk python-dotenv
+
+# Set environment variables
+export GEMINI_API_KEY="your-google-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+
+# Run the agent
+python claude_agent.py
 ```
 
 ## License
@@ -106,10 +230,6 @@ We host weekly discussion sessions where you can:
 <img src="frontend/public/wechat-qr.jpg" alt="WeChat QR Code" width="200"/><br/>
 <strong>WeChat Group</strong>
 </div>
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=Mirix-AI/MIRIX&type=Date)](https://star-history.com/#Mirix-AI/MIRIX.&Date)
 
 ## Acknowledgement
 We would like to thank [Letta](https://github.com/letta-ai/letta) for open-sourcing their framework, which served as the foundation for the memory system in this project.
