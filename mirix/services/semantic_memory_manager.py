@@ -140,7 +140,7 @@ class SemanticMemoryManager:
             return None
 
         except Exception as e:
-            logger.debug(f"Warning: Failed to parse embedding field: {e}")
+            logger.debug("Warning: Failed to parse embedding field: %s", e)
             return None
 
     def _count_word_matches(
@@ -333,7 +333,7 @@ class SemanticMemoryManager:
                 return [item.to_pydantic() for item in semantic_items]
 
         except Exception as e:
-            logger.debug(f"PostgreSQL AND query error: {e}")
+            logger.debug("PostgreSQL AND query error: %s", e)
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -390,7 +390,7 @@ class SemanticMemoryManager:
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
-            logger.debug(f"PostgreSQL full-text search error: {e}")
+            logger.debug("PostgreSQL full-text search error: %s", e)
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(SemanticMemoryItem, search_field)
@@ -415,13 +415,40 @@ class SemanticMemoryManager:
     def get_semantic_item_by_id(
         self, semantic_memory_id: str, actor: PydanticUser, timezone_str: str
     ) -> Optional[PydanticSemanticMemoryItem]:
-        """Fetch a semantic memory item by ID."""
+        """Fetch a semantic memory item by ID (with Redis JSON caching)."""
+        # Try Redis cache first (JSON-based for memory tables)
+        try:
+            from mirix.database.redis_client import get_redis_client
+            redis_client = get_redis_client()
+            
+            if redis_client:
+                redis_key = f"{redis_client.SEMANTIC_PREFIX}{semantic_memory_id}"
+                cached_data = redis_client.get_json(redis_key)
+                if cached_data:
+                    logger.debug("✅ Redis cache HIT for semantic memory %s", semantic_memory_id)
+                    return PydanticSemanticMemoryItem(**cached_data)
+        except Exception as e:
+            logger.warning("Redis cache read failed for semantic memory %s: %s", semantic_memory_id, e)
+        
+        # Cache MISS or Redis unavailable - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
                 semantic_memory_item = SemanticMemoryItem.read(
                     db_session=session, identifier=semantic_memory_id, actor=actor
                 )
-                return semantic_memory_item.to_pydantic()
+                pydantic_item = semantic_memory_item.to_pydantic()
+                
+                # Populate Redis cache for next time
+                try:
+                    if redis_client:
+                        data = pydantic_item.model_dump(mode='json')
+                        # model_dump(mode='json') already converts datetime to ISO format strings
+                        redis_client.set_json(redis_key, data, ttl=settings.redis_ttl_default)
+                        logger.debug("Populated Redis cache for semantic memory %s", semantic_memory_id)
+                except Exception as e:
+                    logger.warning("Failed to populate Redis cache for semantic memory %s: %s", semantic_memory_id, e)
+                
+                return pydantic_item
             except NoResultFound:
                 raise NoResultFound(
                     f"Semantic memory item with id {semantic_memory_id} not found."
@@ -482,7 +509,7 @@ class SemanticMemoryManager:
 
         with self.session_maker() as session:
             item = SemanticMemoryItem(**data_dict)
-            item.create(session)
+            item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
             return item.to_pydantic()
 
     @enforce_types
@@ -499,7 +526,7 @@ class SemanticMemoryManager:
                 if k not in ["id", "updated_at"]:  # Exclude updated_at - handled by update() method
                     setattr(item, k, v)
             # updated_at is automatically set to current UTC time by item.update()
-            item.update(session, actor=actor)
+            item.update_with_redis(session, actor=actor)  # ⭐ Updates Redis JSON cache
             return item.to_pydantic()
 
     @enforce_types
@@ -563,6 +590,72 @@ class SemanticMemoryManager:
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
         """
+        query = query.strip() if query else ""
+        
+        # ⭐ NEW: Try Redis Search first
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if redis_client:
+            try:
+                # Case 1: No query - get recent items
+                if not query or query == "":
+                    results = redis_client.search_recent(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        limit=limit or 50,
+                        user_id=actor.id,
+                        sort_by="created_at_ts"
+                    )
+                    if results:
+                        logger.debug("✅ Redis cache HIT: returned %d recent semantic items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+                
+                # Case 2: Vector similarity search
+                elif search_method == "embedding":
+                    if embedded_text is None:
+                        from mirix.embeddings.embedding_model import embed_and_upload_batch
+                        embedded_text = embed_and_upload_batch(
+                            [query], agent_state.embedding_config
+                        )[0]
+                    
+                    vector_field = f"{search_field}_embedding" if search_field else "summary_embedding"
+                    
+                    results = redis_client.search_vector(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        embedding=embedded_text,
+                        vector_field=vector_field,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis vector search HIT: found %d semantic items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+                
+                # Case 3: Full-text search
+                elif search_method in ["bm25", "string_match"]:
+                    fields = [search_field] if search_field else ["name", "summary", "details"]
+                    
+                    results = redis_client.search_text(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        query=query,
+                        search_fields=fields,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis text search HIT: found %d semantic items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+            
+            except Exception as e:
+                logger.warning("Redis search failed for semantic memory, falling back to PostgreSQL: %s", e)
+                # Fall through to PostgreSQL
+
         with self.session_maker() as session:
             if query == "":
                 # Use proper PostgreSQL JSON text extraction and casting for ordering
@@ -787,12 +880,18 @@ class SemanticMemoryManager:
     def delete_semantic_item_by_id(
         self, semantic_memory_id: str, actor: PydanticUser
     ) -> None:
-        """Delete a semantic memory item by ID."""
+        """Delete a semantic memory item by ID (removes from Redis cache)."""
         with self.session_maker() as session:
             try:
                 item = SemanticMemoryItem.read(
                     db_session=session, identifier=semantic_memory_id, actor=actor
                 )
+                # Remove from Redis cache before hard delete
+                from mirix.database.redis_client import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_key = f"{redis_client.SEMANTIC_PREFIX}{semantic_memory_id}"
+                    redis_client.delete(redis_key)
                 item.hard_delete(session)
             except NoResultFound:
                 raise NoResultFound(

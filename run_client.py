@@ -40,58 +40,190 @@ def main():
         update_agents=False
     )
 
-    result = client.add(
-        user_id=user_id,
-        messages=[
-            {
-                "role": "user",
-                "content": [{
-                    "type": "text",
-                    "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-                }]
-            },
-            {
-                "role": "assistant",
-                "content": [{
-                    "type": "text",
-                    "text": "I've recorded this meeting: You met with Sarah from the design team at 2 PM today, reviewed three color schemes for UI mockups, selected the blue theme, and scheduled a follow-up for next Wednesday."
-                }]
-            }
-        ],
-        chaining=False
-    )
-    print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    # result = client.add(
+    #     user_id=user_id,
+    #     messages=[
+    #         {
+    #             "role": "user",
+    #             "content": [{
+    #                 "type": "text",
+    #                 "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+    #             }]
+    #         },
+    #     ],
+    #     chaining=False
+    # )
+    # print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
-    # # 4. Example: Retrieve memories using new API
-    # print("Step 4: Retrieving memories with conversation context...")
-    # print("-" * 70)
-    # try:
-    #     memories = client.retrieve_with_conversation(
-    #         user_id=user_id,
-    #         messages=[
-    #             {
-    #                 "role": "user",
-    #                 "content": [{
-    #                     "type": "text",
-    #                     "text": "What did I discuss in my meeting with Sarah?"
-    #                 }]
-    #             }
-    #         ],
-    #         limit=10  # Retrieve up to 10 items per memory type
-    #     )
+    # 4. Example: Retrieve memories using new API
+    print("Step 4: Retrieving memories with conversation context...")
+    print("-" * 70)
+    try:
+        memories = client.retrieve_with_conversation(
+            user_id=user_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": ""
+                    }]
+                }
+            ],
+            limit=10  # Retrieve up to 10 items per memory type
+        )
 
-    #     print(f"[OK] Retrieved memories successfully")
-    #     if memories.get("memories"):
-    #         for memory_type, items in memories["memories"].items():
-    #             if items:
-    #                 print(f"\n  {memory_type.upper()} memories ({items['total_count']}):")
-    #     else:
-    #         print("  No memories found yet (may need more time to process)")
-    # except Exception as e:
-    #     print(f"[ERROR] Error retrieving memories: {e}")
-    #     import traceback
-    #     traceback.print_exc()
-    # print()
+        print("[OK] Retrieved memories successfully")
+        if memories.get("memories"):
+            for memory_type, data in memories["memories"].items():
+                if data and data.get("total_count", 0) > 0:
+                    print(f"\n  {'=' * 60}")
+                    print(f"  {memory_type.upper()} MEMORY (Total: {data['total_count']})")
+                    print(f"  {'=' * 60}")
+                    
+                    # Debug: Check what keys are in the data
+                    items = data.get("items", [])
+                    
+                    # Episodic memory uses 'recent' and 'relevant' keys instead of 'items'
+                    if not items and memory_type == "episodic":
+                        # Combine both recent and relevant episodic memories
+                        recent = data.get("recent", [])
+                        relevant = data.get("relevant", [])
+                        # Merge and deduplicate by ID
+                        seen_ids = set()
+                        items = []
+                        for item in recent + relevant:
+                            if item.get('id') not in seen_ids:
+                                items.append(item)
+                                seen_ids.add(item.get('id'))
+                    
+                    # Some other memory types may also use 'recent' as fallback
+                    if not items and "recent" in data:
+                        items = data.get("recent", [])
+                    
+                    # Debug: If still no items but total_count > 0, log the issue
+                    if not items and data.get("total_count", 0) > 0:
+                        print(f"  ⚠️  DEBUG: No items found despite total_count={data['total_count']}")
+                        print(f"      Available keys in data: {list(data.keys())}")
+                        if data.keys():
+                            for key in data.keys():
+                                if key not in ['total_count', 'items', 'recent']:
+                                    print(f"      {key}: {type(data[key])} (length: {len(data[key]) if isinstance(data[key], (list, dict)) else 'N/A'})")
+                        print()
+                    
+                    if memory_type == "core":
+                        # Core memory: blocks with label and value
+                        for i, item in enumerate(items, 1):
+                            print(f"  [{i}] {item.get('label', 'N/A')}: {item.get('value', 'N/A')}")
+                        print()
+                    
+                    elif memory_type == "episodic":
+                        # Episodic memory: event with full details
+                        for i, item in enumerate(items, 1):
+                            summary = item.get('summary', 'N/A')
+                            # API returns 'timestamp' not 'occurred_at'
+                            occurred = item.get('timestamp', item.get('occurred_at', 'N/A'))
+                            event_type = item.get('event_type', 'N/A')
+                            details = item.get('details', '')
+                            actor = item.get('actor', 'N/A')
+                            
+                            print(f"  [{i}] {summary}")
+                            print(f"      Time: {occurred}")
+                            if event_type != 'N/A':
+                                print(f"      Type: {event_type}")
+                            if actor != 'N/A':
+                                print(f"      Actor: {actor}")
+                            if details:
+                                print(f"      Details: {details}")
+                            print()
+                    
+                    elif memory_type == "procedural":
+                        # Procedural memory: procedure with summary (API doesn't return full details)
+                        for i, item in enumerate(items, 1):
+                            # API returns 'summary' not 'description'
+                            summary = item.get('summary', item.get('description', 'N/A'))
+                            entry_type = item.get('entry_type', 'N/A')
+                            # API doesn't return 'steps' in retrieve endpoint (only id, entry_type, summary)
+                            steps = item.get('steps', [])
+                            
+                            print(f"  [{i}] [{entry_type}] {summary}")
+                            if steps:
+                                print(f"      Steps ({len(steps)}):")
+                                for step_num, step in enumerate(steps, 1):
+                                    print(f"        {step_num}. {step}")
+                            else:
+                                print("      Steps: Not included in response (use search API for full details)")
+                            print()
+                    
+                    elif memory_type == "semantic":
+                        # Semantic memory: concept with name and summary
+                        for i, item in enumerate(items, 1):
+                            name = item.get('name', 'N/A')
+                            summary = item.get('summary', 'N/A')
+                            source = item.get('source', 'N/A')
+                            details = item.get('details', '')
+                            
+                            print(f"  [{i}] {name}")
+                            print(f"      Summary: {summary}")
+                            if details:
+                                print(f"      Details: {details}")
+                            print(f"      Source: {source}")
+                            print()
+                    
+                    elif memory_type == "resource":
+                        # Resource memory: document summary (API doesn't return content in retrieve endpoint)
+                        for i, item in enumerate(items, 1):
+                            title = item.get('title', 'N/A')
+                            res_type = item.get('resource_type', 'N/A')
+                            summary = item.get('summary', 'N/A')
+                            # API doesn't return 'content' in retrieve endpoint (only id, title, summary, resource_type)
+                            content = item.get('content', '')
+                            
+                            print(f"  [{i}] [{res_type}] {title}")
+                            print(f"      Summary: {summary}")
+                            
+                            if content:
+                                content_len = len(content)
+                                print(f"      Content Length: {content_len} characters")
+                                preview = content[:200].replace('\n', ' ')
+                                if len(content) > 200:
+                                    preview += "..."
+                                print(f"      Preview: {preview}")
+                            else:
+                                print("      Content: Not included in response (use search API for full details)")
+                            print()
+                    
+                    elif memory_type == "knowledge_vault":
+                        # Knowledge vault: API only returns id and caption in retrieve endpoint
+                        for i, item in enumerate(items, 1):
+                            caption = item.get('caption', 'N/A')
+                            # API doesn't return entry_type, source, sensitivity in retrieve endpoint
+                            entry_type = item.get('entry_type', 'N/A')
+                            source = item.get('source', 'N/A')
+                            sensitivity = item.get('sensitivity', 'N/A')
+                            
+                            print(f"  [{i}] {caption}")
+                            if entry_type != 'N/A':
+                                print(f"      Type: {entry_type}")
+                            if source != 'N/A':
+                                print(f"      Source: {source}")
+                            if sensitivity != 'N/A':
+                                print(f"      Sensitivity: {sensitivity}")
+                            # Don't print secret_value for security
+                            print("      Secret: [REDACTED for security]")
+                            print()
+                    
+                    else:
+                        # Fallback for unknown types
+                        for i, item in enumerate(items, 1):
+                            print(f"  [{i}] {item}")
+        else:
+            print("  No memories found yet (may need more time to process)")
+    except Exception as e:
+        print(f"[ERROR] Error retrieving memories: {e}")
+        import traceback
+        traceback.print_exc()
+    print()
 
     # # 5. Example: Retrieve by topic
     # print("Step 5: Retrieving by topic...")

@@ -31,7 +31,7 @@ class PGliteConnector:
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.error(f"PGlite bridge request failed: {e}")
+            logger.error("PGlite bridge request failed: %s", e)
             raise
 
     def execute_query(

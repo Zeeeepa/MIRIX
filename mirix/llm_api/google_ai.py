@@ -78,9 +78,9 @@ def google_ai_get_model_details(
         # Handle HTTP errors (e.g., response 4XX, 5XX)
         printd(f"Got HTTPError, exception={http_err}")
         # Print the HTTP status code
-        logger.debug(f"HTTP Error: {http_err.response.status_code}")
+        logger.debug("HTTP Error: %s", http_err.response.status_code)
         # Print the response content (error message from server)
-        logger.debug(f"Message: {http_err.response.text}")
+        logger.debug("Message: %s", http_err.response.text)
         raise http_err
 
     except requests.exceptions.RequestException as req_err:
@@ -125,9 +125,9 @@ def google_ai_get_model_list(
         # Handle HTTP errors (e.g., response 4XX, 5XX)
         printd(f"Got HTTPError, exception={http_err}")
         # Print the HTTP status code
-        logger.debug(f"HTTP Error: {http_err.response.status_code}")
+        logger.debug("HTTP Error: %s", http_err.response.status_code)
         # Print the response content (error message from server)
-        logger.debug(f"Message: {http_err.response.text}")
+        logger.debug("Message: %s", http_err.response.text)
         raise http_err
 
     except requests.exceptions.RequestException as req_err:

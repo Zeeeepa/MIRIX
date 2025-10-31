@@ -49,7 +49,7 @@ class QueueManager:
                     self._worker.set_server(server)
             return  # Already initialized
         
-        logger.info(f"Initializing queue manager with type: {config.QUEUE_TYPE}, server={'provided' if server else 'None'}")
+        logger.info("Initializing queue manager with type: %s, server=%s", config.QUEUE_TYPE, 'provided' if server else 'None')
         
         self._server = server
         
@@ -111,7 +111,7 @@ class QueueManager:
                 "please report this as a bug."
             )
         
-        logger.debug(f"Saving message to queue: agent_id={message.agent_id}, user_id={message.user_id if message.HasField('user_id') else 'None'}")
+        logger.debug("Saving message to queue: agent_id=%s, user_id=%s", message.agent_id, message.user_id if message.HasField('user_id') else 'None')
         
         # Delegate to the queue implementation
         self._queue.put(message)

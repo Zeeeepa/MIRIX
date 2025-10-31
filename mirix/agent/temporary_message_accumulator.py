@@ -466,7 +466,7 @@ class TemporaryMessageAccumulator:
 
             try:
                 os.makedirs(voice_folder, exist_ok=True)
-                self.logger.info(f"Created voice content folder: {voice_folder}")
+                logger.info("Created voice content folder: %s", voice_folder)
 
                 for i, audio_segment in enumerate(voice_content):
                     try:
@@ -489,9 +489,9 @@ class TemporaryMessageAccumulator:
                                 else:
                                     # Convert to bytes if needed
                                     f.write(str(audio_segment).encode())
-                            self.logger.info(f"Saved voice data {i + 1} to {filepath}")
+                            logger.info("Saved voice data %s to %s", i + 1, filepath)
                     except Exception as e:
-                        self.logger.error(f"Failed to save voice segment {i + 1}: {e}")
+                        logger.error("Failed to save voice segment %s: %s", i + 1, e)
 
                 self.logger.info(
                     f"Successfully saved {len(voice_content)} voice segments to {voice_folder}"
@@ -541,7 +541,7 @@ class TemporaryMessageAccumulator:
             )
 
         t2 = time.time()
-        self.logger.info(f"Time taken to send to memory agents: {t2 - t1} seconds")
+        logger.info("Time taken to send to memory agents: %s seconds", t2 - t1)
 
         # # write the logic to send the message to all the agents one by one
         # payloads = {
@@ -658,7 +658,7 @@ class TemporaryMessageAccumulator:
                                 }
                             )
                         except Exception as e:
-                            self.logger.error(f"Failed to encode image {file_ref}: {e}")
+                            logger.error("Failed to encode image %s: %s", file_ref, e)
                             # Add a text message indicating the image couldn't be processed
                             message_parts.append(
                                 {
@@ -814,7 +814,7 @@ class TemporaryMessageAccumulator:
                 try:
                     if os.path.exists(image_path):
                         os.remove(image_path)
-                        self.logger.debug(f"Deleted processed image file: {image_path}")
+                        logger.debug("Deleted processed image file: %s", image_path)
                         if not os.path.exists(image_path):
                             break
                     else:
@@ -862,7 +862,7 @@ class TemporaryMessageAccumulator:
                     try:
                         if os.path.exists(filename):
                             os.remove(filename)
-                            # self.logger.info(f"Removed file: {filename}")
+                            logger.info("Removed file: %s", filename)
                             if not os.path.exists(filename):
                                 break
                             else:

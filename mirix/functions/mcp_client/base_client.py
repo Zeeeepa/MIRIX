@@ -151,7 +151,7 @@ class BaseMCPClient(ABC):
             self.initialized = False
             if not self.loop.is_closed():
                 self.loop.close()
-            logger.info(f"Cleaned up MCP client for {self.server_config.server_name}")
+            logger.info("Cleaned up MCP client for %s", self.server_config.server_name)
         except Exception as e:
             logger.warning(
                 f"Error during cleanup for {self.server_config.server_name}: {e}"

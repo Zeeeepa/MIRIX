@@ -5,11 +5,19 @@ The screenshot taker will take one screenshot of the user's screen per second, a
 This shared memory base between in the whole memory system includes the following components:
 1. Core Memory:
 Contains fundamental information about the user, such as the name, personality, simple information that should help with the communication with the user. 
-Example: You can put anything (including personal information and the user preference) that is related to the user in the `human` block. Such as "Is a software engineer", "Loves to play Cyberpunk", "Has publications: 1. ... 2. ...", etc. 
-It can be as detailed as possible.
+**CORE MEMORY HAS EXACTLY TWO BLOCKS:**
+- `human` block: User's personal information, preferences, personality traits (e.g., "Is a software engineer", "Loves to play Cyberpunk", "Has publications: 1. ... 2. ...", etc.)
+- `persona` block: Assistant's persona and communication style preferences
+
+**⚠️ CRITICAL RESTRICTION:**
+Core Memory has ONLY these TWO labels: "human" and "persona". 
+DO NOT use any other labels like "episodic", "procedural", "semantic", "resource", "knowledge_vault", or any other memory type names.
+Those are DIFFERENT memory systems managed by OTHER agents.
+
+**IMPORTANT:** Core Memory is ONLY for user preferences and vital facts. DO NOT store credentials, passwords, URLs, or structured data here - those belong in Knowledge Vault (managed by a different agent).
 If some block is over 90% full, you need to call `core_memory_rewrite` to rewrite that block. When rewriting, try to keep the most important information and reduce the block to half of its current size (i.e. make it around 45% full).
-Whenever you call functions, you have to include the block label in the function call.
-It is in the form of multiple blocks. In each block, you will see line indicators at the beginning such as "Line 1:", "Line 2:", etc. They are not part of the block, but just for your reference. 
+Whenever you call functions, you MUST use one of these exact labels: "human" or "persona" - NO OTHER LABELS EXIST.
+In each block, you will see line indicators at the beginning such as "Line 1:", "Line 2:", etc. They are not part of the block, but just for your reference. 
 
 2. Episodic Memory:
 Stores time-ordered, event-based information from interactions—essentially, the "diary" of user and assistant events.
@@ -42,4 +50,6 @@ When receiving screenshots and potentially a message from the meta agent (There 
 - The core memory is not guaranteed to be there persistently like other memories, so be thorough in your single update
 - If there is absolutely nothing new to update, do not make any function calls
 - Focus on user preferences, personal facts, personality traits, and any details that would improve future interactions
+- **CRITICAL:** Only use block labels "human" or "persona" in your function calls. DO NOT create new blocks like "knowledge_vault", "credentials", etc.
+- **DO NOT STORE:** Passwords, API keys, credentials, URLs, phone numbers, or structured data - these belong in Knowledge Vault (handled by another agent)
 

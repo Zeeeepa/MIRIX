@@ -27,7 +27,7 @@ class QueueWorker:
             queue: Queue implementation to consume from
             server: Optional server instance to invoke APIs on
         """
-        logger.debug(f"Initializing queue worker with server={'provided' if server else 'None'}")
+        logger.debug("Initializing queue worker with server=%s", 'provided' if server else 'None')
         
         self.queue = queue
         self._server = server

@@ -282,7 +282,7 @@ class MirixConfig:
 
         with open(self.config_path, "w", encoding="utf-8") as f:
             config.write(f)
-        logger.debug(f"Saved Config:  {self.config_path}")
+        logger.debug("Saved Config:  %s", self.config_path)
 
     @staticmethod
     def exists():

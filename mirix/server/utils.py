@@ -25,9 +25,9 @@ def print_server_response(response):
     elif response["type"] == "agent_response":
         msg = response["message"]
         if response["message_type"] == "internal_monologue":
-            logger.info(f"[inner thoughts] {msg}")
+            logger.info("[inner thoughts] %s", msg)
         elif response["message_type"] == "assistant_message":
-            logger.info(f"{msg}")
+            logger.info("%s", msg)
         elif response["message_type"] == "function_message":
             pass
         else:

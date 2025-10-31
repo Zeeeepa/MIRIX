@@ -93,12 +93,12 @@ class ToolExecutionSandbox:
             Tuple[Any, Optional[AgentState]]: Tuple containing (tool_result, agent_state)
         """
         if tool_settings.e2b_api_key:
-            logger.debug(f"Using e2b sandbox to execute {self.tool_name}")
+            logger.debug("Using e2b sandbox to execute %s", self.tool_name)
             result = self.run_e2b_sandbox(
                 agent_state=agent_state, additional_env_vars=additional_env_vars
             )
         else:
-            logger.debug(f"Using local sandbox to execute {self.tool_name}")
+            logger.debug("Using local sandbox to execute %s", self.tool_name)
             result = self.run_local_dir_sandbox(
                 agent_state=agent_state, additional_env_vars=additional_env_vars
             )
@@ -108,7 +108,7 @@ class ToolExecutionSandbox:
             f"Executed tool '{self.tool_name}', logging output from tool run: \n"
         )
         for log_line in (result.stdout or []) + (result.stderr or []):
-            logger.debug(f"{log_line}")
+            logger.debug("%s", log_line)
         logger.debug("Ending output log from tool run.")
 
         # Return result
@@ -244,7 +244,7 @@ class ToolExecutionSandbox:
             )
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Executing tool {self.tool_name} has process error: {e}")
+            logger.error("Executing tool %s has process error: %s", self.tool_name, e)
             func_return = get_friendly_error_msg(
                 function_name=self.tool_name,
                 exception_name=type(e).__name__,
@@ -362,7 +362,7 @@ class ToolExecutionSandbox:
                 )
 
         except subprocess.CalledProcessError as e:
-            logger.error(f"Error while setting up the virtual environment: {e}")
+            logger.error("Error while setting up the virtual environment: %s", e)
             raise RuntimeError(f"Failed to set up the virtual environment: {e}")
 
     # e2b sandbox specific functions
@@ -382,11 +382,11 @@ class ToolExecutionSandbox:
                     f"No running e2b sandbox found with the same state: {sbx_config}"
                 )
             else:
-                logger.info(f"Force recreated e2b sandbox with state: {sbx_config}")
+                logger.info("Force recreated e2b sandbox with state: %s", sbx_config)
             sbx = self.create_e2b_sandbox_with_metadata_hash(sandbox_config=sbx_config)
 
-        logger.info(f"E2B Sandbox configurations: {sbx_config}")
-        logger.info(f"E2B Sandbox ID: {sbx.sandbox_id}")
+        logger.info("E2B Sandbox configurations: %s", sbx_config)
+        logger.info("E2B Sandbox ID: %s", sbx.sandbox_id)
 
         # Since this sandbox was used, we extend its lifecycle by the timeout
         sbx.set_timeout(sbx_config.get_e2b_config().timeout)
@@ -412,7 +412,7 @@ class ToolExecutionSandbox:
             logger.error(
                 f"Executing tool {self.tool_name} raised a {execution.error.name} with message: \n{execution.error.value}"
             )
-            logger.error(f"Traceback from e2b sandbox: \n{execution.error.traceback}")
+            logger.error("Traceback from e2b sandbox: \n%s", execution.error.traceback)
             func_return = get_friendly_error_msg(
                 function_name=self.tool_name,
                 exception_name=execution.error.name,

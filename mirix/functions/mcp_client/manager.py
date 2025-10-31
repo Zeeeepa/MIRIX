@@ -64,7 +64,7 @@ class MCPClientManager:
             # Save configuration to disk for persistence
             self._save_persistent_connections()
 
-            logger.info(f"Successfully added MCP server: {server_config.server_name}")
+            logger.info("Successfully added MCP server: %s", server_config.server_name)
             return True
 
         except Exception as e:
@@ -123,13 +123,13 @@ class MCPClientManager:
                 # Save configuration to disk for persistence
                 self._save_persistent_connections()
 
-                logger.info(f"Removed MCP server: {server_name}")
+                logger.info("Removed MCP server: %s", server_name)
                 return True
             except Exception as e:
-                logger.error(f"Error removing MCP server {server_name}: {str(e)}")
+                logger.error("Error removing MCP server %s: %s", server_name, str(e))
                 return False
         else:
-            logger.warning(f"Server {server_name} not found")
+            logger.warning("Server %s not found", server_name)
             return False
 
     def list_servers(self) -> List[str]:
@@ -163,7 +163,7 @@ class MCPClientManager:
                 try:
                     all_tools[name] = client.list_tools()
                 except Exception as e:
-                    logger.error(f"Failed to list tools for server {name}: {str(e)}")
+                    logger.error("Failed to list tools for server %s: %s", name, str(e))
                     all_tools[name] = []
             return all_tools
 
@@ -248,7 +248,7 @@ class MCPClientManager:
             )
 
         except Exception as e:
-            logger.error(f"Failed to save MCP server configurations: {str(e)}")
+            logger.error("Failed to save MCP server configurations: %s", str(e))
 
     def _load_persistent_connections(self):
         """Load and restore server configurations from disk"""
@@ -302,14 +302,14 @@ class MCPClientManager:
                         f"🔗 Attempting to restore {server_name} ({server_type.value})..."
                     )
                     if self._add_server_without_persistence(config):
-                        logger.debug(f"✅ Restored MCP connection: {server_name}")
+                        logger.debug("✅ Restored MCP connection: %s", server_name)
                         restored_count += 1
                     else:
-                        logger.debug(f"❌ Failed to restore MCP connection: {server_name}")
+                        logger.debug("❌ Failed to restore MCP connection: %s", server_name)
                         failed_count += 1
 
                 except Exception as e:
-                    logger.error(f"Failed to restore server {server_name}: {str(e)}")
+                    logger.error("Failed to restore server %s: %s", server_name, str(e))
                     failed_count += 1
                     continue
 
@@ -374,13 +374,13 @@ class AsyncMCPClientManager:
                 await self.clients[server_name].cleanup()
                 del self.clients[server_name]
                 del self.server_configs[server_name]
-                logger.info(f"Removed async MCP server: {server_name}")
+                logger.info("Removed async MCP server: %s", server_name)
                 return True
             except Exception as e:
-                logger.error(f"Error removing async MCP server {server_name}: {str(e)}")
+                logger.error("Error removing async MCP server %s: %s", server_name, str(e))
                 return False
         else:
-            logger.warning(f"Async server {server_name} not found")
+            logger.warning("Async server %s not found", server_name)
             return False
 
     async def list_tools(

@@ -149,7 +149,7 @@ class MirixClient(AbstractClient):
                 json={"org_id": self.org_id, "name": self.org_name}
             )
             if self.debug:
-                logger.debug(f"[MirixClient] Organization initialized: {self.org_id} (name: {self.org_name})")
+                logger.debug("[MirixClient] Organization initialized: %s (name: %s)", self.org_id, self.org_name)
             
             # Create or get user
             user_response = self._request(
@@ -162,11 +162,11 @@ class MirixClient(AbstractClient):
                 }
             )
             if self.debug:
-                logger.debug(f"[MirixClient] User initialized: {self.user_id} (name: {self.user_name})")
+                logger.debug("[MirixClient] User initialized: %s (name: %s)", self.user_id, self.user_name)
         except Exception as e:
             # Don't fail initialization if this fails - the server might handle it
             if self.debug:
-                logger.debug(f"[MirixClient] Note: Could not pre-create user/org: {e}")
+                logger.debug("[MirixClient] Note: Could not pre-create user/org: %s", e)
                 logger.debug("[MirixClient] Server will create them on first request if needed")
 
     def _request(
@@ -194,9 +194,9 @@ class MirixClient(AbstractClient):
         url = f"{self.base_url}{endpoint}"
         
         if self.debug:
-            logger.debug(f"[MirixClient] {method} {url}")
+            logger.debug("[MirixClient] %s %s", method, url)
             if json:
-                logger.debug(f"[MirixClient] Request body: {json}")
+                logger.debug("[MirixClient] Request body: %s", json)
         
         response = self.session.request(
             method=method,
@@ -1015,7 +1015,7 @@ class MirixClient(AbstractClient):
             ...     query="restaurants",
             ...     limit=5
             ... )
-            >>> logger.debug(f"Found {results['count']} results")
+            logger.debug("Found %s results", results['count'])
             >>> 
             >>> # Search only episodic memories in details field
             >>> episodic_results = client.search(

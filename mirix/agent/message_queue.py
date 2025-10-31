@@ -54,7 +54,7 @@ class MessageQueue:
                 **self.message_queue[message_uuid]["kwargs"],
             )
         except Exception as e:
-            logger.error(f"Error sending message: {e}")
+            logger.error("Error sending message: %s", e)
             logger.error(traceback.format_exc())
             logger.debug(
                 "agent_type: ", agent_type, "gets error. agent_id: ", agent_id, "ERROR"
@@ -95,7 +95,7 @@ class MessageQueue:
             "chat": "agent_state",
             "episodic_memory": "episodic_memory_agent_state",
             "procedural_memory": "procedural_memory_agent_state",
-            "knowledge_vault": "knowledge_vault_agent_state",
+            "knowledge_vault": "knowledge_vault_memory_agent_state",
             "meta_memory": "meta_memory_agent_state",
             "semantic_memory": "semantic_memory_agent_state",
             "core_memory": "core_memory_agent_state",

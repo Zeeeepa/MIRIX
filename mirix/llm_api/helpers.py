@@ -393,7 +393,7 @@ def calculate_summarizer_cutoff(
         while in_context_messages_openai[cutoff + 1]["role"] == MessageRole.tool:
             cutoff += 1
 
-        logger.debug(f"Evicting {cutoff}/{len(in_context_messages)} messages...")
+        logger.debug("Evicting %s/%s messages...", cutoff, len(in_context_messages))
         return cutoff + 1
 
 

@@ -542,7 +542,7 @@ def trigger_memory_update_with_instruction(
     elif memory_type == "procedural":
         agent_type = "procedural_memory_agent"
     elif memory_type == "knowledge_vault":
-        agent_type = "knowledge_vault_agent"
+        agent_type = "knowledge_vault_memory_agent"
     elif memory_type == "semantic":
         agent_type = "semantic_memory_agent"
     else:
@@ -704,6 +704,8 @@ def trigger_memory_update(
 def finish_memory_update(self: "Agent"):
     """
     Finish the memory update process. This function should be called after the Memory is updated.
+    
+    Note: This function takes no parameters. Call it without any arguments.
 
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.

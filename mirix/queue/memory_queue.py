@@ -25,7 +25,7 @@ class MemoryQueue(QueueInterface):
         Args:
             message: QueueMessage protobuf message to add
         """
-        logger.debug(f"Adding message to queue: agent_id={message.agent_id}")
+        logger.debug("Adding message to queue: agent_id=%s", message.agent_id)
         self._queue.put(message)
     
     def get(self, timeout: Optional[float] = None) -> QueueMessage:
@@ -42,7 +42,7 @@ class MemoryQueue(QueueInterface):
             queue.Empty: If no message available within timeout
         """
         message = self._queue.get(timeout=timeout)
-        logger.debug(f"Retrieved message from queue: agent_id={message.agent_id}")
+        logger.debug("Retrieved message from queue: agent_id=%s", message.agent_id)
         return message
     
     def close(self) -> None:

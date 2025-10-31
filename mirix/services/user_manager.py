@@ -56,15 +56,15 @@ class UserManager:
 
     @enforce_types
     def create_user(self, pydantic_user: PydanticUser) -> PydanticUser:
-        """Create a new user if it doesn't already exist."""
+        """Create a new user if it doesn't already exist (with Redis caching)."""
         with self.session_maker() as session:
             new_user = UserModel(**pydantic_user.model_dump())
-            new_user.create(session)
+            new_user.create_with_redis(session, actor=None)  # ⭐ Auto-caches to Redis
             return new_user.to_pydantic()
 
     @enforce_types
     def update_user(self, user_update: UserUpdate) -> PydanticUser:
-        """Update user details."""
+        """Update user details (with Redis cache invalidation)."""
         with self.session_maker() as session:
             # Retrieve the existing user by ID
             existing_user = UserModel.read(
@@ -76,13 +76,13 @@ class UserManager:
             for key, value in update_data.items():
                 setattr(existing_user, key, value)
 
-            # Commit the updated user
-            existing_user.update(session)
+            # Commit the updated user and update cache
+            existing_user.update_with_redis(session, actor=None)  # ⭐ Updates Redis cache
             return existing_user.to_pydantic()
 
     @enforce_types
     def update_user_timezone(self, timezone_str: str, user_id: str) -> PydanticUser:
-        """Update the timezone of a user."""
+        """Update the timezone of a user (with Redis cache invalidation)."""
         with self.session_maker() as session:
             # Retrieve the existing user by ID
             existing_user = UserModel.read(db_session=session, identifier=user_id)
@@ -90,13 +90,13 @@ class UserManager:
             # Update the timezone
             existing_user.timezone = timezone_str
 
-            # Commit the updated user
-            existing_user.update(session)
+            # Commit the updated user and update cache
+            existing_user.update_with_redis(session, actor=None)  # ⭐ Updates Redis cache
             return existing_user.to_pydantic()
 
     @enforce_types
     def update_user_status(self, user_id: str, status: str) -> PydanticUser:
-        """Update the status of a user."""
+        """Update the status of a user (with Redis cache invalidation)."""
         with self.session_maker() as session:
             # Retrieve the existing user by ID
             existing_user = UserModel.read(db_session=session, identifier=user_id)
@@ -104,26 +104,77 @@ class UserManager:
             # Update the status
             existing_user.status = status
 
-            # Commit the updated user
-            existing_user.update(session)
+            # Commit the updated user and update cache
+            existing_user.update_with_redis(session, actor=None)  # ⭐ Updates Redis cache
             return existing_user.to_pydantic()
 
     @enforce_types
     def delete_user_by_id(self, user_id: str):
-        """Delete a user and their associated records (agents, sources, mappings)."""
+        """Delete a user and their associated records (removes from Redis cache)."""
         with self.session_maker() as session:
             # Delete from user table
             user = UserModel.read(db_session=session, identifier=user_id)
+            
+            # Remove from Redis cache before hard delete
+            try:
+                from mirix.database.redis_client import get_redis_client
+                from mirix.log import get_logger
+                
+                logger = get_logger(__name__)
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_key = f"{redis_client.USER_PREFIX}{user_id}"
+                    redis_client.delete(redis_key)
+                    logger.debug("Removed user %s from Redis cache", user_id)
+            except Exception as e:
+                from mirix.log import get_logger
+                logger = get_logger(__name__)
+                logger.warning("Failed to remove user %s from Redis cache: %s", user_id, e)
+            
             user.hard_delete(session)
 
             session.commit()
 
     @enforce_types
     def get_user_by_id(self, user_id: str) -> PydanticUser:
-        """Fetch a user by ID."""
+        """Fetch a user by ID (with Redis Hash caching)."""
+        # Try Redis cache first
+        try:
+            from mirix.database.redis_client import get_redis_client
+            from mirix.log import get_logger
+            
+            logger = get_logger(__name__)
+            redis_client = get_redis_client()
+            
+            if redis_client:
+                redis_key = f"{redis_client.USER_PREFIX}{user_id}"
+                cached_data = redis_client.get_hash(redis_key)
+                if cached_data:
+                    logger.debug("✅ Redis cache HIT for user %s", user_id)
+                    return PydanticUser(**cached_data)
+        except Exception as e:
+            # Log but continue to PostgreSQL on Redis error
+            from mirix.log import get_logger
+            logger = get_logger(__name__)
+            logger.warning("Redis cache read failed for user %s: %s", user_id, e)
+        
+        # Cache MISS or Redis unavailable - fetch from PostgreSQL
         with self.session_maker() as session:
             user = UserModel.read(db_session=session, identifier=user_id)
-            return user.to_pydantic()
+            pydantic_user = user.to_pydantic()
+            
+            # Populate Redis cache for next time
+            try:
+                if redis_client:
+                    from mirix.settings import settings
+                    data = pydantic_user.model_dump(mode='json')
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_users)
+                    logger.debug("Populated Redis cache for user %s", user_id)
+            except Exception as e:
+                logger.warning("Failed to populate Redis cache for user %s: %s", user_id, e)
+            
+            return pydantic_user
 
     @enforce_types
     def get_default_user(self) -> PydanticUser:

@@ -52,7 +52,7 @@ class UploadManager:
                 return compressed_path if os.path.exists(compressed_path) else None
 
         except Exception as e:
-            self.logger.error(f"Image compression failed for {image_path}: {e}")
+            logger.error("Image compression failed for %s: %s", image_path, e)
             return None
 
     def _upload_single_file(self, upload_uuid, filename, timestamp, compressed_file):
@@ -114,7 +114,7 @@ class UploadManager:
             ):
                 try:
                     os.remove(compressed_file)
-                    # self.logger.info(f"Removed compressed file: {compressed_file}")
+                    logger.info("Removed compressed file: %s", compressed_file)
                 except Exception:
                     pass  # Ignore cleanup errors
 
@@ -126,7 +126,7 @@ class UploadManager:
                 }
 
         except Exception as e:
-            self.logger.error(f"Upload failed for {filename}: {e}")
+            logger.error("Upload failed for %s: %s", filename, e)
             # Mark as failed
             with self._upload_lock:
                 self._upload_status[upload_uuid] = {"status": "failed", "result": None}
