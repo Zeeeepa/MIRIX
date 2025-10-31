@@ -45,7 +45,7 @@ user_id = "demo-user"
 org_id = "demo-org"
 
 # Build absolute path to config file (since we're in samples/ subdirectory)
-config_path = os.path.join(mirix_root, "mirix/configs/examples/mirix_openai.yaml")
+config_path = os.path.join(mirix_root, "mirix/configs/examples/mirix_gemini.yaml")
     
 client = MirixClient(
     api_key=None, # TODO: add authentication later
