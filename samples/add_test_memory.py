@@ -299,7 +299,7 @@ def main():
     try:
         # Compute config path relative to project root (parent of samples/)
         project_root = Path(__file__).parent.parent
-        config_path = project_root / "mirix" / "configs" / "examples" / "mirix_openai.yaml"
+        config_path = project_root / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
         
         client.initialize_meta_agent(
             config_path=str(config_path),
