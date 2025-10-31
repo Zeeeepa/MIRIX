@@ -955,13 +955,13 @@ def parse_json(string) -> dict:
         result = json_loads(string)
         return result
     except Exception as e:
-        logger.error(f"Error parsing json with json package: {e}")
+        logger.error("Error parsing json with json package: %s", e)
 
     try:
         result = demjson.decode(string)
         return result
     except demjson.JSONDecodeError as e:
-        logger.error(f"Error parsing json with demjson package: {e}")
+        logger.error("Error parsing json with demjson package: %s", e)
 
     try:
         from json_repair import repair_json
@@ -971,7 +971,7 @@ def parse_json(string) -> dict:
         return result
 
     except Exception as e:
-        logger.error(f"Error repairing json with json_repair package: {e}")
+        logger.error("Error repairing json with json_repair package: %s", e)
         raise e
 
 
@@ -1468,7 +1468,7 @@ def num_tokens_from_messages(messages: List[dict], model: str = "gpt-4") -> int:
                     num_tokens += tokens_per_name
 
             except TypeError as e:
-                logger.error(f"tiktoken encoding failed on: {value}")
+                logger.error("tiktoken encoding failed on: %s", value)
                 raise e
 
     num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>
@@ -1514,7 +1514,7 @@ def log_telemetry(logger: Logger, event: str, **kwargs):
         extra_data = " | ".join(
             f"{key}={value}" for key, value in kwargs.items() if value is not None
         )
-        logger.info(f"[{timestamp}] EVENT: {event} | {extra_data}")
+        logger.info("[%s] EVENT: %s | %s", timestamp, event, extra_data)
 
 
 def generate_short_id(prefix="id", length=4):

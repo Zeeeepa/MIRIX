@@ -111,7 +111,7 @@ meta_agent_config:
     - semantic_memory_agent       # Handles conceptual and factual knowledge
     - episodic_memory_agent       # Stores event-based memories with time context
     - procedural_memory_agent     # Manages step-by-step procedures
-    - knowledge_vault_agent       # Securely stores sensitive information
+    - knowledge_vault_memory_agent       # Securely stores sensitive information
     - meta_memory_agent           # Coordinates high-level memory operations
     - reflexion_agent             # Analyzes and optimizes memory organization
     - background_agent            # Performs ongoing memory maintenance tasks

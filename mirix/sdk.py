@@ -191,7 +191,7 @@ class Mirix:
         Example:
             users = memory_agent.list_users()
             for user in users:
-                logger.debug(f"User: {user.name} (ID: {user.id})")
+                logger.debug("User: %s (ID: %s)", user.name, user.id)
         """
         users = self._client.server.user_manager.list_users()
         return users
@@ -229,7 +229,7 @@ class Mirix:
         Example:
             user = memory_agent.get_user_by_name("Alice")
             if user:
-                logger.debug(f"Found user: {user.name} (ID: {user.id})")
+                logger.debug("Found user: %s (ID: %s)", user.name, user.id)
             else:
                 logger.debug("User not found")
         """
@@ -292,9 +292,9 @@ class Mirix:
             result = memory_agent.clear_conversation_history(user_id="user_123")
 
             if result['success']:
-                logger.debug(f"Cleared {result['messages_deleted']} messages")
+                logger.debug("Cleared %s messages", result['messages_deleted'])
             else:
-                logger.debug(f"Failed to clear: {result['error']}")
+                logger.debug("Failed to clear: %s", result['error'])
         """
         try:
             if user_id is None:
@@ -445,7 +445,7 @@ class Mirix:
 
         Example:
             user = memory_agent.create_user("Alice")
-            logger.debug(f"Created user: {user.name}")
+            logger.debug("Created user: %s", user.name)
         """
         from mirix.schemas.user import UserCreate
         from mirix.services.organization_manager import OrganizationManager
@@ -658,8 +658,8 @@ class Mirix:
 
         Example:
             memories = memory_agent.visualize_memories(user_id="user_123")
-            logger.debug(f"Episodic memories: {len(memories['episodic'])}")
-            logger.debug(f"Semantic memories: {len(memories['semantic'])}")
+            logger.debug("Episodic memories: %s", len(memories['episodic']))
+            logger.debug("Semantic memories: %s", len(memories['semantic']))
         """
         try:
             # Find the target user
@@ -903,16 +903,16 @@ class Mirix:
                     self._client.server.knowledge_vault_manager
                 )
                 # Find knowledge vault agent from meta agent's children
-                knowledge_vault_agent = None
+                knowledge_vault_memory_agent = None
                 for agent in child_agents:
-                    if agent.agent_type == AgentType.knowledge_vault_agent:
-                        knowledge_vault_agent = agent
+                    if agent.agent_type == AgentType.knowledge_vault_memory_agent:
+                        knowledge_vault_memory_agent = agent
                         break
                 
-                if knowledge_vault_agent:
+                if knowledge_vault_memory_agent:
                     vault_items = knowledge_vault_manager.list_knowledge(
                         actor=target_user,
-                        agent_state=knowledge_vault_agent,
+                        agent_state=knowledge_vault_memory_agent,
                         limit=50,
                         timezone_str=target_user.timezone,
                     )
@@ -987,7 +987,7 @@ class Mirix:
             if result['success']:
                 logger.debug("Core memory updated successfully")
             else:
-                logger.debug(f"Update failed: {result['message']}")
+                logger.debug("Update failed: %s", result['message'])
         """
         try:
             # If user_id is provided, get the specific user

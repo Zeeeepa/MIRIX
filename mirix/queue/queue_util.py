@@ -35,7 +35,7 @@ def put_messages(
             verbose: Enable verbose logging
             filter_tags: Filter tags dictionary
         """
-        logger.debug(f"Creating queue message for agent_id={agent_id}, user={actor.id}")
+        logger.debug("Creating queue message for agent_id=%s, user=%s", agent_id, actor.id)
         
         # Convert Pydantic User to protobuf User
         proto_user = ProtoUser()
@@ -107,6 +107,6 @@ def put_messages(
             queue_msg.filter_tags.update(filter_tags)
         
         # Send to queue
-        logger.debug(f"Sending message to queue: agent_id={agent_id}, input_messages_count={len(input_messages)}")
+        logger.debug("Sending message to queue: agent_id=%s, input_messages_count=%s", agent_id, len(input_messages))
         queue.save(queue_msg)
         logger.debug("Message successfully sent to queue")

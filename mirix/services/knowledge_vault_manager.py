@@ -139,7 +139,7 @@ class KnowledgeVaultManager:
             return None
 
         except Exception as e:
-            logger.debug(f"Warning: Failed to parse embedding field: {e}")
+            logger.debug("Warning: Failed to parse embedding field: %s", e)
             return None
 
     def _count_word_matches(
@@ -334,7 +334,7 @@ class KnowledgeVaultManager:
                 return [item.to_pydantic() for item in knowledge_vault]
 
         except Exception as e:
-            logger.debug(f"PostgreSQL AND query error: {e}")
+            logger.debug("PostgreSQL AND query error: %s", e)
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -388,7 +388,7 @@ class KnowledgeVaultManager:
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
-            logger.debug(f"PostgreSQL full-text search error: {e}")
+            logger.debug("PostgreSQL full-text search error: %s", e)
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(KnowledgeVaultItem, search_field)
@@ -423,13 +423,40 @@ class KnowledgeVaultManager:
     def get_item_by_id(
         self, knowledge_vault_item_id: str, actor: PydanticUser, timezone_str: str
     ) -> Optional[PydanticKnowledgeVaultItem]:
-        """Fetch a knowledge vault item by ID."""
+        """Fetch a knowledge vault item by ID (with Redis JSON caching)."""
+        # Try Redis cache first
+        try:
+            from mirix.database.redis_client import get_redis_client
+            redis_client = get_redis_client()
+            
+            if redis_client:
+                redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_vault_item_id}"
+                cached_data = redis_client.get_json(redis_key)
+                if cached_data:
+                    logger.debug("✅ Redis cache HIT for knowledge vault %s", knowledge_vault_item_id)
+                    return PydanticKnowledgeVaultItem(**cached_data)
+        except Exception as e:
+            logger.warning("Redis cache read failed for knowledge vault %s: %s", knowledge_vault_item_id, e)
+        
+        # Cache MISS - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
                 item = KnowledgeVaultItem.read(
                     db_session=session, identifier=knowledge_vault_item_id, actor=actor
                 )
-                return item.to_pydantic()
+                pydantic_item = item.to_pydantic()
+                
+                # Populate Redis cache
+                try:
+                    if redis_client:
+                        from mirix.settings import settings
+                        data = pydantic_item.model_dump(mode='json')
+                        # model_dump(mode='json') already converts datetime to ISO format strings
+                        redis_client.set_json(redis_key, data, ttl=settings.redis_ttl_default)
+                except Exception as e:
+                    logger.warning("Failed to populate Redis cache: %s", e)
+                
+                return pydantic_item
             except NoResultFound:
                 raise NoResultFound(
                     f"Knowledge vault item with id {knowledge_vault_item_id} not found."
@@ -493,7 +520,7 @@ class KnowledgeVaultManager:
         # Create the knowledge vault item
         with self.session_maker() as session:
             knowledge_item = KnowledgeVaultItem(**item_data)
-            knowledge_item.create(session)
+            knowledge_item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
 
             # Return the created item as a Pydantic model
             return knowledge_item.to_pydantic()
@@ -605,6 +632,65 @@ class KnowledgeVaultManager:
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
         """
+        
+        # ⭐ NEW: Try Redis Search first
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if redis_client:
+            try:
+                if not query or query == "":
+                    results = redis_client.search_recent(
+                        index_name=redis_client.KNOWLEDGE_INDEX,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis cache HIT: returned %d knowledge items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                
+                elif search_method == "embedding":
+                    if embedded_text is None:
+                        from mirix.embeddings.embedding_model import embed_and_upload_batch
+                        embedded_text = embed_and_upload_batch(
+                            [query], agent_state.embedding_config
+                        )[0]
+                    
+                    # Knowledge vault only has caption_embedding
+                    results = redis_client.search_vector(
+                        index_name=redis_client.KNOWLEDGE_INDEX,
+                        embedding=embedded_text,
+                        vector_field="caption_embedding",
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis vector search HIT: found %d knowledge items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                
+                elif search_method in ["bm25", "string_match"]:
+                    fields = [search_field] if search_field else ["caption", "secret_value"]
+                    
+                    results = redis_client.search_text(
+                        index_name=redis_client.KNOWLEDGE_INDEX,
+                        query=query,
+                        search_fields=fields,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis text search HIT: found %d knowledge items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+            
+            except Exception as e:
+                logger.warning("Redis search failed for knowledge vault, falling back to PostgreSQL: %s", e)
+
         with self.session_maker() as session:
             if query == "":
                 # Use proper PostgreSQL JSON text extraction and casting for ordering
@@ -806,12 +892,18 @@ class KnowledgeVaultManager:
     def delete_knowledge_by_id(
         self, knowledge_vault_item_id: str, actor: PydanticUser
     ) -> None:
-        """Delete a knowledge vault item by ID."""
+        """Delete a knowledge vault item by ID (removes from Redis cache)."""
         with self.session_maker() as session:
             try:
                 item = KnowledgeVaultItem.read(
                     db_session=session, identifier=knowledge_vault_item_id, actor=actor
                 )
+                # Remove from Redis cache
+                from mirix.database.redis_client import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_vault_item_id}"
+                    redis_client.delete(redis_key)
                 item.hard_delete(session)
             except NoResultFound:
                 raise NoResultFound(

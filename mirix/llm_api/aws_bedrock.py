@@ -61,7 +61,7 @@ def bedrock_get_model_list(region_name: str) -> List[dict]:
         response = bedrock.list_inference_profiles()
         return response["inferenceProfileSummaries"]
     except Exception as e:
-        logger.error(f"Error getting model list: {str(e)}")
+        logger.error("Error getting model list: %s", str(e))
         raise e
 
 def bedrock_get_model_details(region_name: str, model_id: str) -> Dict[str, Any]:
@@ -76,7 +76,7 @@ def bedrock_get_model_details(region_name: str, model_id: str) -> Dict[str, Any]
         response = bedrock.get_foundation_model(modelIdentifier=model_id)
         return response["modelDetails"]
     except ClientError as e:
-        logger.error(f"Error getting model details: {str(e)}")
+        logger.error("Error getting model details: %s", str(e))
         raise e
 
 def bedrock_get_model_context_window(model_id: str) -> int:

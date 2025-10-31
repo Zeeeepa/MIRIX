@@ -139,7 +139,7 @@ class ResourceMemoryManager:
             return None
 
         except Exception as e:
-            logger.error(f"Warning: Failed to parse embedding field: {e}")
+            logger.error("Warning: Failed to parse embedding field: %s", e)
             return None
 
     def _postgresql_fulltext_search(
@@ -279,7 +279,7 @@ class ResourceMemoryManager:
                 return [resource.to_pydantic() for resource in resources]
 
         except Exception as e:
-            logger.error(f"PostgreSQL AND query error: {e}")
+            logger.error("PostgreSQL AND query error: %s", e)
 
         # If AND query fails or returns too few results, try OR query
         try:
@@ -331,7 +331,7 @@ class ResourceMemoryManager:
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
-            logger.error(f"PostgreSQL full-text search error: {e}")
+            logger.error("PostgreSQL full-text search error: %s", e)
             # Fall back to simple ILIKE search
             fallback_field = (
                 getattr(ResourceMemoryItem, search_field)
@@ -354,13 +354,40 @@ class ResourceMemoryManager:
     def get_item_by_id(
         self, item_id: str, actor: PydanticUser, timezone_str: str
     ) -> Optional[PydanticResourceMemoryItem]:
-        """Fetch a resource memory item by ID."""
+        """Fetch a resource memory item by ID (with Redis JSON caching)."""
+        # Try Redis cache first
+        try:
+            from mirix.database.redis_client import get_redis_client
+            redis_client = get_redis_client()
+            
+            if redis_client:
+                redis_key = f"{redis_client.RESOURCE_PREFIX}{item_id}"
+                cached_data = redis_client.get_json(redis_key)
+                if cached_data:
+                    logger.debug("✅ Redis cache HIT for resource memory %s", item_id)
+                    return PydanticResourceMemoryItem(**cached_data)
+        except Exception as e:
+            logger.warning("Redis cache read failed for resource memory %s: %s", item_id, e)
+        
+        # Cache MISS - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
                 item = ResourceMemoryItem.read(
                     db_session=session, identifier=item_id, actor=actor
                 )
-                return item.to_pydantic()
+                pydantic_item = item.to_pydantic()
+                
+                # Populate Redis cache
+                try:
+                    if redis_client:
+                        from mirix.settings import settings
+                        data = pydantic_item.model_dump(mode='json')
+                        # model_dump(mode='json') already converts datetime to ISO format strings
+                        redis_client.set_json(redis_key, data, ttl=settings.redis_ttl_default)
+                except Exception as e:
+                    logger.warning("Failed to populate Redis cache: %s", e)
+                
+                return pydantic_item
             except NoResultFound:
                 raise NoResultFound(
                     f"Resource memory item with id {item_id} not found."
@@ -425,7 +452,7 @@ class ResourceMemoryManager:
 
         with self.session_maker() as session:
             item = ResourceMemoryItem(**data_dict)
-            item.create(session)
+            item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
             return item.to_pydantic()
 
     @enforce_types
@@ -442,7 +469,7 @@ class ResourceMemoryManager:
                 if k not in ["id", "updated_at"]:  # Exclude updated_at - handled by update() method
                     setattr(item, k, v)
             # updated_at is automatically set to current UTC time by item.update()
-            item.update(session, actor=actor)
+            item.update_with_redis(session, actor=actor)  # ⭐ Updates Redis JSON cache
             return item.to_pydantic()
 
     @enforce_types
@@ -509,6 +536,64 @@ class ResourceMemoryManager:
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
         """
+        
+        # ⭐ NEW: Try Redis Search first
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if redis_client:
+            try:
+                if not query or query == "":
+                    results = redis_client.search_recent(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis cache HIT: returned %d resource items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+                
+                elif search_method == "embedding":
+                    if embedded_text is None:
+                        from mirix.embeddings.embedding_model import embed_and_upload_batch
+                        embedded_text = embed_and_upload_batch(
+                            [query], agent_state.embedding_config
+                        )[0]
+                    
+                    # Resource only has summary_embedding
+                    results = redis_client.search_vector(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        embedding=embedded_text,
+                        vector_field="summary_embedding",
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis vector search HIT: found %d resource items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+                
+                elif search_method in ["bm25", "string_match"]:
+                    fields = [search_field] if search_field else ["summary", "content"]
+                    
+                    results = redis_client.search_text(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        query=query,
+                        search_fields=fields,
+                        limit=limit or 50,
+                        user_id=actor.id
+                    )
+                    if results:
+                        logger.debug("✅ Redis text search HIT: found %d resource items", len(results))
+                        # Clean Redis-specific fields before Pydantic validation
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+            
+            except Exception as e:
+                logger.warning("Redis search failed for resource memory, falling back to PostgreSQL: %s", e)
 
         with self.session_maker() as session:
             if query == "":
@@ -697,12 +782,18 @@ class ResourceMemoryManager:
 
     @enforce_types
     def delete_resource_by_id(self, resource_id: str, actor: PydanticUser) -> None:
-        """Delete a resource memory item by ID."""
+        """Delete a resource memory item by ID (removes from Redis cache)."""
         with self.session_maker() as session:
             try:
                 item = ResourceMemoryItem.read(
                     db_session=session, identifier=resource_id, actor=actor
                 )
+                # Remove from Redis cache
+                from mirix.database.redis_client import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_key = f"{redis_client.RESOURCE_PREFIX}{resource_id}"
+                    redis_client.delete(redis_key)
                 item.hard_delete(session)
             except NoResultFound:
                 raise NoResultFound(

@@ -55,7 +55,7 @@ class MCPToolRegistry:
             return discovered_tools
 
         except Exception as e:
-            logger.error(f"Error discovering MCP tools: {str(e)}")
+            logger.error("Error discovering MCP tools: %s", str(e))
             return {}
 
     def register_mcp_tools(
@@ -108,7 +108,7 @@ class MCPToolRegistry:
                     )
                     registered_tools.append(registered_tool)
 
-                    logger.info(f"Registered MCP tool: {tool_info['full_name']}")
+                    logger.info("Registered MCP tool: %s", tool_info['full_name'])
 
                 except Exception as e:
                     logger.error(
@@ -249,7 +249,7 @@ class MCPToolRegistry:
             return unregistered_tools
 
         except Exception as e:
-            logger.error(f"Error unregistering MCP tools: {str(e)}")
+            logger.error("Error unregistering MCP tools: %s", str(e))
             return []
 
     def sync_mcp_tools(self, actor: PydanticUser) -> Dict[str, int]:

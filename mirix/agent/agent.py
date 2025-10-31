@@ -11,6 +11,7 @@ import numpy as np
 import pytz
 import requests
 
+from mirix.log import get_logger
 from mirix.constants import (
     CHAINING_FOR_MEMORY_UPDATE,
     CLEAR_HISTORY_AFTER_MEMORY_UPDATE,
@@ -107,6 +108,9 @@ from mirix.utils import (
     printv,
     validate_function_response,
 )
+
+# Initialize module-level logger
+logger = get_logger(__name__)
 
 
 class BaseAgent(ABC):
@@ -420,6 +424,12 @@ class Agent(BaseAgent):
                 if function_name in ["check_episodic_memory", "check_semantic_memory"]:
                     function_args["timezone_str"] = self.user.timezone
                 function_args["self"] = self
+                
+                # Defensive: finish_memory_update takes no parameters (except self)
+                # Remove any unexpected parameters that LLM might hallucinate
+                if function_name == "finish_memory_update":
+                    function_args = {"self": self}
+                
                 function_response = callable_func(**function_args)
                 if function_name in ["core_memory_append", "core_memory_rewrite"]:
                     self.update_memory_if_changed(agent_state_copy.memory)
@@ -1208,7 +1218,7 @@ class Agent(BaseAgent):
                             )
                             memory_item_str = memory_item_str.strip()
 
-                    elif self.agent_state.name == "knowledge_vault_agent":
+                    elif self.agent_state.name == "knowledge_vault_memory_agent":
                         memory_item = (
                             self.knowledge_vault_manager.get_most_recently_updated_item(
                                 actor=self.user,
@@ -1597,6 +1607,8 @@ class Agent(BaseAgent):
         Returns:
             Tuple[str, dict]: The complete system prompt and the retrieved memories dict
         """
+        from mirix.schemas.agent import AgentType
+        
         timezone_str = self.user.timezone
 
         if retrieved_memories is None:
@@ -1626,7 +1638,7 @@ class Agent(BaseAgent):
 
         # Retrieve core memory
         if (
-            self.agent_state.name == "core_memory_agent"
+            self.agent_state.agent_type == AgentType.core_memory_agent
             or "core" not in retrieved_memories
         ):
             current_persisted_memory = Memory(
@@ -1640,12 +1652,12 @@ class Agent(BaseAgent):
             retrieved_memories["core"] = core_memory
 
         if (
-            self.agent_state.name == "knowledge_vault"
+            self.agent_state.agent_type == AgentType.knowledge_vault_memory_agent
             or "knowledge_vault" not in retrieved_memories
         ):
             if (
-                self.agent_state.name == "knowledge_vault"
-                or self.agent_state.name == "reflexion_agent"
+                self.agent_state.agent_type == AgentType.knowledge_vault_memory_agent
+                or self.agent_state.agent_type == AgentType.reflexion_agent
             ):
                 current_knowledge_vault = self.knowledge_vault_manager.list_knowledge(
                     agent_state=self.agent_state,
@@ -1696,9 +1708,11 @@ class Agent(BaseAgent):
             episodic_memory = ""
             if len(current_episodic_memory) > 0:
                 for idx, event in enumerate(current_episodic_memory):
+                    # Use agent_type instead of name to handle both standalone and meta-agent child agents
+                    from mirix.schemas.agent import AgentType
                     if (
-                        self.agent_state.name == "episodic_memory_agent"
-                        or self.agent_state.name == "reflexion_agent"
+                        self.agent_state.agent_type == AgentType.episodic_memory_agent
+                        or self.agent_state.agent_type == AgentType.reflexion_agent
                     ):
                         episodic_memory += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
                     else:
@@ -1721,9 +1735,11 @@ class Agent(BaseAgent):
             most_relevant_episodic_memory_str = ""
             if len(most_relevant_episodic_memory) > 0:
                 for idx, event in enumerate(most_relevant_episodic_memory):
+                    # Use agent_type instead of name to handle both standalone and meta-agent child agents
+                    from mirix.schemas.agent import AgentType
                     if (
-                        self.agent_state.name == "episodic_memory_agent"
-                        or self.agent_state.name == "reflexion_agent"
+                        self.agent_state.agent_type == AgentType.episodic_memory_agent
+                        or self.agent_state.agent_type == AgentType.reflexion_agent
                     ):
                         most_relevant_episodic_memory_str += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
                     else:
@@ -1741,7 +1757,7 @@ class Agent(BaseAgent):
 
         # Retrieve resource memory
         if (
-            self.agent_state.name == "resource_memory_agent"
+            self.agent_state.agent_type == AgentType.resource_memory_agent
             or "resource" not in retrieved_memories
         ):
             current_resource_memory = self.resource_memory_manager.list_resources(
@@ -1758,8 +1774,8 @@ class Agent(BaseAgent):
             if len(current_resource_memory) > 0:
                 for idx, resource in enumerate(current_resource_memory):
                     if (
-                        self.agent_state.name == "resource_memory_agent"
-                        or self.agent_state.name == "reflexion_agent"
+                        self.agent_state.agent_type == AgentType.resource_memory_agent
+                        or self.agent_state.agent_type == AgentType.reflexion_agent
                     ):
                         resource_memory += f"[Resource ID: {resource.id}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
                     else:
@@ -1775,7 +1791,7 @@ class Agent(BaseAgent):
 
         # Retrieve procedural memory
         if (
-            self.agent_state.name == "procedural_memory_agent"
+            self.agent_state.agent_type == AgentType.procedural_memory_agent
             or "procedural" not in retrieved_memories
         ):
             current_procedural_memory = self.procedural_memory_manager.list_procedures(
@@ -1792,8 +1808,8 @@ class Agent(BaseAgent):
             if len(current_procedural_memory) > 0:
                 for idx, procedure in enumerate(current_procedural_memory):
                     if (
-                        self.agent_state.name == "procedural_memory_agent"
-                        or self.agent_state.name == "reflexion_agent"
+                        self.agent_state.agent_type == AgentType.procedural_memory_agent
+                        or self.agent_state.agent_type == AgentType.reflexion_agent
                     ):
                         procedural_memory += f"[Procedure ID: {procedure.id}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
                     else:
@@ -1809,7 +1825,7 @@ class Agent(BaseAgent):
 
         # Retrieve semantic memory
         if (
-            self.agent_state.name == "semantic_memory_agent"
+            self.agent_state.agent_type == AgentType.semantic_memory_agent
             or "semantic" not in retrieved_memories
         ):
             current_semantic_memory = self.semantic_memory_manager.list_semantic_items(
@@ -1826,8 +1842,8 @@ class Agent(BaseAgent):
             if len(current_semantic_memory) > 0:
                 for idx, semantic_memory_item in enumerate(current_semantic_memory):
                     if (
-                        self.agent_state.name == "semantic_memory_agent"
-                        or self.agent_state.name == "reflexion_agent"
+                        self.agent_state.agent_type == AgentType.semantic_memory_agent
+                        or self.agent_state.agent_type == AgentType.reflexion_agent
                     ):
                         semantic_memory += f"[Semantic Memory ID: {semantic_memory_item.id}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
                     else:
@@ -2303,9 +2319,27 @@ These keywords have been used to retrieve relevant memories from the database.
                 all_response_messages.extend(tmp_response_messages)
 
             if function_failed:
-                printv(
-                    f"[Mirix.Agent.{self.agent_state.name}] INFO: Function failed with error: {all_response_messages[-1].content[0].text if all_response_messages else 'Unknown error'}"
-                )
+                # Find the actual failed message(s) to log
+                failed_messages = []
+                for msg in all_response_messages:
+                    if msg.role == "tool" and msg.content:
+                        try:
+                            content = msg.content[0].text if isinstance(msg.content, list) else msg.content
+                            response_data = json.loads(content)
+                            if response_data.get("status") == "Failed":
+                                failed_messages.append(f"{msg.name}: {content}")
+                        except (json.JSONDecodeError, AttributeError, KeyError):
+                            pass
+                
+                if failed_messages:
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: One or more functions failed:\n" + "\n".join(failed_messages)
+                    )
+                else:
+                    # Fallback if we can't parse the messages
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Function execution encountered errors (see logs above for details)"
+                    )
 
             # if function_failed:
 
@@ -2540,8 +2574,8 @@ These keywords have been used to retrieve relevant memories from the database.
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
         in_context_messages_openai_no_system = in_context_messages_openai[1:]
         token_counts = get_token_counts_for_messages(in_context_messages)
-        self.logger.info(f"System message token count={token_counts[0]}")
-        self.logger.info(f"token_counts_no_system={token_counts[1:]}")
+        logger.info("System message token count=%s", token_counts[0])
+        logger.info("token_counts_no_system=%s", token_counts[1:])
 
         if in_context_messages_openai[0]["role"] != "system":
             raise RuntimeError(
@@ -2588,7 +2622,7 @@ These keywords have been used to retrieve relevant memories from the database.
             message_sequence_to_summarize=message_sequence_to_summarize,
             existing_file_uris=existing_file_uris,
         )
-        self.logger.info(f"Got summary: {summary}")
+        logger.info("Got summary: %s", summary)
 
         # Metadata that's useful for the agent to see
         all_time_message_count = self.message_manager.size(
@@ -2602,7 +2636,7 @@ These keywords have been used to retrieve relevant memories from the database.
         summary_message = package_summarize_message(
             summary, summary_message_count, hidden_message_count, all_time_message_count
         )
-        self.logger.info(f"Packaged into message: {summary_message}")
+        logger.info("Packaged into message: %s", summary_message)
 
         prior_len = len(in_context_messages_openai)
         self.agent_state = self.agent_manager.trim_older_in_context_messages(
@@ -2803,7 +2837,7 @@ def strip_name_field_from_user_message(
     except Exception as e:
         # Note: This is a static function, so we'll use a module-level logger
         logger = logging.getLogger("Mirix.Agent.Utils")
-        logger.error(f"Handling of 'name' field failed with: {e}")
+        logger.error("Handling of 'name' field failed with: %s", e)
         raise e
 
 
@@ -2814,7 +2848,7 @@ def validate_json(user_message_text: str) -> str:
         user_message_json_val = json_dumps(user_message_json)
         return user_message_json_val
     except Exception as e:
-        logger.debug(f"{CLI_WARNING_PREFIX}couldn't parse user input message as JSON: {e}")
+        logger.debug("%scouldn't parse user input message as JSON: %s", CLI_WARNING_PREFIX, e)
         raise e
 
 

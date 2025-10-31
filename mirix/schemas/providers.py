@@ -311,7 +311,7 @@ class OllamaProvider(OpenAIProvider):
         for model in response_json["models"]:
             context_window = self.get_model_context_window(model["name"])
             if context_window is None:
-                logger.debug(f"Ollama model {model['name']} has no context window")
+                logger.debug("Ollama model %s has no context window", model['name'])
                 continue
             configs.append(
                 LLMConfig(
@@ -394,7 +394,7 @@ class OllamaProvider(OpenAIProvider):
         for model in response_json["models"]:
             embedding_dim = self.get_model_embedding_dim(model["name"])
             if not embedding_dim:
-                logger.debug(f"Ollama model {model['name']} has no embedding dimension")
+                logger.debug("Ollama model %s has no embedding dimension", model['name'])
                 continue
             configs.append(
                 EmbeddingConfig(

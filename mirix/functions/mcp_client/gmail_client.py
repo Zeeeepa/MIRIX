@@ -194,14 +194,14 @@ class GmailMCPClient(BaseMCPClient):
                     return True
 
                 except Exception as e:
-                    logger.error(f"Failed to load Gmail credentials: {str(e)}")
+                    logger.error("Failed to load Gmail credentials: %s", str(e))
                     return False
             else:
                 logger.error("Gmail token file not found after authentication")
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to initialize Gmail connection: {str(e)}")
+            logger.error("Failed to initialize Gmail connection: %s", str(e))
             return False
 
     def list_tools(self, timeout: float = 10.0) -> List[MCPTool]:
@@ -302,7 +302,7 @@ class GmailMCPClient(BaseMCPClient):
             else:
                 return f"Unknown tool: {tool_name}", True
         except Exception as e:
-            logger.error(f"Error executing Gmail tool {tool_name}: {str(e)}")
+            logger.error("Error executing Gmail tool %s: %s", tool_name, str(e))
             return f"Error executing tool: {str(e)}", True
 
     def _ensure_gmail_service(self) -> bool:
@@ -320,7 +320,7 @@ class GmailMCPClient(BaseMCPClient):
                 logger.warning("Gmail service initialization failed")
                 return False
         except Exception as e:
-            logger.error(f"Failed to ensure Gmail service: {str(e)}")
+            logger.error("Failed to ensure Gmail service: %s", str(e))
             return False
 
     def _send_email(self, args: Dict[str, Any]) -> Tuple[str, bool]:
@@ -507,7 +507,7 @@ class GmailMCPClient(BaseMCPClient):
                     )
                     message.attach(attachment)
                 else:
-                    logger.warning(f"Attachment file '{file_path}' not found")
+                    logger.warning("Attachment file '%s' not found", file_path)
 
         return {"raw": base64.urlsafe_b64encode(message.as_bytes()).decode()}
 
