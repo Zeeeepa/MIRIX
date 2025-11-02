@@ -155,9 +155,15 @@ class Settings(BaseSettings):
     redis_db: int = Field(0, env="MIRIX_REDIS_DB")
     redis_password: Optional[str] = Field(None, env="MIRIX_REDIS_PASSWORD")
     redis_uri: Optional[str] = Field(None, env="MIRIX_REDIS_URI")  # Full URI override
-    redis_max_connections: int = Field(50, env="MIRIX_REDIS_MAX_CONNECTIONS")
-    redis_socket_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_TIMEOUT")
-    redis_socket_connect_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_CONNECT_TIMEOUT")
+    
+    # Redis connection pool settings (optimized for production)
+    redis_max_connections: int = Field(50, env="MIRIX_REDIS_MAX_CONNECTIONS")  # Per container
+    redis_socket_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_TIMEOUT")  # Read/write timeout (seconds)
+    redis_socket_connect_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_CONNECT_TIMEOUT")  # Connect timeout (seconds)
+    redis_socket_keepalive: bool = Field(True, env="MIRIX_REDIS_SOCKET_KEEPALIVE")  # Enable TCP keepalive
+    redis_retry_on_timeout: bool = Field(True, env="MIRIX_REDIS_RETRY_ON_TIMEOUT")  # Retry on timeout errors
+    
+    # Redis TTL settings (cache expiration times in seconds)
     redis_ttl_default: int = Field(3600, env="MIRIX_REDIS_TTL_DEFAULT")  # 1 hour default TTL
     redis_ttl_blocks: int = Field(7200, env="MIRIX_REDIS_TTL_BLOCKS")  # 2 hours for hot data (blocks)
     redis_ttl_messages: int = Field(7200, env="MIRIX_REDIS_TTL_MESSAGES")  # 2 hours for messages

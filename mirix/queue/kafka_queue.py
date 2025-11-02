@@ -65,9 +65,11 @@ class KafkaQueue(QueueInterface):
             msg.ParseFromString(serialized_msg)
             return msg
         
-        # Initialize Kafka producer with Protobuf serializer
+        # Initialize Kafka producer with Protobuf serializer and key serializer
+        # Key serializer enables partition key routing for consistent message ordering per user
         self.producer = KafkaProducer(
             bootstrap_servers=bootstrap_servers,
+            key_serializer=lambda k: k.encode('utf-8'),  # Encode partition key to bytes
             value_serializer=protobuf_serializer
         )
         
@@ -84,18 +86,38 @@ class KafkaQueue(QueueInterface):
     
     def put(self, message: QueueMessage) -> None:
         """
-        Send a message to Kafka topic
+        Send a message to Kafka topic with user_id as partition key.
+        
+        This ensures all messages for the same user go to the same partition,
+        guaranteeing single-worker processing and message ordering per user.
+        
+        Implementation:
+        - Uses user_id (or actor.id as fallback) as partition key
+        - Kafka assigns partition via: hash(key) % num_partitions
+        - Consumer group ensures only one worker per partition
+        - Result: Same user always processed by same worker (no race conditions)
         
         Args:
             message: QueueMessage protobuf message to send
         """
-        logger.debug("Sending message to Kafka topic %s: agent_id=%s", self.topic, message.agent_id)
+        # Extract user_id as partition key (fallback to actor.id if not present)
+        partition_key = message.user_id if message.user_id else message.actor.id
         
-        # Send message and wait for acknowledgment
-        future = self.producer.send(self.topic, value=message)
+        logger.debug(
+            "Sending message to Kafka topic %s: agent_id=%s, partition_key=%s",
+            self.topic, message.agent_id, partition_key
+        )
+        
+        # Send message with partition key - ensures consistent partitioning
+        # Kafka will route this to: partition = hash(partition_key) % num_partitions
+        future = self.producer.send(
+            self.topic,
+            key=partition_key,  # Partition key for consistent routing
+            value=message
+        )
         future.get(timeout=10)  # Wait up to 10 seconds for confirmation
         
-        logger.debug("Message sent to Kafka successfully")
+        logger.debug("Message sent to Kafka successfully with partition key: %s", partition_key)
     
     def get(self, timeout: Optional[float] = None) -> QueueMessage:
         """
