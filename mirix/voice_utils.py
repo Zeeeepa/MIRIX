@@ -28,7 +28,7 @@ def convert_base64_to_audio_segment(voice_file_b64):
 
         return audio_segment
     except Exception as e:
-        logger.error(f"❌ Error converting voice data to AudioSegment: {str(e)}")
+        logger.error("❌ Error converting voice data to AudioSegment: %s", str(e))
         return None
 
 
@@ -37,7 +37,7 @@ def process_voice_files(voice_items):
     if not voice_items:
         return None
 
-    logger.debug(f"🎵 Agent processing {len(voice_items)} voice files")
+    logger.debug("🎵 Agent processing %s voice files", len(voice_items))
     temp_files = []
 
     try:
@@ -100,7 +100,7 @@ def process_voice_files(voice_items):
 
                         except sr.RequestError as e:
                             logger.error(
-                                f"⚠️ Google Speech Recognition failed for combined audio: {str(e)}"
+                                "⚠️ Google Speech Recognition failed for combined audio: %s", str(e)
                             )
                             # Fallback to offline methods if Google fails
                             try:
@@ -112,7 +112,7 @@ def process_voice_files(voice_items):
                                     f"[{first_timestamp}] {transcription}"
                                 )
                                 logger.error(
-                                    f"✅ Sphinx transcribed combined audio: '{transcription[:100]}{'...' if len(transcription) > 100 else ''}'"
+                                    "✅ Sphinx transcribed combined audio: '%s'", transcription[:100] + ('...' if len(transcription) > 100 else '')
                                 )
                                 return combined_transcription
                             except Exception:
@@ -126,32 +126,32 @@ def process_voice_files(voice_items):
                     if temp_audio_file and os.path.exists(temp_audio_file):
                         try:
                             os.unlink(temp_audio_file)
-                            logger.debug(f"🗑️ Deleted temporary audio file: {temp_audio_file}")
+                            logger.debug("🗑️ Deleted temporary audio file: %s", temp_audio_file)
                         except Exception as cleanup_error:
                             logger.error(
-                                f"⚠️ Failed to delete temporary audio file {temp_audio_file}: {str(cleanup_error)}"
+                                "⚠️ Failed to delete temporary audio file %s: %s", temp_audio_file, str(cleanup_error)
                             )
 
             except Exception as e:
-                logger.error(f"💥 Error in concatenation and transcription: {str(e)}")
+                logger.error("💥 Error in concatenation and transcription: %s", str(e))
                 return None
         else:
             logger.debug("❌ No valid audio segments to process")
             return None
 
     except Exception as e:
-        logger.exception(f"💥 Critical error in voice processing: {str(e)}")
+        logger.exception("💥 Critical error in voice processing: %s", str(e))
         return None
 
     finally:
         # Clean up any temporary files that might have been created
-        logger.debug(f"🧹 Cleaning up {len(temp_files)} temporary voice files...")
+        logger.debug("🧹 Cleaning up %s temporary voice files...", len(temp_files))
         for temp_file in temp_files:
             if os.path.exists(temp_file):
                 try:
                     os.unlink(temp_file)
-                    logger.debug(f"🗑️ Deleted temp voice file: {temp_file}")
+                    logger.debug("🗑️ Deleted temp voice file: %s", temp_file)
                 except Exception as cleanup_error:
                     logger.debug(
-                        f"⚠️ Failed to delete temp voice file {temp_file}: {str(cleanup_error)}"
+                        "⚠️ Failed to delete temp voice file %s: %s", temp_file, str(cleanup_error)
                     )

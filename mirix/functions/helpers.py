@@ -65,7 +65,7 @@ def assert_code_gen_compilable(code_str):
     try:
         compile(code_str, "<string>", "exec")
     except SyntaxError as e:
-        logger.debug(f"Syntax error in code: {e}")
+        logger.debug("Syntax error in code: %s", e)
 
 def assert_all_classes_are_imported(
     tool: Union["LangChainBaseTool"], additional_imports_module_attr_map: dict[str, str]
@@ -284,18 +284,18 @@ async def async_send_message_with_retries(
             )
             if assistant_message:
                 msg = f"Agent {target_agent_id} said '{assistant_message}'"
-                sender_agent.logger.info(f"{logging_prefix} - {msg}")
+                logger.info("%s - %s", logging_prefix, msg)
                 return msg
             else:
                 msg = f"(No response from agent {target_agent_id})"
-                sender_agent.logger.info(f"{logging_prefix} - {msg}")
+                logger.info("%s - %s", logging_prefix, msg)
                 return msg
         except asyncio.TimeoutError:
             error_msg = f"(Timeout on attempt {attempt}/{max_retries} for agent {target_agent_id})"
-            sender_agent.logger.warning(f"{logging_prefix} - {error_msg}")
+            logger.warning("%s - %s", logging_prefix, error_msg)
         except Exception as e:
             error_msg = f"(Error on attempt {attempt}/{max_retries} for agent {target_agent_id}: {e})"
-            sender_agent.logger.warning(f"{logging_prefix} - {error_msg}")
+            logger.warning("%s - %s", logging_prefix, error_msg)
 
         # Exponential backoff before retrying
         if attempt < max_retries:

@@ -148,6 +148,38 @@ class Settings(BaseSettings):
     pg_pool_recycle: int = 1800  # When to recycle connections
     pg_echo: bool = False  # Logging
 
+    # Redis configuration (optional - for caching and search acceleration)
+    redis_enabled: bool = Field(False, env="MIRIX_REDIS_ENABLED")  # Master switch
+    redis_host: Optional[str] = Field(None, env="MIRIX_REDIS_HOST")
+    redis_port: int = Field(6379, env="MIRIX_REDIS_PORT")
+    redis_db: int = Field(0, env="MIRIX_REDIS_DB")
+    redis_password: Optional[str] = Field(None, env="MIRIX_REDIS_PASSWORD")
+    redis_uri: Optional[str] = Field(None, env="MIRIX_REDIS_URI")  # Full URI override
+    redis_max_connections: int = Field(50, env="MIRIX_REDIS_MAX_CONNECTIONS")
+    redis_socket_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_TIMEOUT")
+    redis_socket_connect_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_CONNECT_TIMEOUT")
+    redis_ttl_default: int = Field(3600, env="MIRIX_REDIS_TTL_DEFAULT")  # 1 hour default TTL
+    redis_ttl_blocks: int = Field(7200, env="MIRIX_REDIS_TTL_BLOCKS")  # 2 hours for hot data (blocks)
+    redis_ttl_messages: int = Field(7200, env="MIRIX_REDIS_TTL_MESSAGES")  # 2 hours for messages
+    redis_ttl_organizations: int = Field(43200, env="MIRIX_REDIS_TTL_ORGANIZATIONS")  # 12 hours for organizations
+    redis_ttl_users: int = Field(43200, env="MIRIX_REDIS_TTL_USERS")  # 12 hours for users
+    redis_ttl_agents: int = Field(43200, env="MIRIX_REDIS_TTL_AGENTS")  # 12 hours for agents
+    redis_ttl_tools: int = Field(43200, env="MIRIX_REDIS_TTL_TOOLS")  # 12 hours for tools
+
+    @property
+    def mirix_redis_uri(self) -> Optional[str]:
+        """Construct Redis URI from components or return explicit URI."""
+        if not self.redis_enabled:
+            return None
+        
+        if self.redis_uri:
+            return self.redis_uri
+        elif self.redis_host:
+            auth = f":{self.redis_password}@" if self.redis_password else ""
+            return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        else:
+            return None
+
     # multi agent settings
     multi_agent_send_message_max_retries: int = 3
     multi_agent_send_message_timeout: int = 20 * 60

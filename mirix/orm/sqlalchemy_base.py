@@ -247,7 +247,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         if start_date and end_date and start_date > end_date:
             raise ValueError("start_date must be earlier than or equal to end_date")
 
-        logger.debug(f"Listing {cls.__name__} with kwarg filters {kwargs}")
+        logger.debug("Listing %s with kwarg filters %s", cls.__name__, kwargs)
         with db_session as session:
             # If cursor provided, get the reference object
             cursor_obj = None
@@ -406,7 +406,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         Raises:
             NoResultFound: if the object is not found
         """
-        logger.debug(f"Reading {cls.__name__} with ID: {identifier} with actor={actor}")
+        logger.debug("Reading %s with ID: %s with actor=%s", cls.__name__, identifier, actor)
 
         # Start the query
         query = select(cls)
@@ -566,7 +566,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         Raises:
             DBAPIError: If a database error occurs
         """
-        logger.debug(f"Calculating size for {cls.__name__} with filters {kwargs}")
+        logger.debug("Calculating size for %s with filters %s", cls.__name__, kwargs)
 
         with db_session as session:
             query = select(func.count()).select_from(cls)
@@ -593,7 +593,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 count = session.execute(query).scalar()
                 return count if count else 0
             except DBAPIError as e:
-                logger.exception(f"Failed to calculate size for {cls.__name__}")
+                logger.exception("Failed to calculate size for %s", cls.__name__)
                 raise e
 
     @classmethod
@@ -635,7 +635,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         orig = e.orig  # Extract the original error from the DBAPIError
         error_code = None
         error_message = str(orig) if orig else str(e)
-        logger.info(f"Handling DBAPIError: {error_message}")
+        logger.info("Handling DBAPIError: %s", error_message)
 
         # Handle SQLite-specific errors
         if "UNIQUE constraint failed" in error_message:
@@ -657,7 +657,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             err_dict = orig.args[0]
             if isinstance(err_dict, dict):
                 error_code = err_dict.get("C")  # 'C' is the error code field
-        logger.info(f"Extracted error_code: {error_code}")
+        logger.info("Extracted error_code: %s", error_code)
 
         # Handle unique constraint violations
         if error_code == "23505":
@@ -688,3 +688,296 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         """Deprecated accessor for to_pydantic"""
         logger.warning("to_record is deprecated, use to_pydantic instead.")
         return self.to_pydantic()
+    
+    # ========================================================================
+    # REDIS INTEGRATION METHODS (Hybrid: Hash for blocks/messages, JSON for memory)
+    # ========================================================================
+    
+    @handle_db_timeout
+    @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
+    def create_with_redis(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        """
+        Create record in PostgreSQL and cache in Redis.
+        Uses Hash for blocks/messages, JSON for memory tables.
+        """
+        logger.debug(
+            f"Creating {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+        )
+
+        if actor:
+            self._set_created_and_updated_by_fields(actor.id)
+
+        with db_session as session:
+            try:
+                # Write to PostgreSQL (source of truth)
+                session.add(self)
+                session.commit()
+                session.refresh(self)
+                
+                # Write to Redis cache
+                self._update_redis_cache(operation="create", actor=actor)
+                
+                return self
+            except (DBAPIError, IntegrityError) as e:
+                session.rollback()
+                logger.error(
+                    f"Failed to create {self.__class__.__name__} with ID {self.id}: {e}"
+                )
+                self._handle_dbapi_error(e)
+            except Exception as e:
+                session.rollback()
+                logger.error(
+                    f"Unexpected error creating {self.__class__.__name__} with ID {self.id}: {e}"
+                )
+                raise
+    
+    @handle_db_timeout
+    @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
+    def update_with_redis(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        """
+        Update record in PostgreSQL and Redis cache.
+        """
+        logger.debug(
+            f"Updating {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+        )
+        if actor:
+            self._set_created_and_updated_by_fields(actor.id)
+
+        self.set_updated_at()
+
+        with db_session as session:
+            try:
+                # Update PostgreSQL
+                session.add(self)
+                session.commit()
+                session.refresh(self)
+                
+                # Update Redis cache
+                self._update_redis_cache(operation="update", actor=actor)
+                
+                return self
+            except Exception as e:
+                session.rollback()
+                logger.error(
+                    f"Failed to update {self.__class__.__name__} with ID {self.id}: {e}"
+                )
+                raise
+    
+    @handle_db_timeout
+    @retry_db_operation(max_retries=3, base_delay=0.1, max_delay=2.0)
+    def delete_with_redis(
+        self, db_session: "Session", actor: Optional["User"] = None
+    ) -> "SqlalchemyBase":
+        """
+        Soft delete record in PostgreSQL and remove from Redis cache.
+        """
+        logger.debug(
+            f"Soft deleting {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+        )
+
+        if actor:
+            self._set_created_and_updated_by_fields(actor.id)
+
+        self.is_deleted = True
+        self._update_redis_cache(operation="delete", actor=actor)
+        return self.update(db_session)
+    
+    def _update_redis_cache(
+        self, operation: str = "update", actor: Optional["User"] = None
+    ) -> None:
+        """
+        Update Redis cache based on table type.
+        
+        Args:
+            operation: "create", "update", or "delete"
+            actor: User performing the operation
+        """
+        try:
+            from mirix.database.redis_client import get_redis_client
+            from mirix.settings import settings
+            
+            redis_client = get_redis_client()
+            if redis_client is None:
+                return  # Redis not configured, skip
+            
+            table_name = getattr(self, "__tablename__", None)
+            if not table_name:
+                return
+            
+            # ⭐ HASH-BASED CACHING (blocks and messages - NO embeddings)
+            if table_name == "block":
+                redis_key = f"{redis_client.BLOCK_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_blocks)
+                return
+            
+            if table_name == "messages":
+                redis_key = f"{redis_client.MESSAGE_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_messages)
+                return
+            
+            # ⭐ ORGANIZATION CACHING (Hash-based)
+            if table_name == "organizations":
+                redis_key = f"{redis_client.ORGANIZATION_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_organizations)
+                return
+            
+            # ⭐ USER CACHING (Hash-based)
+            if table_name == "users":
+                redis_key = f"{redis_client.USER_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_users)
+                return
+            
+            # ⭐ AGENT CACHING (Hash-based, with denormalized tool_ids)
+            if table_name == "agents":
+                import json
+                redis_key = f"{redis_client.AGENT_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    
+                    # Serialize complex JSON fields for Hash storage
+                    if 'message_ids' in data and data['message_ids']:
+                        data['message_ids'] = json.dumps(data['message_ids'])
+                    if 'llm_config' in data and data['llm_config']:
+                        data['llm_config'] = json.dumps(data['llm_config'])
+                    if 'embedding_config' in data and data['embedding_config']:
+                        data['embedding_config'] = json.dumps(data['embedding_config'])
+                    if 'tool_rules' in data and data['tool_rules']:
+                        data['tool_rules'] = json.dumps(data['tool_rules'])
+                    if 'mcp_tools' in data and data['mcp_tools']:
+                        data['mcp_tools'] = json.dumps(data['mcp_tools'])
+                    
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    
+                    # ⭐ Denormalize tools_agents: Cache tools separately, store tool_ids with agent
+                    if 'tools' in data and data['tools']:
+                        tool_ids = [tool.id if hasattr(tool, 'id') else tool['id'] for tool in data['tools']]
+                        data['tool_ids'] = json.dumps(tool_ids)
+                        
+                        # Cache each tool separately
+                        for tool in data['tools']:
+                            tool_data = tool if isinstance(tool, dict) else tool.model_dump(mode='json') if hasattr(tool, 'model_dump') else tool.__dict__
+                            tool_key = f"{redis_client.TOOL_PREFIX}{tool_data['id']}"
+                            
+                            # Serialize tool JSON fields
+                            if 'json_schema' in tool_data and tool_data['json_schema']:
+                                tool_data['json_schema'] = json.dumps(tool_data['json_schema'])
+                            if 'tags' in tool_data and tool_data['tags']:
+                                tool_data['tags'] = json.dumps(tool_data['tags'])
+                            
+                            # model_dump(mode='json') already converts datetime to ISO format strings
+                            
+                            redis_client.set_hash(tool_key, tool_data, ttl=settings.redis_ttl_tools)
+                    
+                    # ⭐ Denormalize memory: Store block IDs for reconstruction
+                    if 'memory' in data and data['memory']:
+                        memory_obj = data['memory']
+                        if isinstance(memory_obj, dict) and 'blocks' in memory_obj:
+                            block_ids = [block.id if hasattr(block, 'id') else block['id'] 
+                                        for block in memory_obj['blocks']]
+                            data['memory_block_ids'] = json.dumps(block_ids)
+                            data['memory_prompt_template'] = memory_obj.get('prompt_template', '')
+                            
+                            # ⭐ Maintain reverse mapping: block -> agents (for cache invalidation)
+                            for block_id in block_ids:
+                                reverse_key = f"{redis_client.BLOCK_PREFIX}{block_id}:agents"
+                                redis_client.client.sadd(reverse_key, self.id)
+                                redis_client.client.expire(reverse_key, settings.redis_ttl_agents)
+                    
+                    # ⭐ Denormalize children: Store child agent IDs for reconstruction (list_agents only)
+                    if 'children' in data and data['children']:
+                        children_ids = [child.id if hasattr(child, 'id') else child['id'] 
+                                       for child in data['children']]
+                        data['children_ids'] = json.dumps(children_ids)
+                        
+                        # ⭐ Maintain reverse mapping: child -> parent (for cache invalidation)
+                        for child_id in children_ids:
+                            reverse_key = f"{redis_client.AGENT_PREFIX}{child_id}:parent"
+                            redis_client.client.set(reverse_key, self.id)
+                            redis_client.client.expire(reverse_key, settings.redis_ttl_agents)
+                    
+                    # Remove relationship fields (cached separately or reconstructed on demand)
+                    data.pop('tools', None)
+                    data.pop('memory', None)
+                    data.pop('children', None)  # Reconstructed in list_agents() only
+                    
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_agents)
+                return
+            
+            # ⭐ TOOL CACHING (Hash-based)
+            if table_name == "tools":
+                import json
+                redis_key = f"{redis_client.TOOL_PREFIX}{self.id}"
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    
+                    # Serialize JSON fields
+                    if 'json_schema' in data and data['json_schema']:
+                        data['json_schema'] = json.dumps(data['json_schema'])
+                    if 'tags' in data and data['tags']:
+                        data['tags'] = json.dumps(data['tags'])
+                    
+                    # model_dump(mode='json') already converts datetime to ISO format strings
+                    
+                    redis_client.set_hash(redis_key, data, ttl=settings.redis_ttl_tools)
+                return
+            
+            # ⭐ JSON-BASED CACHING (memory tables with embeddings)
+            memory_tables = {
+                "episodic_memory": redis_client.EPISODIC_PREFIX,
+                "semantic_memory": redis_client.SEMANTIC_PREFIX,
+                "procedural_memory": redis_client.PROCEDURAL_PREFIX,
+                "resource_memory": redis_client.RESOURCE_PREFIX,
+                "knowledge_vault": redis_client.KNOWLEDGE_PREFIX,
+            }
+            
+            if table_name in memory_tables:
+                prefix = memory_tables[table_name]
+                redis_key = f"{prefix}{self.id}"
+                
+                if operation == "delete":
+                    redis_client.delete(redis_key)
+                else:
+                    data = self.to_pydantic().model_dump(mode='json')
+                    # model_dump(mode='json') converts datetime to ISO format strings
+                    
+                    # ⭐ ADD NUMERIC TIMESTAMP FIELDS FOR REDIS SEARCH SORTING
+                    # RediSearch needs numeric fields to sort by (not ISO strings)
+                    if hasattr(self, 'created_at') and self.created_at:
+                        data['created_at_ts'] = self.created_at.timestamp()
+                    if hasattr(self, 'occurred_at') and self.occurred_at:
+                        data['occurred_at_ts'] = self.occurred_at.timestamp()
+                    
+                    redis_client.set_json(redis_key, data, ttl=settings.redis_ttl_default)
+                
+        except Exception as e:
+            # Log but don't fail the operation if Redis fails
+            logger.error("Failed to update Redis cache for %s %s: %s", self.__class__.__name__, self.id, e)
+            logger.info("Operation completed successfully in PostgreSQL despite Redis error")

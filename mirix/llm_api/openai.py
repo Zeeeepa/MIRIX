@@ -425,7 +425,7 @@ def openai_chat_completions_process_stream(
     except Exception as e:
         if stream_interface:
             stream_interface.stream_end()
-        logger.error(f"Parsing ChatCompletion stream failed with error:\n{str(e)}")
+        logger.error("Parsing ChatCompletion stream failed with error:\n%s", str(e))
         raise e
     finally:
         if stream_interface:
@@ -580,7 +580,7 @@ def openai_chat_completions_request_stream(
                     f"Failed to convert tool function to structured output, tool={tool}, error={e}"
                 )
 
-    # logger.debug(f"\n\n\n\nData[tools]: {json.dumps(data['tools'], indent=2)}")
+    logger.debug("\n\n\n\nData[tools]: %s", json.dumps(data['tools'], indent=2))
 
     printd(f"Sending request to {url}")
     try:

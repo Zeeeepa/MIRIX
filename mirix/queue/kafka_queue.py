@@ -24,7 +24,7 @@ class KafkaQueue(QueueInterface):
             topic: Kafka topic name
             group_id: Consumer group ID
         """
-        logger.debug(f"Initializing Kafka queue: servers={bootstrap_servers}, topic={topic}, group={group_id}")
+        logger.debug("Initializing Kafka queue: servers=%s, topic=%s, group=%s", bootstrap_servers, topic, group_id)
         
         try:
             from kafka import KafkaProducer, KafkaConsumer
@@ -89,13 +89,13 @@ class KafkaQueue(QueueInterface):
         Args:
             message: QueueMessage protobuf message to send
         """
-        logger.debug(f"Sending message to Kafka topic {self.topic}: agent_id={message.agent_id}")
+        logger.debug("Sending message to Kafka topic %s: agent_id=%s", self.topic, message.agent_id)
         
         # Send message and wait for acknowledgment
         future = self.producer.send(self.topic, value=message)
         future.get(timeout=10)  # Wait up to 10 seconds for confirmation
         
-        logger.debug(f"Message sent to Kafka successfully")
+        logger.debug("Message sent to Kafka successfully")
     
     def get(self, timeout: Optional[float] = None) -> QueueMessage:
         """
@@ -110,11 +110,11 @@ class KafkaQueue(QueueInterface):
         Raises:
             StopIteration: If no message available
         """
-        logger.debug(f"Polling Kafka topic {self.topic} for messages")
+        logger.debug("Polling Kafka topic %s for messages", self.topic)
         
         # Poll for messages
         for message in self.consumer:
-            logger.debug(f"Retrieved message from Kafka: agent_id={message.value.agent_id}")
+            logger.debug("Retrieved message from Kafka: agent_id=%s", message.value.agent_id)
             return message.value
         
         # If no message received, raise exception (similar to queue.Empty)

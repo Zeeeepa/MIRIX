@@ -320,12 +320,12 @@ class TestDirectKnowledgeVault:
     
     def test_insert_knowledge(self, server, user, meta_agent):
         """Test inserting knowledge directly."""
-        knowledge_vault_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_agent)
+        knowledge_vault_memory_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_memory_agent)
         
         knowledge = server.knowledge_vault_manager.insert_knowledge(
             actor=user,
             agent_id=meta_agent.id,
-            agent_state=knowledge_vault_agent,
+            agent_state=knowledge_vault_memory_agent,
             entry_type="credential",
             source="development_environment",
             sensitivity="medium",
@@ -341,10 +341,10 @@ class TestDirectKnowledgeVault:
     
     def test_search_knowledge(self, server, user, meta_agent):
         """Test searching knowledge vault."""
-        knowledge_vault_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_agent)
+        knowledge_vault_memory_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_memory_agent)
         
         results = server.knowledge_vault_manager.list_knowledge(
-            agent_state=knowledge_vault_agent,
+            agent_state=knowledge_vault_memory_agent,
             actor=user,
             query="api_key",
             search_method="bm25",
@@ -481,7 +481,7 @@ class TestSearchMethodComparison:
     
     def test_knowledge_vault_search_methods_and_fields(self, server, user, meta_agent):
         """Test all search methods and fields on knowledge vault."""
-        knowledge_vault_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_agent)
+        knowledge_vault_memory_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_memory_agent)
         
         # Test different fields: secret_value, caption
         test_cases = [
@@ -492,7 +492,7 @@ class TestSearchMethodComparison:
         
         for query, field, method in test_cases:
             results = server.knowledge_vault_manager.list_knowledge(
-                agent_state=knowledge_vault_agent,
+                agent_state=knowledge_vault_memory_agent,
                 actor=user,
                 query=query,
                 search_method=method,
@@ -566,9 +566,9 @@ class TestSearchMethodComparison:
         print(f"[OK] Resource: {len(resource_results)} results")
         
         # Knowledge Vault
-        knowledge_vault_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_agent)
+        knowledge_vault_memory_agent = get_sub_agent(server, user, meta_agent, AgentType.knowledge_vault_memory_agent)
         knowledge_results = server.knowledge_vault_manager.list_knowledge(
-            agent_state=knowledge_vault_agent,
+            agent_state=knowledge_vault_memory_agent,
             actor=user,
             query="test",
             search_method="bm25",

@@ -151,7 +151,7 @@ def get_logger(name: Optional[str] = None) -> "logging.Logger":
         if handlers_added:
             destinations = " and ".join(handlers_added)
             log_level_name = logging.getLevelName(selected_log_level)
-            logger.info(f"Logging to: {destinations} (level: {log_level_name})")
+            logger.info("Logging to: %s (level: %s)", destinations, log_level_name)
         else:
             # No handlers configured - add NullHandler to prevent warnings
             # This only happens if console is explicitly disabled AND file is not configured

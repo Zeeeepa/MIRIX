@@ -15,7 +15,7 @@ class BaseBlock(MirixBase, validate_assignment=True):
     __id_prefix__ = "block"
 
     # data value
-    value: str = Field(..., description="Value of the block.")
+    value: Optional[str] = Field(None, description="Value of the block.")
     limit: int = Field(
         CORE_MEMORY_BLOCK_CHAR_LIMIT, description="Character limit of the block."
     )

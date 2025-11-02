@@ -235,14 +235,14 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
                             choice.message.tool_calls[0].function.arguments
                         )
                         topics = function_args.get("topic")
-                        logger.debug(f"Extracted topics: {topics}")
+                        logger.debug("Extracted topics: %s", topics)
                         return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
-                        logger.warning(f"Failed to parse topic extraction response: {parse_error}")
+                        logger.warning("Failed to parse topic extraction response: %s", parse_error)
                         continue
 
     except Exception as e:
-        logger.error(f"Error in extracting topics from messages: {e}")
+        logger.error("Error in extracting topics from messages: %s", e)
 
     return None
 
@@ -255,7 +255,7 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler for all unhandled exceptions."""
-    logger.error(f"Unhandled exception: {exc}\n{traceback.format_exc()}")
+    logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
     return JSONResponse(
         status_code=500,
         content={
@@ -726,7 +726,7 @@ async def create_or_get_organization(
     org = server.organization_manager.create_organization(
         pydantic_org=Organization(**org_create.model_dump())
     )
-    logger.debug(f"Created new organization: {org_id}")
+    logger.debug("Created new organization: %s", org_id)
     return org
 
 
@@ -799,7 +799,7 @@ async def create_or_get_user(
             status="active"
         )
     )
-    logger.debug(f"Created new user: {user_id}")
+    logger.debug("Created new user: %s", user_id)
     return user
 
 # ============================================================================
@@ -928,7 +928,7 @@ async def add_memory(
         verbose=request.verbose,
     )
     
-    logger.debug(f"Memory queued for processing: {meta_agent.id}")
+    logger.debug("Memory queued for processing: %s", meta_agent.id)
 
     return {
         "success": True,
@@ -1018,7 +1018,7 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error(f"Error retrieving episodic memories: {e}")
+        logger.error("Error retrieving episodic memories: %s", e)
         memories["episodic"] = {"total_count": 0, "recent": [], "relevant": []}
     
     # Get semantic memories
@@ -1048,7 +1048,7 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error(f"Error retrieving semantic memories: {e}")
+        logger.error("Error retrieving semantic memories: %s", e)
         memories["semantic"] = {"total_count": 0, "items": []}
     
     # Get resource memories
@@ -1078,7 +1078,7 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error(f"Error retrieving resource memories: {e}")
+        logger.error("Error retrieving resource memories: %s", e)
         memories["resource"] = {"total_count": 0, "items": []}
     
     # Get procedural memories
@@ -1107,7 +1107,7 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error(f"Error retrieving procedural memories: {e}")
+        logger.error("Error retrieving procedural memories: %s", e)
         memories["procedural"] = {"total_count": 0, "items": []}
     
     # Get knowledge vault items
@@ -1135,8 +1135,30 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error(f"Error retrieving knowledge vault items: {e}")
+        logger.error("Error retrieving knowledge vault items: %s", e)
         memories["knowledge_vault"] = {"total_count": 0, "items": []}
+    
+    # Get core memory blocks
+    try:
+        block_manager = server.block_manager
+        
+        # Get all blocks for the user (these are the Human and Persona blocks)
+        blocks = block_manager.get_blocks(actor=user)
+        
+        memories["core"] = {
+            "total_count": len(blocks),
+            "items": [
+                {
+                    "id": block.id,
+                    "label": block.label,
+                    "value": block.value,
+                }
+                for block in blocks
+            ],
+        }
+    except Exception as e:
+        logger.error("Error retrieving core memory blocks: %s", e)
+        memories["core"] = {"total_count": 0, "items": []}
     
     return memories
 
@@ -1170,7 +1192,7 @@ async def retrieve_memory_with_conversation(
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
     topics = extract_topics_from_messages(request.messages, llm_config)
-    logger.debug(f"Extracted topics from conversation: {topics}")
+    logger.debug("Extracted topics from conversation: %s", topics)
     
     # Use topics as search keywords
     key_words = topics if topics else ""
@@ -1337,7 +1359,7 @@ async def search_memory(
                 for x in episodic_memories
             ])
         except Exception as e:
-            logger.error(f"Error searching episodic memories: {e}")
+            logger.error("Error searching episodic memories: %s", e)
     
     # Search resource memories
     if memory_type in ["resource", "all"]:
@@ -1363,7 +1385,7 @@ async def search_memory(
                 for x in resource_memories
             ])
         except Exception as e:
-            logger.error(f"Error searching resource memories: {e}")
+            logger.error("Error searching resource memories: %s", e)
     
     # Search procedural memories
     if memory_type in ["procedural", "all"]:
@@ -1388,7 +1410,7 @@ async def search_memory(
                 for x in procedural_memories
             ])
         except Exception as e:
-            logger.error(f"Error searching procedural memories: {e}")
+            logger.error("Error searching procedural memories: %s", e)
     
     # Search knowledge vault
     if memory_type in ["knowledge_vault", "all"]:
@@ -1415,7 +1437,7 @@ async def search_memory(
                 for x in knowledge_vault_memories
             ])
         except Exception as e:
-            logger.error(f"Error searching knowledge vault: {e}")
+            logger.error("Error searching knowledge vault: %s", e)
     
     # Search semantic memories
     if memory_type in ["semantic", "all"]:
@@ -1441,7 +1463,7 @@ async def search_memory(
                 for x in semantic_memories
             ])
         except Exception as e:
-            logger.error(f"Error searching semantic memories: {e}")
+            logger.error("Error searching semantic memories: %s", e)
     
     return {
         "success": True,

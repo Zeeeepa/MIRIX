@@ -39,7 +39,7 @@ from mirix.agent.agent import Agent, AgentState, save_agent
 from mirix.agent.background_agent import BackgroundAgent
 from mirix.agent.core_memory_agent import CoreMemoryAgent
 from mirix.agent.episodic_memory_agent import EpisodicMemoryAgent
-from mirix.agent.knowledge_vault_agent import KnowledgeVaultAgent
+from mirix.agent.knowledge_vault_memory_agent import KnowledgeVaultAgent
 from mirix.agent.meta_memory_agent import MetaMemoryAgent
 from mirix.agent.procedural_memory_agent import ProceduralMemoryAgent
 from mirix.agent.reflexion_agent import ReflexionAgent

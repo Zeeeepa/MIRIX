@@ -338,6 +338,6 @@ if __name__ == "__main__":
         logger.debug("Full schema extracted successfully:")
         logger.debug(schema)
     except Exception as e:
-        logger.debug(f"Failed to extract full schema: {e}")
+        logger.debug("Failed to extract full schema: %s", e)
         logger.debug("Using basic schema instead:")
         logger.debug(get_basic_schema())

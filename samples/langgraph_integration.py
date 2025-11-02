@@ -12,14 +12,23 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(mirix_root, ".env"))
 
+import logging
+
+from mirix.schemas.agent import AgentType
+from mirix.client import MirixClient
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
+
 from typing import Annotated, List, TypedDict  # noqa: E402
 
 from langchain_core.messages import AIMessage, HumanMessage  # noqa: E402
 from langchain_google_genai import ChatGoogleGenerativeAI  # noqa: E402
 from langgraph.graph import START, StateGraph  # noqa: E402
 from langgraph.graph.message import add_messages  # noqa: E402
-
-from mirix import Mirix  # noqa: E402
 
 # Initialize LangChain and Mirix
 API_KEY = os.getenv("GEMINI_API_KEY")
@@ -31,12 +40,24 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=API_KEY,
 )
 
-mirix_agent = Mirix(
-    api_key=API_KEY,
-    model_provider="gemini",
-    config_path=f"{mirix_root}/mirix/configs/mirix_gemini.yaml",
+# Define user and organization IDs
+user_id = "demo-user"
+org_id = "demo-org"
+
+# Build absolute path to config file (since we're in samples/ subdirectory)
+config_path = os.path.join(mirix_root, "mirix/configs/examples/mirix_gemini.yaml")
+    
+client = MirixClient(
+    api_key=None, # TODO: add authentication later
+    user_id=user_id,
+    org_id=org_id,
+    debug=True,
 )
 
+client.initialize_meta_agent(
+    config_path=config_path,
+    update_agents=True
+)
 
 class State(TypedDict):
     messages: Annotated[List[HumanMessage | AIMessage], add_messages]
@@ -46,18 +67,128 @@ class State(TypedDict):
 graph = StateGraph(State)
 
 
+def format_memories_for_prompt(memories: dict) -> str:
+    """
+    Format the memories dictionary returned by retrieve_with_conversation() into a string.
+    
+    Args:
+        memories: Dictionary containing retrieved memories organized by type
+    
+    Returns:
+        Formatted string representation of memories
+    """
+    if not memories or not memories.get("memories"):
+        return "No relevant memories found."
+    
+    formatted_parts = []
+    
+    # ✅ FIX: Format core memory first (most important - contains user's name and persona)
+    if "core" in memories["memories"] and memories["memories"]["core"].get("items"):
+        formatted_parts.append("\n=== CORE MEMORY ===")
+        for block in memories["memories"]["core"]["items"]:
+            label = block.get("label", "").upper()
+            value = block.get("value", "")
+            if value:  # Only show non-empty blocks
+                formatted_parts.append(f"{label}: {value}")
+        formatted_parts.append("")  # Empty line after core memory
+    
+    # Format other memory types
+    for memory_type, items in memories["memories"].items():
+        if memory_type == "core":  # Already handled above
+            continue
+        if items and items.get("items"):
+            formatted_parts.append(f"\n{memory_type.upper()} MEMORIES:")
+            for item in items["items"][:3]:  # Show top 3 items per type
+                # Extract the most relevant field based on memory type
+                if memory_type == "episodic":
+                    text = item.get("details", item.get("summary", ""))
+                elif memory_type == "semantic":
+                    text = item.get("name", "") + ": " + item.get("summary", "")
+                elif memory_type == "procedural":
+                    text = item.get("summary", "")
+                elif memory_type == "resource":
+                    text = item.get("title", "") + ": " + item.get("summary", "")
+                elif memory_type == "knowledge":
+                    text = item.get("caption", "")
+                else:
+                    text = str(item)[:100]
+                
+                formatted_parts.append(f"  - {text[:150]}")
+    
+    return "\n".join(formatted_parts) if formatted_parts else "No relevant memories found."
+
+
+def create_user_message(text: str) -> List[dict]:
+    """
+    Create a structured user message for Mirix retrieve_with_conversation() API.
+    
+    Args:
+        text: The user's message text
+    
+    Returns:
+        List containing a single user message dictionary
+    """
+    return [
+        {
+            "role": "user",
+            "content": [{
+                "type": "text",
+                "text": text
+            }]
+        }
+    ]
+
+
+def create_mirix_messages(user_content: str, assistant_content: str) -> List[dict]:
+    """
+    Create structured messages for Mirix client.add() API.
+    
+    Args:
+        user_content: The user's message content
+        assistant_content: The assistant's response content
+    
+    Returns:
+        List of message dictionaries with role and content structure
+    """
+    return [
+        {
+            "role": "user",
+            "content": [{
+                "type": "text",
+                "text": user_content
+            }]
+        },
+        {
+            "role": "assistant",
+            "content": [{
+                "type": "text",
+                "text": assistant_content
+            }]
+        }
+    ]
+
+
 def chatbot(state: State):
     messages = state["messages"]
     user_id = state["user_id"]
 
     try:
-        memories = mirix_agent.extract_memory_for_system_prompt(
-            messages[-1].content, user_id=user_id
+        # Create structured message for memory retrieval
+        retrieval_messages = create_user_message(messages[-1].content)
+        
+        memories = client.retrieve_with_conversation(
+            user_id=user_id,
+            messages=retrieval_messages,
+            limit=10
         )
 
+        # Format memories into a readable string
+        formatted_memories = format_memories_for_prompt(memories)
+        
         system_message = (
-            "You are a helpful assistant that can answer questions and help with tasks. You have the following memories:\n\n"
-            + memories
+            "You are a helpful assistant that can answer questions and help with tasks. "
+            "You have the following memories:\n"
+            + formatted_memories
         )
 
         full_messages = [system_message] + messages
@@ -66,10 +197,11 @@ def chatbot(state: State):
 
         # Store the interaction with Mirix
         try:
-            interaction = (
-                f"User: {messages[-1].content}\n\nAssistant: {response.content}"
+            mirix_messages = create_mirix_messages(
+                user_content=messages[-1].content,
+                assistant_content=response.content
             )
-            mirix_agent.add(interaction, user_id=user_id)
+            client.add(user_id=user_id, messages=mirix_messages)
         except Exception as e:
             print(f"Error saving memory: {e}")
 
@@ -90,10 +222,9 @@ compiled_graph = graph.compile()
 
 
 def run_conversation(user_input: str, user_name: str):
-    user = mirix_agent.create_user(user_name=user_name)
-
-    config = {"configurable": {"thread_id": user.id}}
-    state = {"messages": [HumanMessage(content=user_input)], "user_id": user.id}
+    # Use the pre-configured user_id from client initialization
+    config = {"configurable": {"thread_id": user_id}}
+    state = {"messages": [HumanMessage(content=user_input)], "user_id": user_id}
 
     for event in compiled_graph.stream(state, config):
         for value in event.values():

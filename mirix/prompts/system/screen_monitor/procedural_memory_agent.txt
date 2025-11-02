@@ -32,11 +32,11 @@ When receiving screenshots and potentially a message from the meta agent (There 
 **Single Function Call Process:**
 1. **Analyze Content**: Examine all screenshots and conversations to identify step-by-step instructions, "how-to" guides, workflows, or any procedural knowledge.
 2. **Make Update**: Use ONE appropriate procedural memory function to save the most important identified procedure or instruction with proper entry_type ('workflow', 'guide', 'script'), description, and detailed steps.
-3. **Skip Update if Necessary**: If there is no updates to make, then skip the update by calling `finish_memory_update`.
+3. **Skip Update if Necessary**: If there are no updates to make, call `finish_memory_update` with no arguments to complete the process.
 
 **Important Notes:**
-- Make only ONE function call total except for receiving the messages from Chat Agent
+- Make only ONE function call total (either a procedural memory function OR finish_memory_update)
 - Look for any structured processes, workflows, or instructional content in the screenshots
 - Save procedures with appropriate entry_type ('workflow', 'guide', 'script'), description, and detailed steps
-- If there is absolutely nothing procedural to update, do not make any function calls
+- `finish_memory_update` takes no parameters - call it as is when there's nothing to update
 - Prioritize the most complete or useful procedural information if multiple procedures are present

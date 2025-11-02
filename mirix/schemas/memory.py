@@ -138,7 +138,9 @@ class Memory(BaseModel, validate_assignment=True):
             Template(prompt_template)
 
             # Validate compatibility with current memory structure
-            Template(prompt_template).render(blocks=self.blocks)
+            # Defensive: Handle None blocks
+            blocks = self.blocks if self.blocks is not None else []
+            Template(prompt_template).render(blocks=blocks)
 
             # If we get here, the template is valid and compatible
             self.prompt_template = prompt_template
@@ -152,18 +154,25 @@ class Memory(BaseModel, validate_assignment=True):
     def compile(self) -> str:
         """Generate a string representation of the memory in-context using the Jinja2 template"""
         template = env.from_string(self.prompt_template)
-        return template.render(blocks=self.blocks)
+        # Defensive: Handle None blocks (backward compatibility with old cached agents)
+        blocks = self.blocks if self.blocks is not None else []
+        return template.render(blocks=blocks)
 
     def list_block_labels(self) -> List[str]:
         """Return a list of the block names held inside the memory object"""
         # return list(self.memory.keys())
+        # Defensive: Handle None blocks
+        if self.blocks is None:
+            return []
         return [block.label for block in self.blocks]
 
     # TODO: these should actually be label, not name
     def get_block(self, label: str) -> Block:
         """Correct way to index into the memory.memory field, returns a Block"""
         keys = []
-        for block in self.blocks:
+        # Defensive: Handle None blocks
+        blocks = self.blocks if self.blocks is not None else []
+        for block in blocks:
             if block.label == label:
                 return block
             keys.append(block.label)
@@ -174,10 +183,14 @@ class Memory(BaseModel, validate_assignment=True):
     def get_blocks(self) -> List[Block]:
         """Return a list of the blocks held inside the memory object"""
         # return list(self.memory.values())
-        return self.blocks
+        # Defensive: Handle None blocks
+        return self.blocks if self.blocks is not None else []
 
     def set_block(self, block: Block):
         """Set a block in the memory object"""
+        # Defensive: Handle None blocks - initialize if needed
+        if self.blocks is None:
+            self.blocks = []
         for i, b in enumerate(self.blocks):
             if b.label == block.label:
                 self.blocks[i] = block
@@ -189,6 +202,10 @@ class Memory(BaseModel, validate_assignment=True):
         if not isinstance(value, str):
             raise ValueError("Provided value must be a string")
 
+        # Defensive: Handle None blocks - initialize if needed
+        if self.blocks is None:
+            self.blocks = []
+        
         for block in self.blocks:
             if block.label == label:
                 block.value = value

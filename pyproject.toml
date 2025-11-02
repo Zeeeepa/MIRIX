@@ -84,6 +84,7 @@ dependencies = [
     "pyright (>=1.1.406,<2.0.0)",
     "ipdb (>=0.13.13,<0.14.0)",
     "protobuf (>=6.33.0,<7.0.0)",
+    "redis[hiredis] (>=7.0.1,<8.0.0)",
 ]
 
 [project.optional-dependencies]
