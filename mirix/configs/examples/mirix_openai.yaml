@@ -27,6 +27,5 @@ meta_agent_config:
     - episodic_memory_agent
     - procedural_memory_agent
     - knowledge_vault_agent
-    - meta_memory_agent
     - reflexion_agent
     - background_agent
