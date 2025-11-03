@@ -67,7 +67,6 @@ def main():
                     "content": [{
                         "type": "text",
                         "text": "What did I discuss in my meeting with Sarah?"
-                        "text": ""
                     }]
                 }
             ],
