@@ -1,3 +1,4 @@
+import contextvars
 import copy
 import difflib
 import hashlib
@@ -49,9 +50,24 @@ if "LOG_LEVEL" in os.environ:
     if os.environ["LOG_LEVEL"] == "DEBUG":
         DEBUG = True
 
-VERBOSE = True  # Default to True to show logs unless explicitly disabled
+# Thread-safe verbose flag using contextvars (replaces global VERBOSE)
+# Default value from environment variable
+_default_verbose = True  # Default to True to show logs unless explicitly disabled
 if "MIRIX_VERBOSE" in os.environ:
-    VERBOSE = os.environ["MIRIX_VERBOSE"].lower() in ("true", "1", "yes")
+    _default_verbose = os.environ["MIRIX_VERBOSE"].lower() in ("true", "1", "yes")
+
+verbose_context = contextvars.ContextVar('verbose', default=_default_verbose)
+
+def get_verbose() -> bool:
+    """Get verbose setting for current context (thread-safe)"""
+    return verbose_context.get()
+
+def set_verbose(value: bool) -> None:
+    """Set verbose setting for current context (thread-safe)"""
+    verbose_context.set(value)
+
+# Keep VERBOSE for backward compatibility (but use contextvars internally)
+VERBOSE = _default_verbose  # Legacy global variable (deprecated, use get_verbose() instead)
 
 ADJECTIVE_BANK = [
     "beautiful",
@@ -870,8 +886,8 @@ def printd(*args, **kwargs):
 
 
 def printv(*args, **kwargs):
-    """Print verbose logging output. Controlled by MIRIX_VERBOSE environment variable."""
-    if VERBOSE:
+    """Print verbose logging output. Controlled by context-specific verbose setting (thread-safe)."""
+    if get_verbose():
         logger.info(*args, **kwargs)
 
 

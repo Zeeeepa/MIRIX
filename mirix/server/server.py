@@ -994,16 +994,10 @@ class SyncServer(Server):
     ) -> MirixUsageStatistics:
         """Send a list of messages to the agent."""
 
-        # Set VERBOSE flag based on parameter (on server side)
-        old_verbose = None
+        # Set verbose flag for THIS request context only (thread-safe)
         if verbose is not None:
-            import mirix.utils
-
-            # Save the old VERBOSE state to restore later
-            old_verbose = mirix.utils.VERBOSE
-            # Set the new VERBOSE state
-            mirix.utils.VERBOSE = verbose
-            os.environ["MIRIX_VERBOSE"] = "true" if verbose else "false"
+            from mirix.utils import set_verbose
+            set_verbose(verbose)
 
         try:
             # Run the agent state forward
@@ -1014,12 +1008,8 @@ class SyncServer(Server):
                 chaining=chaining,
             )
         finally:
-            # Restore the old VERBOSE state if it was modified
-            if old_verbose is not None:
-                import mirix.utils
-
-                mirix.utils.VERBOSE = old_verbose
-                os.environ["MIRIX_VERBOSE"] = "true" if old_verbose else "false"
+            # No cleanup needed - context automatically isolated per request
+            pass
 
     # @LockingServer.agent_lock_decorator
     def run_command(

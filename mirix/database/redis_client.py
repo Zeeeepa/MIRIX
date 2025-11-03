@@ -64,24 +64,60 @@ class RedisMemoryClient:
         max_connections: int = 50,
         socket_timeout: int = 5,
         socket_connect_timeout: int = 5,
+        socket_keepalive: bool = True,
+        retry_on_timeout: bool = True,
     ):
-        """Initialize Redis client with connection pool."""
+        """
+        Initialize Redis client with optimized connection pool.
+        
+        Args:
+            redis_uri: Redis connection URI
+            max_connections: Maximum connections per container (default: 50)
+            socket_timeout: Socket timeout in seconds (default: 5)
+            socket_connect_timeout: Socket connect timeout in seconds (default: 5)
+            socket_keepalive: Enable TCP keepalive (default: True)
+            retry_on_timeout: Retry on timeout errors (default: True)
+        """
         try:
+            import socket
             from redis import Redis, ConnectionPool
             
             self.redis_uri = redis_uri
             
+            # Socket keepalive options (prevent stale connections)
+            socket_keepalive_options = {}
+            if socket_keepalive and hasattr(socket, 'TCP_KEEPIDLE'):
+                # TCP_KEEPIDLE may not be available on all platforms (e.g., Windows)
+                socket_keepalive_options = {
+                    socket.TCP_KEEPIDLE: 60,    # Start keepalive after 60s idle
+                    socket.TCP_KEEPINTVL: 10,   # Send keepalive every 10s
+                    socket.TCP_KEEPCNT: 3,      # Close after 3 failed keepalives
+                }
+            
+            # Create connection pool with optimized settings
             self.pool = ConnectionPool.from_url(
                 redis_uri,
-                max_connections=max_connections,
-                socket_timeout=socket_timeout,
-                socket_connect_timeout=socket_connect_timeout,
-                decode_responses=True,
+                max_connections=max_connections,        # Bounded connection count
+                socket_timeout=socket_timeout,          # Read/write timeout
+                socket_connect_timeout=socket_connect_timeout,  # Connection timeout
+                socket_keepalive=socket_keepalive,      # Enable TCP keepalive
+                socket_keepalive_options=socket_keepalive_options,
+                retry_on_timeout=retry_on_timeout,      # Retry on timeouts
+                decode_responses=True,                   # Decode bytes to strings
+                health_check_interval=30,                # Check connection health every 30s
             )
             
             self.client = Redis(connection_pool=self.pool)
             
-            logger.info("✅ Redis hybrid client initialized: %s", self._mask_uri(redis_uri))
+            # Log configuration
+            logger.info(
+                "✅ Redis connection pool initialized: %s (max_connections=%d, "
+                "socket_timeout=%ds, keepalive=%s)",
+                self._mask_uri(redis_uri),
+                max_connections,
+                socket_timeout,
+                socket_keepalive
+            )
         except ImportError:
             logger.error("Redis library not installed. Install with: pip install redis[hiredis]")
             raise
@@ -114,6 +150,66 @@ class RedisMemoryClient:
                 logger.info("Redis connection pool closed")
         except Exception as e:
             logger.error("Error closing Redis pool: %s", e)
+    
+    def get_connection_info(self) -> Dict[str, Any]:
+        """
+        Get Redis connection pool information for monitoring.
+        
+        Returns:
+            Dictionary with connection pool stats and Redis server info
+        """
+        try:
+            # Get Redis server info
+            info = self.client.info('clients')
+            server_info = self.client.info('server')
+            
+            # Get connection pool stats
+            pool_info = {
+                # Client connections (this container)
+                'pool_max_connections': self.pool.max_connections,
+                'pool_connection_kwargs': {
+                    'socket_timeout': self.pool.connection_kwargs.get('socket_timeout'),
+                    'socket_keepalive': self.pool.connection_kwargs.get('socket_keepalive'),
+                },
+                
+                # Redis server stats (global)
+                'server_connected_clients': info.get('connected_clients', 0),
+                'server_max_clients': server_info.get('maxclients', 10000),
+                'server_version': server_info.get('redis_version', 'unknown'),
+                
+                # Calculate usage percentage
+                'usage_percent': (info.get('connected_clients', 0) / server_info.get('maxclients', 10000)) * 100,
+            }
+            
+            return pool_info
+        except Exception as e:
+            logger.error("Failed to get Redis connection info: %s", e)
+            return {}
+    
+    def log_connection_stats(self) -> None:
+        """Log current Redis connection statistics."""
+        try:
+            info = self.get_connection_info()
+            if info:
+                logger.info(
+                    "📊 Redis connections: %d/%d (%.1f%%) | Pool max: %d | Version: %s",
+                    info.get('server_connected_clients', 0),
+                    info.get('server_max_clients', 10000),
+                    info.get('usage_percent', 0),
+                    info.get('pool_max_connections', 50),
+                    info.get('server_version', 'unknown')
+                )
+                
+                # Warn if usage is high
+                if info.get('usage_percent', 0) > 80:
+                    logger.warning(
+                        "⚠️  Redis connection usage high: %.1f%% (%d/%d)",
+                        info.get('usage_percent', 0),
+                        info.get('server_connected_clients', 0),
+                        info.get('server_max_clients', 10000)
+                    )
+        except Exception as e:
+            logger.error("Failed to log Redis connection stats: %s", e)
     
     def create_indexes(self) -> None:
         """Create RediSearch indexes for all memory types (hybrid approach)."""
@@ -1120,7 +1216,7 @@ class RedisMemoryClient:
 
 
 def initialize_redis_client() -> Optional[RedisMemoryClient]:
-    """Initialize global Redis client from settings."""
+    """Initialize global Redis client from settings with optimized connection pool."""
     global _redis_client
     
     if _redis_client is not None:
@@ -1138,11 +1234,14 @@ def initialize_redis_client() -> Optional[RedisMemoryClient]:
             logger.warning("Redis enabled but no URI configured")
             return None
         
+        # Initialize with optimized connection pool settings
         _redis_client = RedisMemoryClient(
             redis_uri=redis_uri,
             max_connections=settings.redis_max_connections,
             socket_timeout=settings.redis_socket_timeout,
             socket_connect_timeout=settings.redis_socket_connect_timeout,
+            socket_keepalive=settings.redis_socket_keepalive,
+            retry_on_timeout=settings.redis_retry_on_timeout,
         )
         
         # Test connection
@@ -1154,7 +1253,10 @@ def initialize_redis_client() -> Optional[RedisMemoryClient]:
         # Create indexes
         _redis_client.create_indexes()
         
-        logger.info("✅ Redis client initialized and indexes created")
+        # Log connection pool info
+        _redis_client.log_connection_stats()
+        
+        logger.info("✅ Redis client initialized successfully with optimized connection pool")
         return _redis_client
         
     except Exception as e:

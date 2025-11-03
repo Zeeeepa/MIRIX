@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -61,6 +62,37 @@ class AgentManager:
         self.tool_manager = ToolManager()
         self.message_manager = MessageManager()
         self.block_manager = BlockManager()
+    
+    def _monitor_cache_conflict(self, agent_id: str, db_updated_at: datetime, loaded_at: datetime) -> None:
+        """
+        Monitor for potential cache invalidation conflicts (stale writes).
+        
+        This method logs when an agent is being written with stale data,
+        which could indicate a cache conflict from concurrent modifications.
+        
+        Args:
+            agent_id: The agent ID being updated
+            db_updated_at: When the agent was last updated in the database
+            loaded_at: When the agent was loaded into memory
+        
+        Note:
+            This is monitoring only - does not prevent writes.
+            Use for collecting data to inform whether optimistic locking is needed.
+        """
+        if db_updated_at > loaded_at:
+            # Potential stale write detected
+            time_diff = (db_updated_at - loaded_at).total_seconds()
+            logger.warning(
+                "⚠️  Potential stale agent write detected: agent=%s, "
+                "db_updated_at=%s, loaded_at=%s, diff=%.2fs",
+                agent_id,
+                db_updated_at.isoformat(),
+                loaded_at.isoformat(),
+                time_diff
+            )
+            # Future: Add metrics here
+            # metrics.increment('agent.stale_write_detected', tags={'agent_id': agent_id})
+    
     # ======================================================================================================================
     # Basic CRUD operations
     # ======================================================================================================================
