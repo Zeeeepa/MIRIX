@@ -1191,11 +1191,28 @@ async def retrieve_memory_with_conversation(
     # Extract topics from the conversation
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
-    topics = extract_topics_from_messages(request.messages, llm_config)
-    logger.debug("Extracted topics from conversation: %s", topics)
     
-    # Use topics as search keywords
-    key_words = topics if topics else ""
+    # Check if messages have actual content before calling LLM
+    has_content = False
+    for msg in request.messages:
+        if isinstance(msg, dict) and "content" in msg:
+            for content_item in msg.get("content", []):
+                if isinstance(content_item, dict) and content_item.get("text", "").strip():
+                    has_content = True
+                    break
+            if has_content:
+                break
+    
+    if has_content:
+        # Extract topics using LLM only if there's actual content
+        topics = extract_topics_from_messages(request.messages, llm_config)
+        logger.debug("Extracted topics from conversation: %s", topics)
+        key_words = topics if topics else ""
+    else:
+        # No content - skip LLM call and retrieve recent items
+        logger.debug("No content in messages - retrieving recent items")
+        key_words = ""
+        topics = None
     
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(
