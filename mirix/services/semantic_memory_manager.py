@@ -484,9 +484,15 @@ class SemanticMemoryManager:
 
     @enforce_types
     def create_item(
-        self, item_data: PydanticSemanticMemoryItem, actor: PydanticUser
+        self, item_data: PydanticSemanticMemoryItem, actor: PydanticUser, use_cache: bool = True
     ) -> PydanticSemanticMemoryItem:
-        """Create a new semantic memory item."""
+        """Create a new semantic memory item.
+        
+        Args:
+            item_data: The semantic memory data to create
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
+        """
 
         # Ensure ID is set before model_dump
         if not item_data.id:
@@ -509,7 +515,7 @@ class SemanticMemoryManager:
 
         with self.session_maker() as session:
             item = SemanticMemoryItem(**data_dict)
-            item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
+            item.create_with_redis(session, actor=actor, use_cache=use_cache)
             return item.to_pydantic()
 
     @enforce_types
@@ -557,6 +563,8 @@ class SemanticMemoryManager:
         search_method: str = "embedding",
         limit: Optional[int] = 50,
         timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> List[PydanticSemanticMemoryItem]:
         """
         List semantic memory items with various search methods.
@@ -574,6 +582,7 @@ class SemanticMemoryManager:
                 - 'fuzzy_match': Fuzzy string matching (legacy, kept for compatibility)
             limit: Maximum number of results to return
             timezone_str: Timezone string for timestamp conversion
+            use_cache: If True, try Redis cache first. If False, skip cache and query PostgreSQL directly.
 
         Returns:
             List of semantic memory items matching the search criteria
@@ -591,26 +600,31 @@ class SemanticMemoryManager:
               proper BM25 ranking
         """
         query = query.strip() if query else ""
+        is_empty_query = not query or query == ""
         
-        # ⭐ NEW: Try Redis Search first
+        # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
         
-        if redis_client:
+        if use_cache and redis_client:
             try:
-                # Case 1: No query - get recent items
-                if not query or query == "":
+                # Case 1: No query - get recent items (regardless of search_method)
+                if is_empty_query:
+                    logger.debug("🔍 Searching Redis for recent semantic items with filter_tags=%s", filter_tags)
                     results = redis_client.search_recent(
                         index_name=redis_client.SEMANTIC_INDEX,
                         limit=limit or 50,
                         user_id=actor.id,
-                        sort_by="created_at_ts"
+                        sort_by="created_at_ts",
+                        filter_tags=filter_tags
                     )
+                    logger.debug("🔍 Redis search_recent returned %d results", len(results) if results else 0)
                     if results:
                         logger.debug("✅ Redis cache HIT: returned %d recent semantic items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
                         return [PydanticSemanticMemoryItem(**item) for item in results]
+                    # If no results, fall through to PostgreSQL (don't return empty list)
                 
                 # Case 2: Vector similarity search
                 elif search_method == "embedding":
@@ -627,7 +641,8 @@ class SemanticMemoryManager:
                         embedding=embedded_text,
                         vector_field=vector_field,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis vector search HIT: found %d semantic items", len(results))
@@ -644,7 +659,8 @@ class SemanticMemoryManager:
                         query=query,
                         search_fields=fields,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis text search HIT: found %d semantic items", len(results))
@@ -655,7 +671,16 @@ class SemanticMemoryManager:
             except Exception as e:
                 logger.warning("Redis search failed for semantic memory, falling back to PostgreSQL: %s", e)
                 # Fall through to PostgreSQL
+        
+        # Log when bypassing cache or Redis unavailable
+        if not use_cache:
+            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for semantic memory")
+        elif not redis_client:
+            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for semantic memory")
+        else:
+            logger.debug("⏭️  Redis returned no results, falling back to PostgreSQL for semantic memory")
 
+        logger.debug("🔍 PostgreSQL fallback: query='%s', filter_tags=%s", query, filter_tags)
         with self.session_maker() as session:
             if query == "":
                 # Use proper PostgreSQL JSON text extraction and casting for ordering
@@ -671,10 +696,17 @@ class SemanticMemoryManager:
                         ).desc()
                     )
                 )
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        query_stmt = query_stmt.where(SemanticMemoryItem.filter_tags[key].as_string() == str(value))
+                
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
                 semantic_items = result.scalars().all()
+                logger.debug("🔍 PostgreSQL returned %d semantic items (filter_tags=%s)", len(semantic_items), filter_tags)
                 return [item.to_pydantic() for item in semantic_items]
 
             else:
@@ -694,6 +726,11 @@ class SemanticMemoryManager:
                     SemanticMemoryItem.user_id.label("user_id"),
                     SemanticMemoryItem.agent_id.label("agent_id"),
                 ).where(SemanticMemoryItem.user_id == actor.id)
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        base_query = base_query.where(SemanticMemoryItem.filter_tags[key].as_string() == str(value))
 
                 if search_method == "embedding":
                     embed_query = True
@@ -836,6 +873,8 @@ class SemanticMemoryManager:
         details: Optional[str],
         source: Optional[str],
         organization_id: str,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> PydanticSemanticMemoryItem:
         """
         Create a new semantic memory entry using provided parameters.
@@ -868,8 +907,10 @@ class SemanticMemoryManager:
                     name_embedding=name_embedding,
                     summary_embedding=summary_embedding,
                     embedding_config=embedding_config,
+                    filter_tags=filter_tags,
                 ),
                 actor=actor,
+                use_cache=use_cache,
             )
 
             # Note: Item is already added to clustering tree in create_item()

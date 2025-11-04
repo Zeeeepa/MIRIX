@@ -91,6 +91,20 @@ class EpisodicEvent(EpisodicEventBase):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the event"
     )
+    
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Custom filter tags for filtering and categorization",
+        examples=[
+            {
+                "project_id": "proj-abc",
+                "session_id": "sess-xyz",
+                "tags": ["important", "work"],
+                "priority": "high"
+            }
+        ]
+    )
 
     # need to validate both details_embedding and summary_embedding to ensure they are the same size
     @field_validator("details_embedding", "summary_embedding")
@@ -150,4 +164,7 @@ class EpisodicEventUpdate(MirixBase):
     )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the event"
+    )
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        None, description="Custom filter tags for filtering and categorization"
     )

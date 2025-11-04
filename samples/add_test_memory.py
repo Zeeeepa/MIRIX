@@ -11,6 +11,7 @@ Prerequisites:
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 from mirix.client import MirixClient
 
@@ -22,10 +23,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_core_memory(client: MirixClient, user_id: str):
+def test_core_memory(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add core memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 1: ADDING CORE MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -47,7 +50,8 @@ def test_core_memory(client: MirixClient, user_id: str):
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Core memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -56,10 +60,12 @@ def test_core_memory(client: MirixClient, user_id: str):
         traceback.print_exc()
 
 
-def test_episodic_memory(client: MirixClient, user_id: str):
+def test_episodic_memory(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add episodic memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 2: ADDING EPISODIC MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -81,7 +87,8 @@ def test_episodic_memory(client: MirixClient, user_id: str):
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Episodic memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -90,10 +97,12 @@ def test_episodic_memory(client: MirixClient, user_id: str):
         traceback.print_exc()
 
 
-def test_procedural_memory(client: MirixClient, user_id: str):
+def test_procedural_memory(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add procedural memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 3: ADDING PROCEDURAL MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -115,7 +124,8 @@ def test_procedural_memory(client: MirixClient, user_id: str):
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Procedural memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -124,10 +134,12 @@ def test_procedural_memory(client: MirixClient, user_id: str):
         traceback.print_exc()
 
 
-def test_semantic_memory(client: MirixClient, user_id: str):
+def test_semantic_memory(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add semantic memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 4: ADDING SEMANTIC MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -149,7 +161,8 @@ def test_semantic_memory(client: MirixClient, user_id: str):
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Semantic memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -158,10 +171,12 @@ def test_semantic_memory(client: MirixClient, user_id: str):
         traceback.print_exc()
 
 
-def test_resource_memory(client: MirixClient, user_id: str):
+def test_resource_memory(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add resource memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 5: ADDING RESOURCE MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -226,7 +241,8 @@ Total estimated cost: $150K
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Resource memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -235,10 +251,12 @@ Total estimated cost: $150K
         traceback.print_exc()
 
 
-def test_knowledge_vault(client: MirixClient, user_id: str):
+def test_knowledge_vault(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
     """Add knowledge vault memory."""
     logger.info("\n%s", "="*80)
     logger.info("TEST 6: ADDING KNOWLEDGE VAULT MEMORY")
+    if filter_tags:
+        logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
@@ -267,7 +285,8 @@ def test_knowledge_vault(client: MirixClient, user_id: str):
                     }]
                 }
             ],
-            chaining=True
+            chaining=True,
+            filter_tags=filter_tags
         )
         logger.info("✅ Knowledge vault memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -313,11 +332,22 @@ def main():
     # Run tests
     try:
         test_core_memory(client, user_id)
-        test_episodic_memory(client, user_id)
-        test_procedural_memory(client, user_id)
-        test_semantic_memory(client, user_id)
-        test_resource_memory(client, user_id)
-        test_knowledge_vault(client, user_id)
+
+        # Test out different filter tags
+        filter_tags = {"expert_id": "expert-123", "scope": "read"}
+        test_episodic_memory(client, user_id, filter_tags)
+
+        filter_tags = {"expert_id": "expert-123", "scope": "write"}
+        test_procedural_memory(client, user_id, filter_tags)
+
+        filter_tags = {"expert_id": "expert-123"}
+        test_semantic_memory(client, user_id, filter_tags)
+
+        #filter_tags = {"expert_id": "expert-234", "scope": "read"}
+        #test_resource_memory(client, user_id, filter_tags)  
+
+        #filter_tags = {"expert_id": "expert-234", "scope": "write"}
+        #test_knowledge_vault(client, user_id, filter_tags)
     except KeyboardInterrupt:
         logger.info("\n\nTest interrupted by user")
         sys.exit(1)

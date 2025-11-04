@@ -76,6 +76,14 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
         String, nullable=False, doc="Detailed description or narrative about this event"
     )
 
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        doc="Custom filter tags for filtering and categorization"
+    )
+
     embedding_config: Mapped[Optional[dict]] = mapped_column(
         EmbeddingConfigColumn, nullable=True, doc="Embedding configuration"
     )

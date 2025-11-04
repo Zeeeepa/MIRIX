@@ -65,6 +65,14 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         String, doc="Full text or partial content of this resource"
     )
 
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        doc="Custom filter tags for filtering and categorization"
+    )
+
     # When was this item last modified and what operation?
     last_modify: Mapped[dict] = mapped_column(
         JSON,

@@ -468,9 +468,15 @@ class ProceduralMemoryManager:
 
     @enforce_types
     def create_item(
-        self, item_data: PydanticProceduralMemoryItem, actor: PydanticUser
+        self, item_data: PydanticProceduralMemoryItem, actor: PydanticUser, use_cache: bool = True
     ) -> PydanticProceduralMemoryItem:
-        """Create a new procedural memory item."""
+        """Create a new procedural memory item.
+        
+        Args:
+            item_data: The procedural memory data to create
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
+        """
 
         # Ensure ID is set before model_dump
         if not item_data.id:
@@ -495,7 +501,7 @@ class ProceduralMemoryManager:
 
         with self.session_maker() as session:
             item = ProceduralMemoryItem(**data_dict)
-            item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
+            item.create_with_redis(session, actor=actor, use_cache=use_cache)
             return item.to_pydantic()
 
     @enforce_types
@@ -543,6 +549,8 @@ class ProceduralMemoryManager:
         search_method: str = "embedding",
         limit: Optional[int] = 50,
         timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> List[PydanticProceduralMemoryItem]:
         """
         List procedural memory items with various search methods.
@@ -560,6 +568,7 @@ class ProceduralMemoryManager:
                 - 'fuzzy_match': Fuzzy string matching (legacy, kept for compatibility)
             limit: Maximum number of results to return
             timezone_str: Timezone string for timestamp conversion
+            use_cache: If True, try Redis cache first. If False, skip cache and query PostgreSQL directly.
 
         Returns:
             List of procedural memory items matching the search criteria
@@ -576,25 +585,33 @@ class ProceduralMemoryManager:
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
         """
+        query = query.strip() if query else ""
+        is_empty_query = not query or query == ""
         
-        # ⭐ NEW: Try Redis Search first
+        # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
         
-        if redis_client:
+        if use_cache and redis_client:
             try:
-                if not query or query == "":
+                # Case 1: No query - get recent items (regardless of search_method)
+                if is_empty_query:
+                    logger.debug("🔍 Searching Redis for recent procedural items with filter_tags=%s", filter_tags)
                     results = redis_client.search_recent(
                         index_name=redis_client.PROCEDURAL_INDEX,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
+                    logger.debug("🔍 Redis search_recent returned %d results", len(results) if results else 0)
                     if results:
                         logger.debug("✅ Redis cache HIT: returned %d procedural items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
                         return [PydanticProceduralMemoryItem(**item) for item in results]
+                    # If no results, fall through to PostgreSQL (don't return empty list)
                 
+                # Case 2: Vector similarity search
                 elif search_method == "embedding":
                     if embedded_text is None:
                         from mirix.embeddings.embedding_model import embed_and_upload_batch
@@ -609,7 +626,8 @@ class ProceduralMemoryManager:
                         embedding=embedded_text,
                         vector_field=vector_field,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis vector search HIT: found %d procedural items", len(results))
@@ -625,7 +643,8 @@ class ProceduralMemoryManager:
                         query=query,
                         search_fields=fields,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis text search HIT: found %d procedural items", len(results))
@@ -635,6 +654,12 @@ class ProceduralMemoryManager:
             
             except Exception as e:
                 logger.warning("Redis search failed for procedural memory, falling back to PostgreSQL: %s", e)
+        
+        # Log when bypassing cache or Redis unavailable
+        if not use_cache:
+            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for procedural memory")
+        elif not redis_client:
+            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for procedural memory")
 
         with self.session_maker() as session:
             if query == "":
@@ -643,6 +668,12 @@ class ProceduralMemoryManager:
                     .where(ProceduralMemoryItem.user_id == actor.id)
                     .order_by(ProceduralMemoryItem.created_at.desc())
                 )
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        query_stmt = query_stmt.where(ProceduralMemoryItem.filter_tags[key].as_string() == str(value))
+                
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
@@ -664,6 +695,11 @@ class ProceduralMemoryManager:
                     ProceduralMemoryItem.user_id.label("user_id"),
                     ProceduralMemoryItem.agent_id.label("agent_id"),
                 ).where(ProceduralMemoryItem.user_id == actor.id)
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        base_query = base_query.where(ProceduralMemoryItem.filter_tags[key].as_string() == str(value))
 
                 if search_method == "embedding":
                     main_query = build_query(
@@ -834,6 +870,8 @@ class ProceduralMemoryManager:
         steps: List[str],
         actor: PydanticUser,
         organization_id: str,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> PydanticProceduralMemoryItem:
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
@@ -859,8 +897,10 @@ class ProceduralMemoryManager:
                     summary_embedding=summary_embedding,
                     steps_embedding=steps_embedding,
                     embedding_config=embedding_config,
+                    filter_tags=filter_tags,
                 ),
                 actor=actor,
+                use_cache=use_cache,
             )
             return procedure
 

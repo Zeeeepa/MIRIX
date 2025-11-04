@@ -62,6 +62,14 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         JSON, doc="Step-by-step instructions stored as a list of strings"
     )
 
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        doc="Custom filter tags for filtering and categorization"
+    )
+
     # When was this item last modified and what operation?
     last_modify: Mapped[dict] = mapped_column(
         JSON,

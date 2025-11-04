@@ -424,9 +424,15 @@ class ResourceMemoryManager:
 
     @enforce_types
     def create_item(
-        self, item_data: PydanticResourceMemoryItem, actor: PydanticUser
+        self, item_data: PydanticResourceMemoryItem, actor: PydanticUser, use_cache: bool = True
     ) -> PydanticResourceMemoryItem:
-        """Create a new resource memory item."""
+        """Create a new resource memory item.
+        
+        Args:
+            item_data: The resource memory data to create
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
+        """
 
         # Ensure ID is set before model_dump
         if not item_data.id:
@@ -452,7 +458,7 @@ class ResourceMemoryManager:
 
         with self.session_maker() as session:
             item = ResourceMemoryItem(**data_dict)
-            item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
+            item.create_with_redis(session, actor=actor, use_cache=use_cache)
             return item.to_pydantic()
 
     @enforce_types
@@ -503,6 +509,8 @@ class ResourceMemoryManager:
         search_method: str = "string_match",
         limit: Optional[int] = 50,
         timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> List[PydanticResourceMemoryItem]:
         """
         Retrieve resource memory items according to the query.
@@ -537,23 +545,29 @@ class ResourceMemoryManager:
               proper BM25 ranking
         """
         
-        # ⭐ NEW: Try Redis Search first
+        # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
+        
+        query = query.strip() if query else ""
+        is_empty_query = not query or query == ""
+        
         redis_client = get_redis_client()
         
-        if redis_client:
+        if use_cache and redis_client:
             try:
-                if not query or query == "":
+                if is_empty_query:
                     results = redis_client.search_recent(
                         index_name=redis_client.RESOURCE_INDEX,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis cache HIT: returned %d resource items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
                         return [PydanticResourceMemoryItem(**item) for item in results]
+                    # If no results, fall through to PostgreSQL (don't return empty list)
                 
                 elif search_method == "embedding":
                     if embedded_text is None:
@@ -568,7 +582,8 @@ class ResourceMemoryManager:
                         embedding=embedded_text,
                         vector_field="summary_embedding",
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis vector search HIT: found %d resource items", len(results))
@@ -584,7 +599,8 @@ class ResourceMemoryManager:
                         query=query,
                         search_fields=fields,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis text search HIT: found %d resource items", len(results))
@@ -594,6 +610,12 @@ class ResourceMemoryManager:
             
             except Exception as e:
                 logger.warning("Redis search failed for resource memory, falling back to PostgreSQL: %s", e)
+        
+        # Log when bypassing cache or Redis unavailable
+        if not use_cache:
+            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for resource memory")
+        elif not redis_client:
+            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for resource memory")
 
         with self.session_maker() as session:
             if query == "":
@@ -610,6 +632,12 @@ class ResourceMemoryManager:
                         ).desc()
                     )
                 )
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        query_stmt = query_stmt.where(ResourceMemoryItem.filter_tags[key].as_string() == str(value))
+                
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
@@ -630,6 +658,11 @@ class ResourceMemoryManager:
                 ResourceMemoryItem.user_id.label("user_id"),
                 ResourceMemoryItem.agent_id.label("agent_id"),
             ).where(ResourceMemoryItem.user_id == actor.id)
+            
+            # Apply filter_tags if provided
+            if filter_tags:
+                for key, value in filter_tags.items():
+                    base_query = base_query.where(ResourceMemoryItem.filter_tags[key].as_string() == str(value))
 
             if search_method == "string_match":
                 main_query = base_query.where(
@@ -749,6 +782,8 @@ class ResourceMemoryManager:
         resource_type: str,
         content: str,
         organization_id: str,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> PydanticResourceMemoryItem:
         """Create a new resource memory item."""
         try:
@@ -772,8 +807,10 @@ class ResourceMemoryManager:
                     organization_id=organization_id,
                     summary_embedding=summary_embedding,
                     embedding_config=embedding_config,
+                    filter_tags=filter_tags,
                 ),
                 actor=actor,
+                use_cache=use_cache,
             )
             return resource
 

@@ -22,15 +22,15 @@ class MessageManager:
     @update_timezone
     @enforce_types
     def get_message_by_id(
-        self, message_id: str, actor: PydanticUser
+        self, message_id: str, actor: PydanticUser, use_cache: bool = True
     ) -> Optional[PydanticMessage]:
         """Fetch a message by ID (with Redis Hash caching - 40-60% faster!)."""
-        # Try Redis cache first (Hash-based for messages)
+        # Try Redis cache first (if cache enabled and Redis is available)
         try:
             from mirix.database.redis_client import get_redis_client
             redis_client = get_redis_client()
             
-            if redis_client:
+            if use_cache and redis_client:
                 redis_key = f"{redis_client.MESSAGE_PREFIX}{message_id}"
                 cached_data = redis_client.get_hash(redis_key)
                 if cached_data:
@@ -70,9 +70,10 @@ class MessageManager:
     @update_timezone
     @enforce_types
     def get_messages_by_ids(
-        self, message_ids: List[str], actor: PydanticUser
+        self, message_ids: List[str], actor: PydanticUser, use_cache: bool = True
     ) -> List[PydanticMessage]:
         """Fetch messages by ID and return them in the requested order."""
+        # TODO: Add Redis pipeline support for batch retrieval when use_cache=True
         with self.session_maker() as session:
             results = MessageModel.list(
                 db_session=session,
@@ -92,16 +93,22 @@ class MessageManager:
 
     @enforce_types
     def create_message(
-        self, pydantic_msg: PydanticMessage, actor: PydanticUser
+        self, pydantic_msg: PydanticMessage, actor: PydanticUser, use_cache: bool = True
     ) -> PydanticMessage:
-        """Create a new message (with Redis Hash caching)."""
+        """Create a new message (with Redis Hash caching).
+        
+        Args:
+            pydantic_msg: The message data to create
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
+        """
         with self.session_maker() as session:
             # Set the organization id and user id of the Pydantic message
             pydantic_msg.organization_id = actor.organization_id
             pydantic_msg.user_id = actor.id
             msg_data = pydantic_msg.model_dump()
             msg = MessageModel(**msg_data)
-            msg.create_with_redis(session, actor=actor)  # ⭐ Persist to PostgreSQL + Redis
+            msg.create_with_redis(session, actor=actor, use_cache=use_cache)
             return msg.to_pydantic()
 
     @enforce_types
@@ -247,6 +254,7 @@ class MessageManager:
         filters: Optional[Dict] = None,
         query_text: Optional[str] = None,
         ascending: bool = True,
+        use_cache: bool = True,
     ) -> List[PydanticMessage]:
         """List messages with flexible filtering and pagination options.
 
@@ -257,6 +265,9 @@ class MessageManager:
             limit: Maximum number of records to return
             filters: Additional filters to apply
             query_text: Optional text to search for in message content
+            use_cache: Control Redis cache behavior (default: True)
+                      Note: Currently this method only queries PostgreSQL.
+                      Redis list retrieval for messages is not yet implemented.
 
         Returns:
             List[PydanticMessage] - List of messages matching the criteria
