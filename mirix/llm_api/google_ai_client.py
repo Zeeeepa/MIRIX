@@ -320,21 +320,6 @@ class GoogleAIClient(LLMClientBase):
 
                 parts = content["parts"]
 
-                # NOTE: we aren't properly supported multi-parts here anyways (we're just appending choices),
-                #       so let's disable it for now
-
-                # NOTE(Apr 9, 2025): there's a very strange bug on 2.5 where the response has a part with broken text
-                # {'candidates': [{'content': {'parts': [{'functionCall': {'name': 'send_message', 'args': {'request_contine_chaining': False, 'message': 'Hello! How can I make your day better?', 'inner_thoughts': 'User has initiated contact. Sending a greeting.'}}}], 'role': 'model'}, 'finishReason': 'STOP', 'avgLogprobs': -0.25891534213362066}], 'usageMetadata': {'promptTokenCount': 2493, 'candidatesTokenCount': 29, 'totalTokenCount': 2522, 'promptTokensDetails': [{'modality': 'TEXT', 'tokenCount': 2493}], 'candidatesTokensDetails': [{'modality': 'TEXT', 'tokenCount': 29}]}, 'modelVersion': 'gemini-1.5-pro-002'}
-                # To patch this, if we have multiple parts we can take the last one
-
-                # NOTE(May 9, 2025 from Yu) I found that sometimes when the respones have multiple parts, they are actually multiple function calls. In my experiments, gemini-2.5-flash can call two `archival_memory_insert` in one output.
-                # if len(parts) > 1:
-                logger.warning("Unexpected multiple parts in response from Google AI: %s", parts)
-                #     parts = [parts[-1]]
-
-                # TODO support parts / multimodal
-                # TODO support parallel tool calling natively
-                # TODO Alternative here is to throw away everything else except for the first part
                 for response_message in parts:
                     # Convert the actual message style to OpenAI style
                     if (
@@ -348,24 +333,10 @@ class GoogleAIClient(LLMClientBase):
                         function_args = function_call["args"]
                         assert isinstance(function_args, dict), function_args
 
-                        # NOTE: this also involves stripping the inner monologue out of the function
-                        if self.llm_config.put_inner_thoughts_in_kwargs:
-                            from mirix.constants import INNER_THOUGHTS_KWARG
-
-                            assert INNER_THOUGHTS_KWARG in function_args, (
-                                f"Couldn't find inner thoughts in function args:\n{function_call}"
-                            )
-                            inner_thoughts = function_args.pop(INNER_THOUGHTS_KWARG)
-                            assert inner_thoughts is not None, (
-                                f"Expected non-null inner thoughts function arg:\n{function_call}"
-                            )
-                        else:
-                            inner_thoughts = None
-
                         # Google AI API doesn't generate tool call IDs
                         openai_response_message = Message(
                             role="assistant",  # NOTE: "model" -> "assistant"
-                            content=inner_thoughts,
+                            content=None,
                             tool_calls=[
                                 ToolCall(
                                     id=get_tool_call_id(),
@@ -381,13 +352,10 @@ class GoogleAIClient(LLMClientBase):
                         )
 
                     else:
-                        # Inner thoughts are the content by default
-                        inner_thoughts = response_message["text"]
-
                         # Google AI API doesn't generate tool call IDs
                         openai_response_message = Message(
                             role="assistant",  # NOTE: "model" -> "assistant"
-                            content=inner_thoughts,
+                            content=response_message["text"],
                         )
 
                     # Google AI API uses different finish reason strings than OpenAI
@@ -422,9 +390,6 @@ class GoogleAIClient(LLMClientBase):
                         )
                     )
                     index += 1
-
-            # if len(choices) > 1:
-            #     raise UserWarning(f"Unexpected number of candidates in response (expected 1, got {len(choices)})")
 
             # NOTE: some of the Google AI APIs show UsageMetadata in the response, but it seems to not exist?
             #  "usageMetadata": {
@@ -539,23 +504,6 @@ class GoogleAIClient(LLMClientBase):
             )
             for t in tools
         ]
-
-        # Add inner thoughts if needed
-        for func in function_list:
-            # Note: Google AI API used to have weird casing requirements, but not any more
-
-            # Add inner thoughts
-            if self.llm_config.put_inner_thoughts_in_kwargs:
-                from mirix.constants import (
-                    INNER_THOUGHTS_KWARG,
-                    INNER_THOUGHTS_KWARG_DESCRIPTION,
-                )
-
-                func["parameters"]["properties"][INNER_THOUGHTS_KWARG] = {
-                    "type": "string",
-                    "description": INNER_THOUGHTS_KWARG_DESCRIPTION,
-                }
-                func["parameters"]["required"].append(INNER_THOUGHTS_KWARG)
 
         return [{"functionDeclarations": function_list}]
 

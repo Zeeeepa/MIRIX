@@ -8,8 +8,6 @@ from httpx_sse import connect_sse
 from httpx_sse._exceptions import SSEError
 
 from mirix.constants import (
-    INNER_THOUGHTS_KWARG,
-    INNER_THOUGHTS_KWARG_DESCRIPTION,
     OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING,
 )
 from mirix.errors import LLMError
@@ -23,7 +21,6 @@ if TYPE_CHECKING:
         AgentRefreshStreamingInterface,
     )
 from mirix.llm_api.helpers import (
-    add_inner_thoughts_to_functions,
     convert_to_structured_output,
     make_post_request,
 )
@@ -125,18 +122,10 @@ def build_openai_chat_completions_request(
     use_tool_naming: bool,
     max_tokens: Optional[int],
 ) -> ChatCompletionRequest:
-    if functions and llm_config.put_inner_thoughts_in_kwargs:
-        functions = add_inner_thoughts_to_functions(
-            functions=functions,
-            inner_thoughts_key=INNER_THOUGHTS_KWARG,
-            inner_thoughts_description=INNER_THOUGHTS_KWARG_DESCRIPTION,
-        )
 
     openai_message_list = [
         cast_message_to_subtype(
-            m.to_openai_dict(
-                put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs
-            )
+            m.to_openai_dict()
         )
         for m in messages
     ]

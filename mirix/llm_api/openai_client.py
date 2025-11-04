@@ -7,11 +7,6 @@ from openai import AsyncOpenAI, AsyncStream, OpenAI, Stream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
 
-from mirix.constants import (
-    INNER_THOUGHTS_KWARG,
-    INNER_THOUGHTS_KWARG_DESCRIPTION,
-    INNER_THOUGHTS_KWARG_DESCRIPTION_GO_FIRST,
-)
 from mirix.errors import (
     ErrorCode,
     LLMAuthenticationError,
@@ -24,7 +19,6 @@ from mirix.errors import (
     LLMUnprocessableEntityError,
 )
 from mirix.llm_api.helpers import (
-    add_inner_thoughts_to_functions,
     convert_to_structured_output,
     unpack_all_inner_thoughts_from_kwargs,
 )
@@ -102,20 +96,6 @@ class OpenAIClient(LLMClientBase):
         """
         Constructs a request object in the expected data format for the OpenAI API.
         """
-        if tools and llm_config.put_inner_thoughts_in_kwargs:
-            # Special case for LM Studio backend since it needs extra guidance to force out the thoughts first
-            # TODO(fix)
-            inner_thoughts_desc = (
-                INNER_THOUGHTS_KWARG_DESCRIPTION_GO_FIRST
-                if ":1234" in llm_config.model_endpoint
-                else INNER_THOUGHTS_KWARG_DESCRIPTION
-            )
-            tools = add_inner_thoughts_to_functions(
-                functions=tools,
-                inner_thoughts_key=INNER_THOUGHTS_KWARG,
-                inner_thoughts_description=inner_thoughts_desc,
-                put_inner_thoughts_first=True,
-            )
 
         use_developer_message = llm_config.model.startswith(
             "o1"
@@ -124,7 +104,6 @@ class OpenAIClient(LLMClientBase):
         openai_message_list = [
             cast_message_to_subtype(
                 m.to_openai_dict(
-                    put_inner_thoughts_in_kwargs=llm_config.put_inner_thoughts_in_kwargs,
                     use_developer_message=use_developer_message,
                 )
             )
@@ -344,14 +323,6 @@ class OpenAIClient(LLMClientBase):
         # OpenAI's response structure directly maps to ChatCompletionResponse
         # We just need to instantiate the Pydantic model for validation and type safety.
         chat_completion_response = ChatCompletionResponse(**response_data)
-
-        # Unpack inner thoughts if they were embedded in function arguments
-        if self.llm_config.put_inner_thoughts_in_kwargs:
-            chat_completion_response = unpack_all_inner_thoughts_from_kwargs(
-                response=chat_completion_response,
-                inner_thoughts_key=INNER_THOUGHTS_KWARG,
-            )
-
         return chat_completion_response
 
     def stream(self, request_data: dict) -> Stream[ChatCompletionChunk]:

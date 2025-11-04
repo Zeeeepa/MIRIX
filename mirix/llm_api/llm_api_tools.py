@@ -6,8 +6,6 @@ import requests
 
 from mirix.constants import (
     CLI_WARNING_PREFIX,
-    INNER_THOUGHTS_KWARG,
-    INNER_THOUGHTS_KWARG_DESCRIPTION,
 )
 from mirix.log import get_logger
 
@@ -25,10 +23,6 @@ from mirix.llm_api.azure_openai import azure_openai_chat_completions_request
 from mirix.llm_api.google_ai import (
     convert_tools_to_google_ai_format,
     google_ai_chat_completions_request,
-)
-from mirix.llm_api.helpers import (
-    add_inner_thoughts_to_functions,
-    unpack_all_inner_thoughts_from_kwargs,
 )
 from mirix.llm_api.openai import (
     build_openai_chat_completions_request,
@@ -226,11 +220,6 @@ def create(
         if get_input_data_for_debugging:
             return response
 
-        if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(
-                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
-            )
-
         return response
 
     # azure
@@ -279,7 +268,7 @@ def create(
 
         if llm_config.put_inner_thoughts_in_kwargs:
             response = unpack_all_inner_thoughts_from_kwargs(
-                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
+                response=response
             )
 
         return response
@@ -468,15 +457,7 @@ def create(
                 message="Groq key is missing from mirix config file",
                 missing_fields=["groq_api_key"],
             )
-
-        # force to true for groq, since they don't support 'content' is non-null
-        if llm_config.put_inner_thoughts_in_kwargs:
-            functions = add_inner_thoughts_to_functions(
-                functions=functions,
-                inner_thoughts_key=INNER_THOUGHTS_KWARG,
-                inner_thoughts_description=INNER_THOUGHTS_KWARG_DESCRIPTION,
-            )
-
+    
         tools = (
             [{"type": "function", "function": f} for f in functions]
             if functions is not None
@@ -515,11 +496,6 @@ def create(
         finally:
             if isinstance(stream_interface, AgentChunkStreamingInterface):
                 stream_interface.stream_end()
-
-        if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(
-                response=response, inner_thoughts_key=INNER_THOUGHTS_KWARG
-            )
 
         return response
 

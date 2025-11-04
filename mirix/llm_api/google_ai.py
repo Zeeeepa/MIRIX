@@ -259,20 +259,6 @@ def convert_tools_to_google_ai_format(
         func["parameters"]["type"] = "OBJECT"
         for param_name, param_fields in func["parameters"]["properties"].items():
             param_fields["type"] = param_fields["type"].upper()
-        # Add inner thoughts
-        if inner_thoughts_in_kwargs:
-            from mirix.constants import (
-                INNER_THOUGHTS_KWARG,
-                INNER_THOUGHTS_KWARG_DESCRIPTION,
-            )
-
-            func["parameters"]["properties"][INNER_THOUGHTS_KWARG] = {
-                "type": "STRING",
-                "description": INNER_THOUGHTS_KWARG_DESCRIPTION,
-            }
-            if INNER_THOUGHTS_KWARG not in func["parameters"]["required"]:
-                func["parameters"]["required"].append(INNER_THOUGHTS_KWARG)
-
     return [{"functionDeclarations": function_list}]
 
 def convert_google_ai_response_to_chatcompletion(
@@ -298,7 +284,7 @@ def convert_google_ai_response_to_chatcompletion(
                 "text": " OK. Barbie is showing in two theaters in Mountain View, CA: AMC Mountain View 16 and Regal Edwards 14."
               },
               {
-                'functionCall': {'name': 'update_topic', 'args': {'topic': 'greeting', 'inner_thoughts': 'The user initiated the conversation with a greeting. I should respond with a greeting and set the topic to greeting.'}}
+                'functionCall': {'name': 'update_topic', 'args': {'topic': 'greeting'}}
               }
             ]
           }
@@ -337,24 +323,10 @@ def convert_google_ai_response_to_chatcompletion(
                     function_args = function_call["args"]
                     assert isinstance(function_args, dict), function_args
 
-                    # NOTE: this also involves stripping the inner monologue out of the function
-                    if pull_inner_thoughts_from_args:
-                        from mirix.constants import INNER_THOUGHTS_KWARG
-
-                        assert INNER_THOUGHTS_KWARG in function_args, (
-                            f"Couldn't find inner thoughts in function args:\n{function_call}"
-                        )
-                        inner_thoughts = function_args.pop(INNER_THOUGHTS_KWARG)
-                        assert inner_thoughts is not None, (
-                            f"Expected non-null inner thoughts function arg:\n{function_call}"
-                        )
-                    else:
-                        inner_thoughts = None
-
                     # Google AI API doesn't generate tool call IDs
                     openai_response_message = Message(
                         role="assistant",  # NOTE: "model" -> "assistant"
-                        content=inner_thoughts,
+                        content=None,
                         tool_calls=[
                             ToolCall(
                                 id=get_tool_call_id(),
@@ -373,13 +345,10 @@ def convert_google_ai_response_to_chatcompletion(
                     continue
 
                 else:
-                    # Inner thoughts are the content by default
-                    inner_thoughts = response_message["text"]
-
                     # Google AI API doesn't generate tool call IDs
                     openai_response_message = Message(
                         role="assistant",  # NOTE: "model" -> "assistant"
-                        content=inner_thoughts,
+                        content=response_message["text"],
                     )
 
                 # Google AI API uses different finish reason strings than OpenAI

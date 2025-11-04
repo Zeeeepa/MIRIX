@@ -493,10 +493,10 @@ class Agent(BaseAgent):
         max_delay: float = 10.0,  # max delay between retries
         step_count: Optional[int] = None,
         last_function_failed: bool = False,
-        put_inner_thoughts_first: bool = True,
         get_input_data_for_debugging: bool = False,
         existing_file_uris: Optional[List[str]] = None,
         second_try: bool = False,
+        llm_client: Optional[LLMClient] = None,
     ) -> ChatCompletionResponse:
         """Get response from LLM API with robust retry mechanism."""
         log_telemetry(self.logger, "_get_ai_reply start")
@@ -542,18 +542,17 @@ class Agent(BaseAgent):
         elif step_count is not None and step_count > 0 and len(allowed_tool_names) == 1:
             force_tool_call = allowed_tool_names[0]
 
+        active_llm_client = llm_client or LLMClient.create(
+            llm_config=self.agent_state.llm_config,
+        )
+
         for attempt in range(1, empty_response_retry_limit + 1):
             try:
                 log_telemetry(self.logger, "_get_ai_reply create start")
 
                 # New LLM client flow
-                llm_client = LLMClient.create(
-                    llm_config=self.agent_state.llm_config,
-                    put_inner_thoughts_first=put_inner_thoughts_first,
-                )
-
-                if llm_client and not stream:
-                    response = llm_client.send_llm_request(
+                if active_llm_client and not stream:
+                    response = active_llm_client.send_llm_request(
                         messages=message_sequence,
                         tools=allowed_functions,
                         stream=stream,
@@ -578,7 +577,6 @@ class Agent(BaseAgent):
                         force_tool_call=force_tool_call,
                         stream=stream,
                         stream_interface=self.interface,
-                        put_inner_thoughts_first=put_inner_thoughts_first,
                         name=self.agent_state.name,
                     )
                 log_telemetry(self.logger, "_get_ai_reply create finish")
@@ -680,9 +678,9 @@ class Agent(BaseAgent):
                         max_delay,
                         step_count,
                         last_function_failed,
-                        put_inner_thoughts_first,
                         get_input_data_for_debugging,
                         second_try=True,
+                        llm_client=active_llm_client,
                     )
 
                 else:
@@ -908,12 +906,6 @@ class Agent(BaseAgent):
                         "retrieved_memories": retrieved_memories,
                     }
 
-                # Check if inner thoughts is in the function call arguments (possible apparently if you are using Azure)
-                if "inner_thoughts" in function_args:
-                    response_message.content = function_args.pop("inner_thoughts")
-                    printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Inner thoughts extracted from function args: {response_message.content}"
-                    )
                 # The content if then internal monologue, not chat
                 if response_message.content and not nonnull_content:
                     self.interface.internal_monologue(
@@ -1473,6 +1465,11 @@ class Agent(BaseAgent):
                 actor=self.user,
             )
 
+        # Initialize the LLM client once per step to reuse across retries.
+        llm_client = LLMClient.create(
+            llm_config=self.agent_state.llm_config,
+        )
+
         while True:
             kwargs["first_message"] = False
             kwargs["step_count"] = step_count
@@ -1504,7 +1501,7 @@ class Agent(BaseAgent):
                 extra_messages=extra_message_objects,
                 initial_message_count=initial_message_count,
                 chaining=chaining,
-                **kwargs,
+                llm_client=llm_client
             )
 
             continue_chaining = step_response.continue_chaining
@@ -2080,7 +2077,6 @@ These keywords have been used to retrieve relevant memories from the database.
             # Use LLMClient to extract topics
             llm_client = LLMClient.create(
                 llm_config=self.agent_state.llm_config,
-                put_inner_thoughts_first=True,
             )
 
             if llm_client:
@@ -2195,13 +2191,13 @@ These keywords have been used to retrieve relevant memories from the database.
         retrieved_memories: Optional[dict] = None,
         display_intermediate_message: any = None,
         request_user_confirmation: Optional[Callable] = None,
-        put_inner_thoughts_first: bool = True,
         existing_file_uris: Optional[List[str]] = None,
         extra_messages: Optional[List[dict]] = None,
         initial_message_count: Optional[int] = None,
         return_memory_types_without_update: bool = False,
         message_queue: Optional[any] = None,
         chaining: bool = True,
+        llm_client: Optional[LLMClient] = None,
         **kwargs,
     ) -> AgentStepResponse:
         """Runs a single step in the agent loop (generates at most one LLM call)"""
@@ -2271,8 +2267,8 @@ These keywords have been used to retrieve relevant memories from the database.
                 first_message=first_message,
                 stream=stream,
                 step_count=step_count,
-                put_inner_thoughts_first=put_inner_thoughts_first,
                 existing_file_uris=existing_file_uris,
+                llm_client=llm_client,
             )
 
             # Log the raw AI response for debugging and analysis
@@ -2494,8 +2490,8 @@ These keywords have been used to retrieve relevant memories from the database.
                         return_memory_types_without_update=return_memory_types_without_update,
                         display_intermediate_message=display_intermediate_message,
                         request_user_confirmation=request_user_confirmation,
-                        put_inner_thoughts_first=put_inner_thoughts_first,
                         existing_file_uris=existing_file_uris,
+                        llm_client=llm_client,
                     )
                 else:
                     err_msg = f"Ran summarizer {summarize_attempt_count - 1} times for agent id={self.agent_state.id}, but messages are still overflowing the context window."

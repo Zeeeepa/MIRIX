@@ -165,17 +165,10 @@ def convert_cohere_response_to_chatcompletion(
     finish_reason = remap_finish_reason(response_json["finish_reason"])
 
     if "tool_calls" in response_json and response_json["tool_calls"] is not None:
-        inner_thoughts = []
         tool_calls = []
         for tool_call_response in response_json["tool_calls"]:
             function_name = tool_call_response["name"]
             function_args = tool_call_response["parameters"]
-            if inner_thoughts_in_kwargs:
-                from mirix.local_llm.constants import INNER_THOUGHTS_KWARG
-
-                assert INNER_THOUGHTS_KWARG in function_args
-                # NOTE:
-                inner_thoughts.append(function_args.pop(INNER_THOUGHTS_KWARG))
 
             tool_calls.append(
                 ToolCall(
@@ -190,7 +183,8 @@ def convert_cohere_response_to_chatcompletion(
 
         # NOTE: no multi-call support for now
         assert len(tool_calls) == 1, tool_calls
-        content = inner_thoughts[0]
+        # TODO: not sure what to assign to 'content' here
+        content = 'EMPTY'
 
     else:
         # raise NotImplementedError(f"Expected a tool call response from Cohere API")
@@ -283,21 +277,6 @@ def convert_tools_to_cohere_format(
                 },
             }
         )
-
-    if inner_thoughts_in_kwargs:
-        # NOTE: since Cohere doesn't allow "text" in the response when a tool call happens, if we want
-        # a simultaneous CoT + tool call we need to put it inside a kwarg
-        from mirix.local_llm.constants import (
-            INNER_THOUGHTS_KWARG,
-            INNER_THOUGHTS_KWARG_DESCRIPTION,
-        )
-
-        for cohere_tool in tools_dict_list:
-            cohere_tool["parameter_definitions"][INNER_THOUGHTS_KWARG] = {
-                "description": INNER_THOUGHTS_KWARG_DESCRIPTION,
-                "type": "string",
-                "required": True,
-            }
 
     return tools_dict_list
 

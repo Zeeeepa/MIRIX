@@ -112,16 +112,8 @@ def summarize_messages(
     ]
 
     # TODO: We need to eventually have a separate LLM config for the summarizer LLM
-    llm_config_no_inner_thoughts = agent_state.llm_config.model_copy(deep=True)
-    llm_config_no_inner_thoughts.put_inner_thoughts_in_kwargs = False
-    # response = create(
-    #     llm_config=llm_config_no_inner_thoughts,
-    #     messages=message_sequence,
-    #     stream=False,
-    #     summarizing=True
-    # )
     llm_client = LLMClient.create(
-        llm_config=llm_config_no_inner_thoughts,
+        llm_config=agent_state.llm_config.model_copy(deep=True),
     )
     response = llm_client.send_llm_request(
         messages=message_sequence,
