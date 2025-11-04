@@ -16,7 +16,6 @@ class LLMConfig(BaseModel):
         model_endpoint (str): The endpoint for the model.
         model_wrapper (str): The wrapper for the model. This is used to wrap additional text around the input/output of the model. This is useful for text-to-text completions, such as the Completions API in OpenAI.
         context_window (int): The context window size for the model.
-        put_inner_thoughts_in_kwargs (bool): Puts `inner_thoughts` as a kwarg in the function call if this is set to True. This helps with function calling performance and also the generation of inner thoughts.
         temperature (float): The temperature to use when generating text with the model. A higher temperature will result in more random text.
         max_tokens (int): The maximum number of tokens to generate.
         api_key (str, optional): Custom API key for this specific model configuration.
@@ -57,10 +56,6 @@ class LLMConfig(BaseModel):
     model_wrapper: Optional[str] = Field(None, description="The wrapper for the model.")
     context_window: int = Field(
         ..., description="The context window size for the model."
-    )
-    put_inner_thoughts_in_kwargs: Optional[bool] = Field(
-        True,
-        description="Puts 'inner_thoughts' as a kwarg in the function call if this is set to True. This helps with function calling performance and also the generation of inner thoughts.",
     )
     handle: Optional[str] = Field(
         None,
@@ -117,25 +112,6 @@ class LLMConfig(BaseModel):
             values["enable_reasoner"] = True
         return values
 
-    @model_validator(mode="before")
-    @classmethod
-    def set_default_put_inner_thoughts(cls, values):
-        """
-        Dynamically set the default for put_inner_thoughts_in_kwargs based on the model field,
-        falling back to True if no specific rule is defined.
-        """
-        model = values.get("model")
-
-        # Define models where we want put_inner_thoughts_in_kwargs to be False
-        avoid_put_inner_thoughts_in_kwargs = ["gpt-4"]
-
-        if values.get("put_inner_thoughts_in_kwargs") is None:
-            values["put_inner_thoughts_in_kwargs"] = (
-                False if model in avoid_put_inner_thoughts_in_kwargs else True
-            )
-
-        return values
-
     @model_validator(mode="after")
     def issue_warning_for_reasoning_constraints(self) -> "LLMConfig":
         if self.enable_reasoner:
@@ -149,10 +125,6 @@ class LLMConfig(BaseModel):
             ):
                 logger.warning(
                     "max_tokens must be greater than max_reasoning_tokens (thinking budget)"
-                )
-            if self.put_inner_thoughts_in_kwargs:
-                logger.debug(
-                    "Extended thinking is not compatible with put_inner_thoughts_in_kwargs"
                 )
         elif self.max_reasoning_tokens and not self.enable_reasoner:
             logger.warning(
@@ -176,7 +148,6 @@ class LLMConfig(BaseModel):
                 model_endpoint="https://api.openai.com/v1",
                 model_wrapper=None,
                 context_window=8192,
-                put_inner_thoughts_in_kwargs=True,
             )
         elif model_name == "gpt-4o-mini":
             return cls(

@@ -10,14 +10,12 @@ class LLMClient:
     @staticmethod
     def create(
         llm_config: LLMConfig,
-        put_inner_thoughts_first: bool = True,
     ) -> Optional[LLMClientBase]:
         """
         Create an LLM client based on the model endpoint type.
 
         Args:
             llm_config: Configuration for the LLM model
-            put_inner_thoughts_first: Whether to put inner thoughts first in the response
 
         Returns:
             An instance of LLMClientBase subclass
@@ -31,28 +29,24 @@ class LLMClient:
 
                 return OpenAIClient(
                     llm_config=llm_config,
-                    put_inner_thoughts_first=put_inner_thoughts_first,
                 )
             case "azure_openai":
                 from mirix.llm_api.azure_openai_client import AzureOpenAIClient
 
                 return AzureOpenAIClient(
                     llm_config=llm_config,
-                    put_inner_thoughts_first=put_inner_thoughts_first,
                 )
             case "anthropic":
                 from mirix.llm_api.anthropic_client import AnthropicClient
 
                 return AnthropicClient(
                     llm_config=llm_config,
-                    put_inner_thoughts_first=put_inner_thoughts_first,
                 )
             case "google_ai":
                 from mirix.llm_api.google_ai_client import GoogleAIClient
 
                 return GoogleAIClient(
                     llm_config=llm_config,
-                    put_inner_thoughts_first=put_inner_thoughts_first,
                 )
             case _:
                 return None

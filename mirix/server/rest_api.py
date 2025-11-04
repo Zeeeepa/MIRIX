@@ -212,7 +212,6 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
         # Use LLMClient to extract topics
         llm_client = LLMClient.create(
             llm_config=llm_config,
-            put_inner_thoughts_first=True,
         )
 
         if llm_client:
@@ -984,6 +983,7 @@ async def add_memory(
     user = server.user_manager.get_user_by_id(user_id)
     
     # Get the meta agent by ID
+    # TODO: need to check if we really need to check if the meta_agent exists here 
     meta_agent = server.agent_manager.get_agent_by_id(request.meta_agent_id, actor=user)
 
     message = request.messages

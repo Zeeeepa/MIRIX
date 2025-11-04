@@ -1,3 +1,5 @@
+import time
+import logging
 from abc import abstractmethod
 from typing import List, Optional
 
@@ -18,14 +20,13 @@ class LLMClientBase:
     def __init__(
         self,
         llm_config: LLMConfig,
-        put_inner_thoughts_first: Optional[bool] = True,
         use_tool_naming: bool = True,
     ):
         self.llm_config = llm_config
-        self.put_inner_thoughts_first = put_inner_thoughts_first
         self.use_tool_naming = use_tool_naming
         self.file_manager = FileManager()
         self.cloud_file_mapping_manager = CloudFileMappingManager()
+        self.logger = logging.getLogger(f"Mirix.LLMClientBase")
 
     def send_llm_request(
         self,
@@ -51,7 +52,10 @@ class LLMClientBase:
             return request_data
 
         try:
+            t1 = time.time()
             response_data = self.request(request_data)
+            t2 = time.time()
+            self.logger.debug("LLM request time: %.2f seconds", t2 - t1)
         except Exception as e:
             raise self.handle_llm_error(e)
 

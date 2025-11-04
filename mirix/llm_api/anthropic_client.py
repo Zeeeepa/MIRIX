@@ -10,7 +10,6 @@ from anthropic.types.beta.message_create_params import MessageCreateParamsNonStr
 from anthropic.types.beta.messages import BetaMessageBatch
 from anthropic.types.beta.messages.batch_create_params import Request
 
-from mirix.constants import INNER_THOUGHTS_KWARG, INNER_THOUGHTS_KWARG_DESCRIPTION
 from mirix.errors import (
     ContextWindowExceededError,
     ErrorCode,
@@ -25,7 +24,6 @@ from mirix.errors import (
 )
 from mirix.helpers.datetime_helpers import get_utc_time
 from mirix.llm_api.helpers import (
-    add_inner_thoughts_to_functions,
     unpack_all_inner_thoughts_from_kwargs,
 )
 from mirix.llm_api.llm_client_base import LLMClientBase
@@ -223,20 +221,6 @@ class AnthropicClient(LLMClientBase):
         # Add tool choice
         if tool_choice:
             data["tool_choice"] = tool_choice
-
-        # Add inner thoughts kwarg
-        # TODO: Can probably make this more efficient
-        if (
-            tools_for_request
-            and len(tools_for_request) > 0
-            and llm_config.put_inner_thoughts_in_kwargs
-        ):
-            tools_with_inner_thoughts = add_inner_thoughts_to_functions(
-                functions=[t.function.model_dump() for t in tools_for_request],
-                inner_thoughts_key=INNER_THOUGHTS_KWARG,
-                inner_thoughts_description=INNER_THOUGHTS_KWARG_DESCRIPTION,
-            )
-            tools_for_request = [Tool(function=f) for f in tools_with_inner_thoughts]
 
         if tools_for_request and len(tools_for_request) > 0:
             # TODO eventually enable parallel tool use
@@ -595,11 +579,6 @@ class AnthropicClient(LLMClientBase):
                 total_tokens=prompt_tokens + completion_tokens,
             ),
         )
-        if self.llm_config.put_inner_thoughts_in_kwargs:
-            chat_completion_response = unpack_all_inner_thoughts_from_kwargs(
-                response=chat_completion_response,
-                inner_thoughts_key=INNER_THOUGHTS_KWARG,
-            )
 
         return chat_completion_response
 
