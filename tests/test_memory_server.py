@@ -19,8 +19,11 @@ Usage:
 
 import os
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -589,10 +592,88 @@ class TestSearchMethodComparison:
         
         # All should return lists
         for results in [episodic_results, procedural_results, resource_results, 
-                       knowledge_results, semantic_results]:
+                        knowledge_results, semantic_results]:
             assert isinstance(results, list)
+
+
+class TestMetaMemoryParallelism:
+    def test_trigger_memory_update_runs_in_parallel(self, server, user, meta_agent, monkeypatch):
+        """Ensure meta memory updates dispatch memory agents concurrently."""
+        
+        from mirix.functions.function_sets.memory_tools import trigger_memory_update
+        from mirix.schemas.enums import MessageRole
+        from mirix.schemas.message import MessageCreate
+        from mirix.schemas.mirix_message_content import TextContent
+
+        child_agents = server.agent_manager.list_agents(
+            actor=user,
+            parent_id=meta_agent.id,
+        )
+        target_types = {
+            AgentType.episodic_memory_agent.value,
+            AgentType.procedural_memory_agent.value,
+        }
+        relevant_agents = [
+            agent for agent in child_agents if agent.agent_type in target_types
+        ]
+        assert len(relevant_agents) == len(target_types), (
+            "Expected episodic and procedural memory agents to be present"
+        )
+
+        tracker = {"start_times": {}, "thread_ids": {}}
+        lock = threading.Lock()
+
+        class MockMemoryAgent:
+            def __init__(self, agent_state, interface, user):
+                self.agent_state = agent_state
+
+            def step(self, input_messages, chaining):
+                memory_type = self.agent_state.agent_type.replace("_memory_agent", "")
+                with lock:
+                    tracker["start_times"][memory_type] = time.perf_counter()
+                    tracker["thread_ids"][memory_type] = threading.get_ident()
+                time.sleep(1)
+
+        monkeypatch.setattr("mirix.agent.EpisodicMemoryAgent", MockMemoryAgent)
+        monkeypatch.setattr("mirix.agent.ProceduralMemoryAgent", MockMemoryAgent)
+        monkeypatch.setattr(
+            "mirix.functions.function_sets.memory_tools.os.cpu_count", lambda: 8
+        )
+
+        class StubAgentManager:
+            def list_agents(self, *, parent_id, actor, limit=None):
+                assert parent_id == meta_agent.id
+                return relevant_agents
+
+        stub_meta_agent = SimpleNamespace(
+            agent_state=SimpleNamespace(id=meta_agent.id, name=meta_agent.name),
+            agent_manager=StubAgentManager(),
+            interface=SimpleNamespace(),
+            user=user,
+        )
+
+        message = MessageCreate(
+            role=MessageRole.user,
+            content=[TextContent(text="Trigger memory update")],
+        )
+        user_message = {"message": message, "chaining": False}
+
+        result = trigger_memory_update(
+            stub_meta_agent,
+            user_message=user_message,
+            memory_types=["episodic", "procedural"],
+        )
+
+        assert result is not None
+
+        start_times = tracker["start_times"]
+        assert set(start_times.keys()) == {"episodic", "procedural"}
+        gap = abs(start_times["episodic"] - start_times["procedural"])
+
+        assert gap < 0.45, f"Expected parallel execution, gap was {gap:.3f}s"
+        thread_ids = tracker["thread_ids"]
+        assert len(set(thread_ids.values())) == 2, "Updates should run on separate threads"
 
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
-
