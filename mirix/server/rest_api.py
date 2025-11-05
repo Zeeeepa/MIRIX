@@ -10,7 +10,7 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import FastAPI, HTTPException, Header, Request, Body
+from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
+from mirix.schemas.enums import MessageRole
 from mirix.schemas.environment_variables import (
     SandboxEnvironmentVariable,
     SandboxEnvironmentVariableCreate,
@@ -28,7 +29,6 @@ from mirix.schemas.environment_variables import (
 )
 from mirix.schemas.file import FileMetadata
 from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.enums import MessageRole
 from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
@@ -66,6 +66,35 @@ def get_server() -> SyncServer:
     return _server
 
 
+async def initialize():
+    """
+    Initialize the Mirix server and queue services.
+    This function can be called by external applications to initialize the server.
+    """
+    logger.info("Starting Mirix REST API server")
+
+    # Initialize SyncServer (singleton)
+    server = get_server()
+    logger.info("SyncServer initialized")
+
+    # Initialize queue with server reference
+    initialize_queue(server)
+    logger.info("Queue service started with SyncServer integration")
+
+
+async def cleanup():
+    """
+    Cleanup the Mirix server and queue services.
+    This function can be called by external applications to cleanup the server.
+    """
+    logger.info("Shutting down Mirix REST API server")
+
+    # Cleanup queue
+    queue_manager = get_queue_manager()
+    queue_manager.cleanup()
+    logger.info("Queue service stopped")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -73,26 +102,16 @@ async def lifespan(app: FastAPI):
     Handles startup and shutdown events.
     """
     # Startup
-    logger.info("Starting Mirix REST API server")
-    
-    # Initialize SyncServer (singleton)
-    server = get_server()
-    logger.info("SyncServer initialized")
-    
-    # Initialize queue with server reference
-    initialize_queue(server)
-    logger.info("Queue service started with SyncServer integration")
-    
-    yield  # Server runs here
-    
-    # Shutdown
-    logger.info("Shutting down Mirix REST API server")
-    
-    # Cleanup queue
-    queue_manager = get_queue_manager()
-    queue_manager.cleanup()
-    logger.info("Queue service stopped")
+    await initialize()
 
+    yield  # Server runs here
+
+    # Shutdown
+    await cleanup()
+
+
+# Create API router for reusable routes
+router = APIRouter()
 
 # Initialize FastAPI app with lifespan
 app = FastAPI(
@@ -269,7 +288,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ============================================================================
 
 
-@app.get("/health")
+@router.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "service": "mirix-api"}
@@ -280,7 +299,7 @@ async def health_check():
 # ============================================================================
 
 
-@app.get("/agents", response_model=List[AgentState])
+@router.get("/agents", response_model=List[AgentState])
 async def list_agents(
     query_text: Optional[str] = None,
     tags: Optional[str] = None,  # Comma-separated
@@ -327,7 +346,7 @@ class CreateAgentRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
-@app.post("/agents", response_model=AgentState)
+@router.post("/agents", response_model=AgentState)
 async def create_agent(
     request: CreateAgentRequest,
     x_user_id: Optional[str] = Header(None),
@@ -337,17 +356,17 @@ async def create_agent(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # Create memory blocks if provided
     if request.memory:
         for block in request.memory.get_blocks():
             server.block_manager.create_or_update_block(block, actor=user)
-    
+
     # Prepare block IDs
     block_ids = request.block_ids or []
     if request.memory:
         block_ids.extend([b.id for b in request.memory.get_blocks()])
-    
+
     # Create agent request
     create_params = {
         "description": request.description,
@@ -364,16 +383,16 @@ async def create_agent(
         "initial_message_sequence": request.initial_message_sequence,
         "tags": request.tags,
     }
-    
+
     if request.name:
         create_params["name"] = request.name
-    
+
     agent_state = server.create_agent(CreateAgent(**create_params), actor=user)
-    
+
     return server.agent_manager.get_agent_by_id(agent_state.id, actor=user)
 
 
-@app.get("/agents/{agent_id}", response_model=AgentState)
+@router.get("/agents/{agent_id}", response_model=AgentState)
 async def get_agent(
     agent_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -386,7 +405,7 @@ async def get_agent(
     return server.agent_manager.get_agent_by_id(agent_id, actor=user)
 
 
-@app.delete("/agents/{agent_id}")
+@router.delete("/agents/{agent_id}")
 async def delete_agent(
     agent_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -415,7 +434,7 @@ class UpdateAgentRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
-@app.patch("/agents/{agent_id}", response_model=AgentState)
+@router.patch("/agents/{agent_id}", response_model=AgentState)
 async def update_agent(
     agent_id: str,
     request: UpdateAgentRequest,
@@ -426,7 +445,7 @@ async def update_agent(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
 
@@ -434,7 +453,8 @@ async def update_agent(
 # Memory Endpoints
 # ============================================================================
 
-@app.get("/agents/{agent_id}/memory", response_model=Memory)
+
+@router.get("/agents/{agent_id}/memory", response_model=Memory)
 async def get_agent_memory(
     agent_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -447,7 +467,7 @@ async def get_agent_memory(
     return server.get_agent_memory(agent_id=agent_id, actor=user)
 
 
-@app.get("/agents/{agent_id}/memory/archival", response_model=ArchivalMemorySummary)
+@router.get("/agents/{agent_id}/memory/archival", response_model=ArchivalMemorySummary)
 async def get_archival_memory_summary(
     agent_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -460,7 +480,7 @@ async def get_archival_memory_summary(
     return server.get_archival_memory_summary(agent_id=agent_id, actor=user)
 
 
-@app.get("/agents/{agent_id}/memory/recall", response_model=RecallMemorySummary)
+@router.get("/agents/{agent_id}/memory/recall", response_model=RecallMemorySummary)
 async def get_recall_memory_summary(
     agent_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -473,7 +493,7 @@ async def get_recall_memory_summary(
     return server.get_recall_memory_summary(agent_id=agent_id, actor=user)
 
 
-@app.get("/agents/{agent_id}/messages", response_model=List[Message])
+@router.get("/agents/{agent_id}/messages", response_model=List[Message])
 async def get_agent_messages(
     agent_id: str,
     cursor: Optional[str] = None,
@@ -483,7 +503,7 @@ async def get_agent_messages(
     x_org_id: Optional[str] = Header(None),
 ):
     """Get messages from an agent.
-    
+
     Args:
         agent_id: The ID of the agent
         cursor: Cursor for pagination
@@ -542,7 +562,7 @@ async def send_message_to_agent(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     try:
         # Prepare the message
         message_create = MessageCreate(
@@ -550,7 +570,7 @@ async def send_message_to_agent(
             content=request.message,
             name=request.name,
         )
-        
+
         # Put message on queue for processing
         put_messages(
             actor=user,
@@ -560,14 +580,14 @@ async def send_message_to_agent(
             filter_tags=request.filter_tags,  # Pass filter_tags to queue
             use_cache=request.use_cache,  # Pass use_cache to queue
         )
-        
+
         # For now, return a success response
         # TODO: In the future, this could wait for and return the actual agent response
         return MirixResponse(
             messages=[],
             usage={},
         )
-    
+
     except Exception as e:
         logger.error("Failed to send message to agent %s: %s", agent_id, e)
         raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
@@ -578,7 +598,7 @@ async def send_message_to_agent(
 # ============================================================================
 
 
-@app.get("/tools", response_model=List[Tool])
+@router.get("/tools", response_model=List[Tool])
 async def list_tools(
     cursor: Optional[str] = None,
     limit: int = 50,
@@ -592,7 +612,7 @@ async def list_tools(
     return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=user)
 
 
-@app.get("/tools/{tool_id}", response_model=Tool)
+@router.get("/tools/{tool_id}", response_model=Tool)
 async def get_tool(
     tool_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -605,7 +625,7 @@ async def get_tool(
     return server.tool_manager.get_tool_by_id(tool_id, actor=user)
 
 
-@app.post("/tools", response_model=Tool)
+@router.post("/tools", response_model=Tool)
 async def create_tool(
     tool: Tool,
     x_user_id: Optional[str] = Header(None),
@@ -618,7 +638,7 @@ async def create_tool(
     return server.tool_manager.create_tool(tool, actor=user)
 
 
-@app.delete("/tools/{tool_id}")
+@router.delete("/tools/{tool_id}")
 async def delete_tool(
     tool_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -637,7 +657,7 @@ async def delete_tool(
 # ============================================================================
 
 
-@app.get("/blocks", response_model=List[Block])
+@router.get("/blocks", response_model=List[Block])
 async def list_blocks(
     label: Optional[str] = None,
     x_user_id: Optional[str] = Header(None),
@@ -650,7 +670,7 @@ async def list_blocks(
     return server.block_manager.get_blocks(actor=user, label=label)
 
 
-@app.get("/blocks/{block_id}", response_model=Block)
+@router.get("/blocks/{block_id}", response_model=Block)
 async def get_block(
     block_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -663,7 +683,7 @@ async def get_block(
     return server.block_manager.get_block_by_id(block_id, actor=user)
 
 
-@app.post("/blocks", response_model=Block)
+@router.post("/blocks", response_model=Block)
 async def create_block(
     block: Block,
     x_user_id: Optional[str] = Header(None),
@@ -676,7 +696,7 @@ async def create_block(
     return server.block_manager.create_or_update_block(block, actor=user)
 
 
-@app.delete("/blocks/{block_id}")
+@router.delete("/blocks/{block_id}")
 async def delete_block(
     block_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -695,7 +715,7 @@ async def delete_block(
 # ============================================================================
 
 
-@app.get("/config/llm", response_model=List[LLMConfig])
+@router.get("/config/llm", response_model=List[LLMConfig])
 async def list_llm_configs(
     x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
@@ -705,7 +725,7 @@ async def list_llm_configs(
     return server.list_llm_models()
 
 
-@app.get("/config/embedding", response_model=List[EmbeddingConfig])
+@router.get("/config/embedding", response_model=List[EmbeddingConfig])
 async def list_embedding_configs(
     x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
@@ -720,7 +740,7 @@ async def list_embedding_configs(
 # ============================================================================
 
 
-@app.get("/organizations", response_model=List[Organization])
+@router.get("/organizations", response_model=List[Organization])
 async def list_organizations(
     cursor: Optional[str] = None,
     limit: int = 50,
@@ -732,7 +752,7 @@ async def list_organizations(
     return server.organization_manager.list_organizations(cursor=cursor, limit=limit)
 
 
-@app.post("/organizations", response_model=Organization)
+@router.post("/organizations", response_model=Organization)
 async def create_organization(
     name: Optional[str] = None,
     x_user_id: Optional[str] = Header(None),
@@ -745,7 +765,7 @@ async def create_organization(
     )
 
 
-@app.get("/organizations/{org_id}", response_model=Organization)
+@router.get("/organizations/{org_id}", response_model=Organization)
 async def get_organization(
     org_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -762,12 +782,12 @@ async def get_organization(
 
 class CreateOrGetOrganizationRequest(BaseModel):
     """Request model for creating or getting an organization."""
-    
+
     org_id: Optional[str] = None
     name: Optional[str] = None
 
 
-@app.post("/organizations/create_or_get", response_model=Organization)
+@router.post("/organizations/create_or_get", response_model=Organization)
 async def create_or_get_organization(
     request: CreateOrGetOrganizationRequest,
 ):
@@ -780,7 +800,7 @@ async def create_or_get_organization(
     """
     server = get_server()
     from mirix.schemas.organization import OrganizationCreate
-    
+
     # Use provided org_id or generate a new one
     if request.org_id:
         org_id = request.org_id
@@ -788,7 +808,7 @@ async def create_or_get_organization(
         # Generate a random org ID
         import uuid
         org_id = f"org-{uuid.uuid4().hex[:8]}"
-    
+
     try:
         # Try to get existing organization
         org = server.organization_manager.get_organization_by_id(org_id)
@@ -796,7 +816,7 @@ async def create_or_get_organization(
             return org
     except Exception:
         pass
-    
+
     # Create new organization if it doesn't exist
     org_create = OrganizationCreate(
         id=org_id,
@@ -814,7 +834,7 @@ async def create_or_get_organization(
 # ============================================================================
 
 
-@app.get("/users/{user_id}", response_model=User)
+@router.get("/users/{user_id}", response_model=User)
 async def get_user(
     user_id: str,
     x_user_id: Optional[str] = Header(None),
@@ -827,13 +847,13 @@ async def get_user(
 
 class CreateOrGetUserRequest(BaseModel):
     """Request model for creating or getting a user."""
-    
+
     user_id: Optional[str] = None
     name: Optional[str] = None
     org_id: Optional[str] = None
 
 
-@app.post("/users/create_or_get", response_model=User)
+@router.post("/users/create_or_get", response_model=User)
 async def create_or_get_user(
     request: CreateOrGetUserRequest,
 ):
@@ -845,7 +865,7 @@ async def create_or_get_user(
     If user_id is provided, it will be used as-is (no prefix constraint).
     """
     server = get_server()
-    
+
     # Use provided user_id or generate a new one
     if request.user_id:
         user_id = request.user_id
@@ -853,11 +873,11 @@ async def create_or_get_user(
         # Generate a random user ID
         import uuid
         user_id = f"user-{uuid.uuid4().hex[:8]}"
-    
+
     org_id = request.org_id
     if not org_id:
         org_id = server.organization_manager.DEFAULT_ORG_ID
-    
+
     try:
         # Try to get existing user
         user = server.user_manager.get_user_by_id(user_id)
@@ -865,9 +885,9 @@ async def create_or_get_user(
             return user
     except Exception:
         pass
-    
+
     from mirix.schemas.user import User as PydanticUser
-    
+
     # Create a User object with all required fields
     user = server.user_manager.create_user(
         pydantic_user=PydanticUser(
@@ -894,7 +914,7 @@ class InitializeMetaAgentRequest(BaseModel):
     update_agents: Optional[bool] = False
 
 
-@app.post("/agents/meta/initialize", response_model=AgentState)
+@router.post("/agents/meta/initialize", response_model=AgentState)
 async def initialize_meta_agent(
     request: InitializeMetaAgentRequest,
     x_user_id: Optional[str] = Header(None),
@@ -908,7 +928,7 @@ async def initialize_meta_agent(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # Extract config components
     config = request.config
     llm_config = None
@@ -921,7 +941,7 @@ async def initialize_meta_agent(
         "llm_config": LLMConfig(**config["llm_config"]),
         "embedding_config": EmbeddingConfig(**config["embedding_config"]),
     }
-    
+
     # Flatten meta_agent_config fields into create_params
     if "meta_agent_config" in config and config["meta_agent_config"]:
         meta_config = config["meta_agent_config"]
@@ -938,10 +958,11 @@ async def initialize_meta_agent(
 
     if len(existing_meta_agents) == 1:
         meta_agent = existing_meta_agents[0]
-        
+
         # Only update the meta agent if update_agents is True
         if request.update_agents:
             from mirix.schemas.agent import UpdateMetaAgent
+
             # Update the existing meta agent
             meta_agent = server.agent_manager.update_meta_agent(
                 meta_agent_id=meta_agent.id,
@@ -966,7 +987,7 @@ class AddMemoryRequest(BaseModel):
     use_cache: bool = True  # Control Redis cache behavior
 
 
-@app.post("/memory/add")
+@router.post("/memory/add")
 async def add_memory(
     request: AddMemoryRequest,
     x_user_id: Optional[str] = Header(None),
@@ -1032,7 +1053,6 @@ class RetrieveMemoryRequest(BaseModel):
     filter_tags: Optional[Dict[str, Any]] = None  # Optional filter tags for filtering results
     use_cache: bool = True  # Control Redis cache behavior
 
-
 def retrieve_memories_by_keywords(
     server: SyncServer,
     user: User,
@@ -1053,18 +1073,18 @@ def retrieve_memories_by_keywords(
         limit: Maximum number of items to retrieve per memory type
         filter_tags: Optional filter tags for filtering results
         use_cache: Control Redis cache behavior
-        
+
     Returns:
         Dictionary containing all memory types with their items
     """
     search_method = "bm25"
     timezone_str = server.user_manager.get_user_by_id(user.id).timezone
     memories = {}
-    
+
     # Get episodic memories (recent + relevant)
     try:
         episodic_manager = server.episodic_memory_manager
-        
+
         # Get recent episodic memories
         recent_episodic = episodic_manager.list_episodic_memory(
             agent_state=agent_state,  # Not accessed during BM25 search
@@ -1074,7 +1094,7 @@ def retrieve_memories_by_keywords(
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
-        
+
         # Get relevant episodic memories based on keywords
         relevant_episodic = []
         if key_words:
@@ -1086,10 +1106,8 @@ def retrieve_memories_by_keywords(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
-                filter_tags=filter_tags,
-                use_cache=use_cache,
             )
-        
+
         memories["episodic"] = {
             "total_count": episodic_manager.get_total_number_of_items(actor=user),
             "recent": [
@@ -1114,11 +1132,11 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving episodic memories: %s", e)
         memories["episodic"] = {"total_count": 0, "recent": [], "relevant": []}
-    
+
     # Get semantic memories
     try:
         semantic_manager = server.semantic_memory_manager
-        
+
         semantic_items = semantic_manager.list_semantic_items(
             agent_state=agent_state,  # Not accessed during BM25 search
             actor=user,
@@ -1130,7 +1148,7 @@ def retrieve_memories_by_keywords(
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
-        
+
         memories["semantic"] = {
             "total_count": semantic_manager.get_total_number_of_items(actor=user),
             "items": [
@@ -1146,11 +1164,11 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving semantic memories: %s", e)
         memories["semantic"] = {"total_count": 0, "items": []}
-    
+
     # Get resource memories
     try:
         resource_manager = server.resource_memory_manager
-        
+
         resources = resource_manager.list_resources(
             agent_state=agent_state,  # Not accessed during BM25 search
             actor=user,
@@ -1162,7 +1180,7 @@ def retrieve_memories_by_keywords(
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
-        
+
         memories["resource"] = {
             "total_count": resource_manager.get_total_number_of_items(actor=user),
             "items": [
@@ -1178,11 +1196,11 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving resource memories: %s", e)
         memories["resource"] = {"total_count": 0, "items": []}
-    
+
     # Get procedural memories
     try:
         procedural_manager = server.procedural_memory_manager
-        
+
         procedures = procedural_manager.list_procedures(
             agent_state=agent_state,  # Not accessed during BM25 search
             actor=user,
@@ -1194,7 +1212,7 @@ def retrieve_memories_by_keywords(
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
-        
+
         memories["procedural"] = {
             "total_count": procedural_manager.get_total_number_of_items(actor=user),
             "items": [
@@ -1209,11 +1227,11 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving procedural memories: %s", e)
         memories["procedural"] = {"total_count": 0, "items": []}
-    
+
     # Get knowledge vault items
     try:
         knowledge_vault_manager = server.knowledge_vault_manager
-        
+
         knowledge_items = knowledge_vault_manager.list_knowledge(
             agent_state=agent_state,  # Not accessed during BM25 search
             actor=user,
@@ -1222,10 +1240,8 @@ def retrieve_memories_by_keywords(
             search_method=search_method,
             limit=limit,
             timezone_str=timezone_str,
-            filter_tags=filter_tags,
-            use_cache=use_cache,
         )
-        
+
         memories["knowledge_vault"] = {
             "total_count": knowledge_vault_manager.get_total_number_of_items(actor=user),
             "items": [
@@ -1239,14 +1255,14 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving knowledge vault items: %s", e)
         memories["knowledge_vault"] = {"total_count": 0, "items": []}
-    
+
     # Get core memory blocks
     try:
         block_manager = server.block_manager
-        
+
         # Get all blocks for the user (these are the Human and Persona blocks)
         blocks = block_manager.get_blocks(actor=user)
-        
+
         memories["core"] = {
             "total_count": len(blocks),
             "items": [
@@ -1261,11 +1277,11 @@ def retrieve_memories_by_keywords(
     except Exception as e:
         logger.error("Error retrieving core memory blocks: %s", e)
         memories["core"] = {"total_count": 0, "items": []}
-    
+
     return memories
 
 
-@app.post("/memory/retrieve/conversation")
+@router.post("/memory/retrieve/conversation")
 async def retrieve_memory_with_conversation(
     request: RetrieveMemoryRequest,
     x_user_id: Optional[str] = Header(None),
@@ -1278,10 +1294,10 @@ async def retrieve_memory_with_conversation(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
-    
+
     if not all_agents:
         return {
             "success": False,
@@ -1289,11 +1305,11 @@ async def retrieve_memory_with_conversation(
             "topics": None,
             "memories": {},
         }
-    
+
     # Extract topics from the conversation
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
-    
+
     # Check if messages have actual content before calling LLM
     has_content = False
     for msg in request.messages:
@@ -1304,7 +1320,7 @@ async def retrieve_memory_with_conversation(
                     break
             if has_content:
                 break
-    
+
     if has_content:
         # Extract topics using LLM only if there's actual content
         topics = extract_topics_from_messages(request.messages, llm_config)
@@ -1315,18 +1331,16 @@ async def retrieve_memory_with_conversation(
         logger.debug("No content in messages - retrieving recent items")
         key_words = ""
         topics = None
-    
+
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(
         server=server,
         user=user,
         agent_state=all_agents[0],
         key_words=key_words,
-        filter_tags=request.filter_tags,
         limit=request.limit,
-        use_cache=request.use_cache,
     )
-    
+
     return {
         "success": True,
         "topics": topics,
@@ -1334,7 +1348,7 @@ async def retrieve_memory_with_conversation(
     }
 
 
-@app.get("/memory/retrieve/topic")
+@router.get("/memory/retrieve/topic")
 async def retrieve_memory_with_topic(
     user_id: str,
     topic: str,
@@ -1353,10 +1367,10 @@ async def retrieve_memory_with_topic(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
-    
+
     if not all_agents:
         return {
             "success": False,
@@ -1364,7 +1378,7 @@ async def retrieve_memory_with_topic(
             "topic": topic,
             "memories": {},
         }
-    
+
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(
         server=server,
@@ -1381,7 +1395,7 @@ async def retrieve_memory_with_topic(
     }
 
 
-@app.get("/memory/search")
+@router.get("/memory/search")
 async def search_memory(
     user_id: str,
     query: str,
@@ -1414,10 +1428,10 @@ async def search_memory(
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
-    
+
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
-    
+
     if not all_agents:
         return {
             "success": False,
@@ -1426,10 +1440,10 @@ async def search_memory(
             "results": [],
             "count": 0,
         }
-    
+
     agent_state = all_agents[0]
     timezone_str = server.user_manager.get_user_by_id(user.id).timezone
-    
+
     # Validate search parameters
     if memory_type == "resource" and search_field == "content" and search_method == "embedding":
         return {
@@ -1439,7 +1453,7 @@ async def search_memory(
             "results": [],
             "count": 0,
         }
-    
+
     if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
         return {
             "success": False,
@@ -1448,13 +1462,13 @@ async def search_memory(
             "results": [],
             "count": 0,
         }
-    
+
     if memory_type == "all":
         search_field = "null"
-    
+
     # Collect results from requested memory types
     all_results = []
-    
+
     # Search episodic memories
     if memory_type in ["episodic", "all"]:
         try:
@@ -1481,7 +1495,7 @@ async def search_memory(
             ])
         except Exception as e:
             logger.error("Error searching episodic memories: %s", e)
-    
+
     # Search resource memories
     if memory_type in ["resource", "all"]:
         try:
@@ -1507,7 +1521,7 @@ async def search_memory(
             ])
         except Exception as e:
             logger.error("Error searching resource memories: %s", e)
-    
+
     # Search procedural memories
     if memory_type in ["procedural", "all"]:
         try:
@@ -1532,7 +1546,7 @@ async def search_memory(
             ])
         except Exception as e:
             logger.error("Error searching procedural memories: %s", e)
-    
+
     # Search knowledge vault
     if memory_type in ["knowledge_vault", "all"]:
         try:
@@ -1559,7 +1573,7 @@ async def search_memory(
             ])
         except Exception as e:
             logger.error("Error searching knowledge vault: %s", e)
-    
+
     # Search semantic memories
     if memory_type in ["semantic", "all"]:
         try:
@@ -1585,7 +1599,7 @@ async def search_memory(
             ])
         except Exception as e:
             logger.error("Error searching semantic memories: %s", e)
-    
+
     return {
         "success": True,
         "query": query,
@@ -1598,6 +1612,20 @@ async def search_memory(
 
 
 # ============================================================================
+# Include Router and Exports
+# ============================================================================
+
+app.include_router(router)
+
+# Export both app and router for external use
+# - Use 'app' to run the server directly
+# - Use 'router' to include routes in another FastAPI application
+# - Use 'initialize' and 'cleanup' functions for manual lifecycle management of
+#   you're using router and not app.
+__all__ = ["app", "router", "initialize", "cleanup"]
+
+
+# ============================================================================
 # Run Server
 # ============================================================================
 
@@ -1605,4 +1633,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
-
