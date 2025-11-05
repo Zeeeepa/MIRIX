@@ -9,6 +9,17 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Function to restore pyproject.toml on exit
+restore_pyproject() {
+    if [ -f "pyproject.toml.backup" ]; then
+        echo -e "${BLUE}Restoring pyproject.toml...${NC}"
+        mv pyproject.toml.backup pyproject.toml
+    fi
+}
+
+# Set trap to restore pyproject.toml on exit (success or failure)
+trap restore_pyproject EXIT
+
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}  Mirix Package Build Script${NC}"
 echo -e "${BLUE}=================================================${NC}"
@@ -31,6 +42,16 @@ rm -rf mirix_server.egg-info
 rm -rf intuit_ecms_client.egg-info
 rm -rf intuit_ecms_server.egg-info
 echo -e "${GREEN}✓ Cleaned${NC}"
+echo ""
+
+# Temporarily rename pyproject.toml to prevent it from overriding setup scripts
+echo -e "${BLUE}[1.5/5] Temporarily moving pyproject.toml...${NC}"
+if [ -f "pyproject.toml" ]; then
+    mv pyproject.toml pyproject.toml.backup
+    echo -e "${GREEN}✓ Moved pyproject.toml${NC}"
+else
+    echo -e "${BLUE}  pyproject.toml already moved${NC}"
+fi
 echo ""
 
 # Install build dependencies
@@ -90,4 +111,11 @@ echo ""
 echo "To test packages:"
 echo -e "  ${BLUE}twine check dist/*${NC}"
 echo ""
+
+# Restore pyproject.toml
+if [ -f "pyproject.toml.backup" ]; then
+    mv pyproject.toml.backup pyproject.toml
+    echo -e "${GREEN}✓ Restored pyproject.toml${NC}"
+    echo ""
+fi
 
