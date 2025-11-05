@@ -1177,6 +1177,8 @@ def retrieve_memories_by_keywords(
             search_method=search_method,
             limit=limit,
             timezone_str=timezone_str,
+            filter_tags=filter_tags,
+            use_cache=use_cache,
         )
 
         memories["resource"] = {
@@ -1207,6 +1209,8 @@ def retrieve_memories_by_keywords(
             search_method=search_method,
             limit=limit,
             timezone_str=timezone_str,
+            filter_tags=filter_tags,
+            use_cache=use_cache,
         )
 
         memories["procedural"] = {
