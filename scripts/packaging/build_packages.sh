@@ -42,7 +42,7 @@ echo -e "${BLUE}[3/5] Building mirix-client package...${NC}"
 python scripts/packaging/setup_client.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Client package built successfully${NC}"
-    CLIENT_VERSION=$(ls dist/mirix_client-*.whl | head -1 | grep -oP '\d+\.\d+\.\d+')
+    CLIENT_VERSION=$(ls dist/mirix-client-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${CLIENT_VERSION}${NC}"
 else
     echo -e "${RED}✗ Client package build failed${NC}"
@@ -55,7 +55,7 @@ echo -e "${BLUE}[4/5] Building mirix-server package...${NC}"
 python scripts/packaging/setup_server.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Server package built successfully${NC}"
-    SERVER_VERSION=$(ls dist/mirix_server-*.whl | head -1 | grep -oP '\d+\.\d+\.\d+')
+    SERVER_VERSION=$(ls dist/mirix-server-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${SERVER_VERSION}${NC}"
 else
     echo -e "${RED}✗ Server package build failed${NC}"
@@ -69,17 +69,17 @@ echo -e "${BLUE}=================================================${NC}"
 echo -e "Built packages in: ${GREEN}dist/${NC}"
 echo ""
 echo -e "Client Package:"
-ls -lh dist/mirix_client-* | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/mirix-client-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "Server Package:"
-ls -lh dist/mirix_server-* | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/mirix-server-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${GREEN}✓ All packages built successfully!${NC}"
 echo ""
 echo "To install locally:"
-echo -e "  ${BLUE}pip install dist/mirix_client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
-echo -e "  ${BLUE}pip install dist/mirix_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/mirix-client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/mirix-server-${SERVER_VERSION}-py3-none-any.whl${NC}"
 echo ""
 echo "To publish to PyPI:"
 echo -e "  ${BLUE}twine upload dist/mirix-client-${CLIENT_VERSION}*${NC}"

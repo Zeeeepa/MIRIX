@@ -135,6 +135,9 @@ extras_require = {
     ],
 }
 
+# Change to project root directory so we can use relative paths
+os.chdir(project_root)
+
 setup(
     name="mirix-server",
     version=get_version(),
@@ -152,10 +155,10 @@ setup(
     },
     # Include all packages
     packages=find_packages(
-        where=project_root,
+        where=".",
         exclude=["tests*", "scripts*", "frontend*", "public_evaluations*", "samples*"]
     ),
-    package_dir={"": project_root},
+    package_dir={"": "."},
     include_package_data=True,
     package_data={
         "mirix": [

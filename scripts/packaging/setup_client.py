@@ -43,6 +43,9 @@ client_dependencies = [
     "pytz>=2024.1",
 ]
 
+# Change to project root directory so we can use relative paths
+os.chdir(project_root)
+
 setup(
     name="mirix-client",
     version=get_version(),
@@ -65,7 +68,7 @@ setup(
         "mirix.schemas.openai",
         "mirix.helpers",
     ],
-    package_dir={"": project_root},
+    package_dir={"": "."},
     include_package_data=True,
     package_data={
         "mirix": [],
