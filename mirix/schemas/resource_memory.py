@@ -61,6 +61,20 @@ class ResourceMemoryItem(ResourceMemoryItemBase):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the event"
     )
+    
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Custom filter tags for filtering and categorization",
+        examples=[
+            {
+                "project_id": "proj-abc",
+                "session_id": "sess-xyz",
+                "tags": ["important", "work"],
+                "priority": "high"
+            }
+        ]
+    )
 
     @field_validator("summary_embedding")
     @classmethod
@@ -109,6 +123,10 @@ class ResourceMemoryItemUpdate(MirixBase):
         None, description="The embedding configuration used by the event"
     )
 
+
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        None, description="Custom filter tags for filtering and categorization"
+    )
 
 class ResourceMemoryItemResponse(ResourceMemoryItem):
     """Response schema for resource memory item with additional fields if needed."""

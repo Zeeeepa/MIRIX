@@ -73,6 +73,10 @@ class MessageCreate(BaseModel):
     group_id: Optional[str] = Field(
         None, description="The multi-agent group that the message was sent in"
     )
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Optional tags for filtering and categorizing this message and related memories"
+    )
 
     def model_dump(self, to_orm: bool = False, **kwargs) -> Dict[str, Any]:
         data = super().model_dump(**kwargs)
@@ -183,6 +187,20 @@ class Message(BaseMessage):
     created_at: datetime = Field(
         default_factory=get_utc_time,
         description="The timestamp when the object was created.",
+    )
+    
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Custom filter tags for filtering and categorization",
+        examples=[
+            {
+                "project_id": "proj-abc",
+                "session_id": "sess-xyz",
+                "tags": ["important", "work"],
+                "priority": "high"
+            }
+        ]
     )
 
     @field_validator("role")

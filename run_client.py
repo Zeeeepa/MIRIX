@@ -37,41 +37,44 @@ def main():
     client.initialize_meta_agent(
         config_path="mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
-        update_agents=False
+        update_agents=False,
     )
 
-    result = client.add(
-        user_id=user_id,
-        messages=[
-            {
-                "role": "user",
-                "content": [{
-                    "type": "text",
-                    "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-                }]
-            },
-        ],
-        chaining=False
-    )
-    print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    # result = client.add(
+    #    user_id=user_id,
+    #       messages=[
+    #        {
+    #            "role": "user",
+    #            "content": [{
+    #                "type": "text",
+    #                "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+    #            }]
+    #        },
+    #    ],
+    #    chaining=False
+    #)
+    #print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
-    # # 4. Example: Retrieve memories using new API
-    # print("Step 4: Retrieving memories with conversation context...")
-    # print("-" * 70)
-    # try:
-    #     memories = client.retrieve_with_conversation(
-    #         user_id=user_id,
-    #         messages=[
-    #             {
-    #                 "role": "user",
-    #                 "content": [{
-    #                     "type": "text",
-    #                     "text": "What did I discuss in my meeting with Sarah?"
-    #                 }]
-    #             }
-    #         ],
-    #         limit=10  # Retrieve up to 10 items per memory type
-    #     )
+    # 4. Example: Retrieve memories using new API
+    print("Step 4: Retrieving memories with conversation context...")
+    print("-" * 70)
+    try:
+        filter_tags = {"expert_id": "expert-234"}
+
+        memories = client.retrieve_with_conversation(
+            user_id=user_id,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [{
+                        "type": "text",
+                        "text": ""
+                    }]
+                }
+            ],
+            limit=10,  # Retrieve up to 10 items per memory type
+            filter_tags = filter_tags
+        )
 
     #     print("[OK] Retrieved memories successfully")
     #     if memories.get("memories"):

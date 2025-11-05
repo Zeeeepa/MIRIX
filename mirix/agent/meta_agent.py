@@ -172,6 +172,8 @@ class MetaAgent(BaseAgent):
         embedding_config: Optional[EmbeddingConfig] = None,
         system_prompts: Optional[Dict[str, str]] = None,
         interface: Optional[AgentInterface] = None,
+        filter_tags: Optional[dict] = None,  # Filter tags for memory operations
+        use_cache: bool = True,  # Control Redis cache behavior
     ):
         """
         Initialize MetaAgent with memory sub-agents.
@@ -183,6 +185,8 @@ class MetaAgent(BaseAgent):
             llm_config: LLM configuration for sub-agents
             embedding_config: Embedding configuration for sub-agents
             system_prompts: Pre-loaded system prompts dict (agent_name -> prompt_text)
+            filter_tags: Optional dict of tags for filtering and categorization
+            use_cache: Control Redis cache behavior (default: True)
             interface: Optional interface for agent interactions
         """
         # Initialize logger
@@ -194,6 +198,12 @@ class MetaAgent(BaseAgent):
         self.memory = memory
         self.interface = interface
         self.system_prompts = system_prompts or {}
+        
+        # Store filter_tags as a COPY to prevent mutation across agent instances
+        from copy import deepcopy
+        # Keep None as None, don't convert to empty dict - they have different meanings
+        self.filter_tags = deepcopy(filter_tags) if filter_tags is not None else None
+        self.use_cache = use_cache
 
         # Set default configs if not provided
         if llm_config is None:
@@ -366,10 +376,13 @@ class MetaAgent(BaseAgent):
             agent_state = getattr(self.memory_agent_states, config["attr_name"])
             if agent_state is not None:
                 # Create an Agent instance for this sub-agent
+                # Pass filter_tags and use_cache from MetaAgent to child agents
                 agent_instance = Agent(
                     interface=self.interface,
                     agent_state=agent_state,
                     user=self.user,
+                    filter_tags=self.filter_tags,
+                    use_cache=self.use_cache,
                 )
                 self.agents[config["name"]] = agent_instance
 

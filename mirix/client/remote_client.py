@@ -409,8 +409,34 @@ class MirixClient(AbstractClient):
         stream: Optional[bool] = False,
         stream_steps: bool = False,
         stream_tokens: bool = False,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> MirixResponse:
-        """Send a message to an agent."""
+        """Send a message to an agent.
+        
+        Args:
+            message: The message text to send
+            role: The role of the message sender (user/system)
+            agent_id: The ID of the agent to send the message to
+            name: Optional name of the message sender
+            stream: Enable streaming (not yet implemented)
+            stream_steps: Stream intermediate steps
+            stream_tokens: Stream tokens as they are generated
+            filter_tags: Optional filter tags for categorization and filtering.
+                Example: {"project_id": "proj-alpha", "session_id": "sess-123"}
+            use_cache: Control Redis cache behavior (default: True)
+        
+        Returns:
+            MirixResponse: The response from the agent
+        
+        Example:
+            >>> response = client.send_message(
+            ...     message="What's the status?",
+            ...     role="user",
+            ...     agent_id="agent123",
+            ...     filter_tags={"project": "alpha", "priority": "high"}
+            ... )
+        """
         if stream or stream_steps or stream_tokens:
             raise NotImplementedError("Streaming not yet implemented in REST API")
         
@@ -421,6 +447,14 @@ class MirixClient(AbstractClient):
             "stream_steps": stream_steps,
             "stream_tokens": stream_tokens,
         }
+        
+        # Include filter_tags if provided
+        if filter_tags is not None:
+            request_data["filter_tags"] = filter_tags
+        
+        # Include use_cache if not default
+        if not use_cache:
+            request_data["use_cache"] = use_cache
         
         data = self._request("POST", f"/agents/{agent_id}/messages", json=request_data)
         return MirixResponse(**data)
@@ -435,11 +469,25 @@ class MirixClient(AbstractClient):
         before: Optional[str] = None,
         after: Optional[str] = None,
         limit: Optional[int] = 1000,
+        use_cache: bool = True,
     ) -> List[Message]:
-        """Get messages from an agent."""
+        """Get messages from an agent.
+        
+        Args:
+            agent_id: The ID of the agent
+            before: Get messages before this cursor
+            after: Get messages after this cursor
+            limit: Maximum number of messages to retrieve
+            use_cache: Control Redis cache behavior (default: True)
+        
+        Returns:
+            List of messages
+        """
         params = {"limit": limit}
         if before:
             params["cursor"] = before
+        if not use_cache:
+            params["use_cache"] = "false"
         
         data = self._request("GET", f"/agents/{agent_id}/messages", params=params)
         return [Message(**msg) for msg in data]
@@ -826,6 +874,8 @@ class MirixClient(AbstractClient):
         messages: List[Dict[str, Any]],
         chaining: bool = True,
         verbose: bool = False,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         """
         Add conversation turns to memory (asynchronous processing).
@@ -842,6 +892,9 @@ class MirixClient(AbstractClient):
                          {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
                      ]
             verbose: If True, enable verbose output during memory processing
+            filter_tags: Optional dict of tags for filtering and categorization.
+                        Example: {"project_id": "proj-123", "session_id": "sess-456"}
+            use_cache: Control Redis cache behavior (default: True)
         
         Returns:
             Dict containing:
@@ -862,7 +915,8 @@ class MirixClient(AbstractClient):
             ...         {"role": "user", "content": [{"type": "text", "text": "I went to dinner"}]},
             ...         {"role": "assistant", "content": [{"type": "text", "text": "That's great!"}]}
             ...     ],
-            ...     verbose=True
+            ...     verbose=True,
+            ...     filter_tags={"session_id": "sess-789", "tags": ["personal"]}
             ... )
             >>> logger.debug(response)
             {
@@ -884,6 +938,12 @@ class MirixClient(AbstractClient):
             "verbose": verbose,
         }
         
+        if filter_tags is not None:
+            request_data["filter_tags"] = filter_tags
+        
+        if not use_cache:
+            request_data["use_cache"] = use_cache
+        
         return self._request("POST", "/memory/add", json=request_data)
     
     def retrieve_with_conversation(
@@ -891,6 +951,8 @@ class MirixClient(AbstractClient):
         user_id: str,
         messages: List[Dict[str, Any]],
         limit: int = 10,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on conversation context.
@@ -906,6 +968,9 @@ class MirixClient(AbstractClient):
                          {"role": "user", "content": [{"type": "text", "text": "..."}]}
                      ]
             limit: Maximum number of items to retrieve per memory type (default: 10)
+            filter_tags: Optional dict of tags for filtering results.
+                        Only memories matching these tags will be returned.
+            use_cache: Control Redis cache behavior (default: True)
         
         Returns:
             Dict containing retrieved memories organized by type
@@ -916,7 +981,8 @@ class MirixClient(AbstractClient):
             ...     messages=[
             ...         {"role": "user", "content": [{"type": "text", "text": "Where did I go yesterday?"}]}
             ...     ],
-            ...     limit=5
+            ...     limit=5,
+            ...     filter_tags={"session_id": "sess-789"}
             ... )
         """
         if not self._meta_agent:
@@ -927,6 +993,12 @@ class MirixClient(AbstractClient):
             "messages": messages,
             "limit": limit,
         }
+        
+        if filter_tags is not None:
+            request_data["filter_tags"] = filter_tags
+        
+        if not use_cache:
+            request_data["use_cache"] = use_cache
         
         return self._request("POST", "/memory/retrieve/conversation", json=request_data)
     

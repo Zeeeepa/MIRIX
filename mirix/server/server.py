@@ -600,7 +600,7 @@ class SyncServer(Server):
             )
 
     def load_agent(
-        self, agent_id: str, actor: User, interface: Union[AgentInterface, None] = None
+        self, agent_id: str, actor: User, interface: Union[AgentInterface, None] = None, filter_tags: Optional[dict] = None, use_cache: bool = True
     ) -> Agent:
         """Updated method to load agents from persisted storage"""
         agent_lock = self.per_agent_lock_manager.get_lock(agent_id)
@@ -611,42 +611,43 @@ class SyncServer(Server):
 
             interface = interface or self.default_interface_factory()
             if agent_state.agent_type == AgentType.chat_agent:
-                agent = Agent(agent_state=agent_state, interface=interface, user=actor)
+                agent = Agent(agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache)
             elif agent_state.agent_type == AgentType.episodic_memory_agent:
                 agent = EpisodicMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.knowledge_vault_memory_agent:
                 agent = KnowledgeVaultAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.procedural_memory_agent:
                 agent = ProceduralMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.resource_memory_agent:
                 agent = ResourceMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.meta_memory_agent:
+                logger.info(f"🏷️  Loading MetaMemoryAgent with filter_tags={filter_tags}")
                 agent = MetaMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.semantic_memory_agent:
                 agent = SemanticMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.core_memory_agent:
                 agent = CoreMemoryAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.reflexion_agent:
                 agent = ReflexionAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             elif agent_state.agent_type == AgentType.background_agent:
                 agent = BackgroundAgent(
-                    agent_state=agent_state, interface=interface, user=actor
+                    agent_state=agent_state, interface=interface, user=actor, filter_tags=filter_tags, use_cache=use_cache
                 )
             else:
                 raise ValueError(f"Invalid agent type {agent_state.agent_type}")
@@ -659,13 +660,15 @@ class SyncServer(Server):
         agent_id: str,
         input_messages: Union[Message, List[Message]],
         chaining: Optional[bool] = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> MirixUsageStatistics:
         """Send the input message through the agent"""
         logger.debug("Got input messages: %s", input_messages)
         mirix_agent = None
         try:
             mirix_agent = self.load_agent(
-                agent_id=agent_id, interface=None, actor=actor
+                agent_id=agent_id, interface=None, actor=actor, filter_tags=filter_tags, use_cache=use_cache
             )
 
             if mirix_agent is None:
@@ -685,13 +688,15 @@ class SyncServer(Server):
             # Use provided chaining value or fall back to server default
             effective_chaining = chaining if chaining is not None else self.chaining
 
+            logger.debug("Agent type: %s, filter_tags param: %s", mirix_agent.agent_state.agent_type, filter_tags)
             if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
-                input_messages.append(
-                    MessageCreate(
-                        role="user",
-                        content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)",
-                    )
+                meta_message = MessageCreate(
+                    role="user",
+                    content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)",
+                    filter_tags=filter_tags,  # Also attach to message for reference
                 )
+                logger.debug("Created meta_message with filter_tags=%s", filter_tags)
+                input_messages.append(meta_message)
 
             usage_stats = mirix_agent.step(
                 input_messages=input_messages,
@@ -988,6 +993,8 @@ class SyncServer(Server):
         input_messages: List[MessageCreate],
         chaining: Optional[bool] = True,
         verbose: Optional[bool] = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> MirixUsageStatistics:
         """Send a list of messages to the agent."""
 
@@ -1003,6 +1010,8 @@ class SyncServer(Server):
                 agent_id=agent_id,
                 input_messages=input_messages,
                 chaining=chaining,
+                filter_tags=filter_tags,
+                use_cache=use_cache,
             )
         finally:
             # No cleanup needed - context automatically isolated per request
@@ -1074,17 +1083,18 @@ class SyncServer(Server):
         return_message_object: bool = True,
         assistant_message_tool_name: str = constants.DEFAULT_MESSAGE_TOOL,
         assistant_message_tool_kwarg: str = constants.DEFAULT_MESSAGE_TOOL_KWARG,
+        use_cache: bool = True,
     ) -> Union[List[Message], List[MirixMessage]]:
         # TODO: Thread actor directly through this function, since the top level caller most likely already retrieved the user
 
         actor = self.user_manager.get_user_or_default(user_id=user_id)
         start_date = (
-            self.message_manager.get_message_by_id(after, actor=actor).created_at
+            self.message_manager.get_message_by_id(after, actor=actor, use_cache=use_cache).created_at
             if after
             else None
         )
         end_date = (
-            self.message_manager.get_message_by_id(before, actor=actor).created_at
+            self.message_manager.get_message_by_id(before, actor=actor, use_cache=use_cache).created_at
             if before
             else None
         )
@@ -1096,6 +1106,7 @@ class SyncServer(Server):
             end_date=end_date,
             limit=limit,
             ascending=not reverse,
+            use_cache=use_cache,
         )
 
         if not return_message_object:

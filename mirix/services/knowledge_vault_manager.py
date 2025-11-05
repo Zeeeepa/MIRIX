@@ -492,9 +492,15 @@ class KnowledgeVaultManager:
 
     @enforce_types
     def create_item(
-        self, knowledge_vault_item: PydanticKnowledgeVaultItem, actor: PydanticUser
+        self, knowledge_vault_item: PydanticKnowledgeVaultItem, actor: PydanticUser, use_cache: bool = True
     ) -> PydanticKnowledgeVaultItem:
-        """Create a new knowledge vault item."""
+        """Create a new knowledge vault item.
+        
+        Args:
+            knowledge_vault_item: The knowledge vault data to create
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
+        """
 
         # Ensure ID is set before model_dump
         if not knowledge_vault_item.id:
@@ -520,7 +526,7 @@ class KnowledgeVaultManager:
         # Create the knowledge vault item
         with self.session_maker() as session:
             knowledge_item = KnowledgeVaultItem(**item_data)
-            knowledge_item.create_with_redis(session, actor=actor)  # ⭐ Caches to Redis JSON
+            knowledge_item.create_with_redis(session, actor=actor, use_cache=use_cache)
 
             # Return the created item as a Pydantic model
             return knowledge_item.to_pydantic()
@@ -544,6 +550,8 @@ class KnowledgeVaultManager:
         secret_value: str,
         caption: str,
         organization_id: str,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ):
         """Insert knowledge into the knowledge vault."""
         try:
@@ -568,8 +576,10 @@ class KnowledgeVaultManager:
                     organization_id=organization_id,
                     caption_embedding=caption_embedding,
                     embedding_config=embedding_config,
+                    filter_tags=filter_tags,
                 ),
                 actor=actor,
+                use_cache=use_cache,
             )
             return knowledge
 
@@ -598,6 +608,8 @@ class KnowledgeVaultManager:
         timezone_str: str = None,
         limit: Optional[int] = 50,
         sensitivity: Optional[List[str]] = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
     ) -> List[PydanticKnowledgeVaultItem]:
         """
         Retrieve knowledge vault items according to the query.
@@ -633,23 +645,29 @@ class KnowledgeVaultManager:
               proper BM25 ranking
         """
         
-        # ⭐ NEW: Try Redis Search first
+        # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
+        
+        query = query.strip() if query else ""
+        is_empty_query = not query or query == ""
+        
         redis_client = get_redis_client()
         
-        if redis_client:
+        if use_cache and redis_client:
             try:
-                if not query or query == "":
+                if is_empty_query:
                     results = redis_client.search_recent(
                         index_name=redis_client.KNOWLEDGE_INDEX,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis cache HIT: returned %d knowledge items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
                         return [PydanticKnowledgeVaultItem(**item) for item in results]
+                    # If no results, fall through to PostgreSQL (don't return empty list)
                 
                 elif search_method == "embedding":
                     if embedded_text is None:
@@ -664,7 +682,8 @@ class KnowledgeVaultManager:
                         embedding=embedded_text,
                         vector_field="caption_embedding",
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis vector search HIT: found %d knowledge items", len(results))
@@ -680,7 +699,8 @@ class KnowledgeVaultManager:
                         query=query,
                         search_fields=fields,
                         limit=limit or 50,
-                        user_id=actor.id
+                        user_id=actor.id,
+                        filter_tags=filter_tags
                     )
                     if results:
                         logger.debug("✅ Redis text search HIT: found %d knowledge items", len(results))
@@ -690,6 +710,12 @@ class KnowledgeVaultManager:
             
             except Exception as e:
                 logger.warning("Redis search failed for knowledge vault, falling back to PostgreSQL: %s", e)
+        
+        # Log when bypassing cache or Redis unavailable
+        if not use_cache:
+            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for knowledge vault")
+        elif not redis_client:
+            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for knowledge vault")
 
         with self.session_maker() as session:
             if query == "":
@@ -711,6 +737,12 @@ class KnowledgeVaultManager:
                     query_stmt = query_stmt.where(
                         KnowledgeVaultItem.sensitivity.in_(sensitivity)
                     )
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        query_stmt = query_stmt.where(KnowledgeVaultItem.filter_tags[key].as_string() == str(value))
+                
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
@@ -737,6 +769,11 @@ class KnowledgeVaultManager:
                     base_query = base_query.where(
                         KnowledgeVaultItem.sensitivity.in_(sensitivity)
                     )
+                
+                # Apply filter_tags if provided
+                if filter_tags:
+                    for key, value in filter_tags.items():
+                        base_query = base_query.where(KnowledgeVaultItem.filter_tags[key].as_string() == str(value))
 
                 if search_method == "embedding":
                     embed_query = True

@@ -696,14 +696,19 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
     @handle_db_timeout
     @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
     def create_with_redis(
-        self, db_session: "Session", actor: Optional["User"] = None
+        self, db_session: "Session", actor: Optional["User"] = None, use_cache: bool = True
     ) -> "SqlalchemyBase":
         """
-        Create record in PostgreSQL and cache in Redis.
+        Create record in PostgreSQL and optionally cache in Redis.
         Uses Hash for blocks/messages, JSON for memory tables.
+        
+        Args:
+            db_session: Database session
+            actor: User performing the operation
+            use_cache: If True, cache in Redis. If False, skip caching.
         """
         logger.debug(
-            f"Creating {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+            f"Creating {self.__class__.__name__} with ID: {self.id} (use_cache={use_cache}) with actor={actor}"
         )
 
         if actor:
@@ -716,8 +721,13 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 session.commit()
                 session.refresh(self)
                 
-                # Write to Redis cache
-                self._update_redis_cache(operation="create", actor=actor)
+                # Conditional Redis caching
+                if use_cache:
+                    # Write to Redis cache
+                    self._update_redis_cache(operation="create", actor=actor)
+                    logger.debug(f"Cached {self.__class__.__name__} to Redis")
+                else:
+                    logger.debug(f"Skipped Redis cache for {self.__class__.__name__} (use_cache=False)")
                 
                 return self
             except (DBAPIError, IntegrityError) as e:
@@ -736,13 +746,18 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
     @handle_db_timeout
     @transaction_retry(max_retries=5, base_delay=0.1, max_delay=3.0)
     def update_with_redis(
-        self, db_session: "Session", actor: Optional["User"] = None
+        self, db_session: "Session", actor: Optional["User"] = None, use_cache: bool = True
     ) -> "SqlalchemyBase":
         """
-        Update record in PostgreSQL and Redis cache.
+        Update record in PostgreSQL and optionally update Redis cache.
+        
+        Args:
+            db_session: Database session
+            actor: User performing the operation
+            use_cache: If True, update Redis cache. If False, skip caching.
         """
         logger.debug(
-            f"Updating {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+            f"Updating {self.__class__.__name__} with ID: {self.id} (use_cache={use_cache}) with actor={actor}"
         )
         if actor:
             self._set_created_and_updated_by_fields(actor.id)
@@ -756,8 +771,13 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 session.commit()
                 session.refresh(self)
                 
-                # Update Redis cache
-                self._update_redis_cache(operation="update", actor=actor)
+                # Conditional Redis cache update
+                if use_cache:
+                    # Update Redis cache
+                    self._update_redis_cache(operation="update", actor=actor)
+                    logger.debug(f"Updated {self.__class__.__name__} in Redis")
+                else:
+                    logger.debug(f"Skipped Redis cache update for {self.__class__.__name__} (use_cache=False)")
                 
                 return self
             except Exception as e:
@@ -770,20 +790,32 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
     @handle_db_timeout
     @retry_db_operation(max_retries=3, base_delay=0.1, max_delay=2.0)
     def delete_with_redis(
-        self, db_session: "Session", actor: Optional["User"] = None
+        self, db_session: "Session", actor: Optional["User"] = None, use_cache: bool = True
     ) -> "SqlalchemyBase":
         """
-        Soft delete record in PostgreSQL and remove from Redis cache.
+        Soft delete record in PostgreSQL and optionally remove from Redis cache.
+        
+        Args:
+            db_session: Database session
+            actor: User performing the operation
+            use_cache: If True, remove from Redis cache. If False, skip cache deletion.
         """
         logger.debug(
-            f"Soft deleting {self.__class__.__name__} with ID: {self.id} (with Redis) with actor={actor}"
+            f"Soft deleting {self.__class__.__name__} with ID: {self.id} (use_cache={use_cache}) with actor={actor}"
         )
 
         if actor:
             self._set_created_and_updated_by_fields(actor.id)
 
         self.is_deleted = True
-        self._update_redis_cache(operation="delete", actor=actor)
+        
+        # Conditional Redis cache deletion
+        if use_cache:
+            self._update_redis_cache(operation="delete", actor=actor)
+            logger.debug(f"Removed {self.__class__.__name__} from Redis")
+        else:
+            logger.debug(f"Skipped Redis cache deletion for {self.__class__.__name__} (use_cache=False)")
+        
         return self.update(db_session)
     
     def _update_redis_cache(

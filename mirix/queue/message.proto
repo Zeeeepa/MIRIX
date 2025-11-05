@@ -28,6 +28,9 @@ message QueueMessage {
   
   // Filter tags as flexible JSON structure
   google.protobuf.Struct filter_tags = 7;
+  
+  // Optional use_cache flag for controlling Redis cache behavior
+  optional bool use_cache = 8;
 }
 
 // User representation

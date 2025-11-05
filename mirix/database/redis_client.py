@@ -296,6 +296,7 @@ class RedisMemoryClient:
                 TextField("text"),  # Message text
                 TextField("model"),
                 NumericField("created_at_ts"),
+                TextField("filter_tags"),  # Filter tags (stored as JSON string in HASH)
             )
             
             self.client.ft(self.MESSAGE_INDEX).create_index(
@@ -604,6 +605,7 @@ class RedisMemoryClient:
                 TextField("$.details", as_name="details"),
                 NumericField("$.occurred_at_ts", as_name="occurred_at_ts"),
                 TagField("$.user_id", as_name="user_id"),
+                TextField("$.filter_tags.*", as_name="filter_tags"),  # Filter tags for flexible filtering
                 
                 # ⭐ Vector fields for embeddings (32KB total)
                 VectorField(
@@ -663,6 +665,7 @@ class RedisMemoryClient:
                 TextField("$.source", as_name="source"),
                 TagField("$.user_id", as_name="user_id"),
                 NumericField("$.created_at_ts", as_name="created_at_ts"),
+                TextField("$.filter_tags.*", as_name="filter_tags"),  # Filter tags for flexible filtering
                 
                 # ⭐ Three vector fields for comprehensive search (48KB total!)
                 VectorField(
@@ -730,6 +733,7 @@ class RedisMemoryClient:
                 TextField("$.summary", as_name="summary"),
                 TagField("$.user_id", as_name="user_id"),
                 NumericField("$.created_at_ts", as_name="created_at_ts"),
+                TextField("$.filter_tags.*", as_name="filter_tags"),  # Filter tags for flexible filtering
                 
                 # ⭐ Two vector fields (32KB total)
                 VectorField(
@@ -916,6 +920,47 @@ class RedisMemoryClient:
             logger.error("Failed to delete key %s: %s", key, e)
             return False
     
+    def _build_filter_tags_query(self, filter_tags: Dict[str, Any]) -> str:
+        """
+        Build Redis Search query string from filter_tags dictionary.
+        
+        According to MEMORY_METADATA_IMPLEMENTATION_GUIDE.md,
+        filter_tags are indexed as TAG fields with names like:
+        - $.filter_tags.expert_id -> indexed as "filter_tags_expert_id"
+        - $.filter_tags.scope -> indexed as "filter_tags_scope"
+        
+        Args:
+            filter_tags: Dictionary of filter tag key-value pairs
+                        e.g., {"expert_id": "expert-123", "scope": "read"}
+        
+        Returns:
+            Redis Search query string for filter_tags filters
+            e.g., "@filter_tags_expert_id:{expert\\-123} @filter_tags_scope:{read}"
+        
+        Example:
+            filter_tags = {"expert_id": "expert-123", "scope": "read"}
+            # Returns: "@filter_tags_expert_id:{expert\\-123} @filter_tags_scope:{read}"
+        """
+        if not filter_tags:
+            return ""
+        
+        import re
+        
+        def escape_tag_value(value: str) -> str:
+            """Escape special characters for Redis TAG field values."""
+            # TAG fields need escaping for: - : . ( ) { } [ ] " ' , < > ; ! @ # $ % ^ & * + = ~
+            special_chars = r'[\-:.()\[\]{}"\',<>;!@#$%^&*+=~]'
+            return re.sub(special_chars, lambda m: f'\\{m.group(0)}', str(value))
+        
+        query_parts = []
+        for key, value in filter_tags.items():
+            # Convert filter_tags.expert_id -> filter_tags_expert_id
+            field_name = f"filter_tags_{key}"
+            escaped_value = escape_tag_value(value)
+            query_parts.append(f"@{field_name}:{{{escaped_value}}}")
+        
+        return " ".join(query_parts)
+    
     def search_text(
         self,
         index_name: str,
@@ -923,7 +968,8 @@ class RedisMemoryClient:
         search_fields: List[str],
         limit: int = 10,
         user_id: Optional[str] = None,
-        return_fields: Optional[List[str]] = None
+        return_fields: Optional[List[str]] = None,
+        filter_tags: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Perform full-text search using RediSearch.
@@ -935,6 +981,7 @@ class RedisMemoryClient:
             limit: Maximum number of results
             user_id: Filter by user_id (optional)
             return_fields: Specific fields to return (None = return all)
+            filter_tags: Optional filter tags for additional filtering
         
         Returns:
             List of matching documents with BM25-like scores
@@ -945,7 +992,8 @@ class RedisMemoryClient:
                 query="meeting Sarah",
                 search_fields=["details"],
                 limit=10,
-                user_id="user-123"
+                user_id="user-123",
+                filter_tags={"expert_id": "expert-123"}
             )
         """
         try:
@@ -961,17 +1009,31 @@ class RedisMemoryClient:
             
             escaped_query = escape_redis_query(query)
             
-            # Build field search query
-            if len(search_fields) == 1:
-                search_query = f"@{search_fields[0]}:({escaped_query})"
-            else:
-                field_query = "|".join(search_fields)
-                search_query = f"@{field_query}:({escaped_query})"
+            # Build query parts
+            query_parts = []
             
             # Add user_id filter if provided (escape special characters in TAG field)
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
-                search_query = f"@user_id:{{{escaped_user_id}}} {search_query}"
+                query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add filter_tags filters
+            if filter_tags:
+                filter_query = self._build_filter_tags_query(filter_tags)
+                if filter_query:
+                    query_parts.append(filter_query)
+            
+            # Build field search query
+            if len(search_fields) == 1:
+                text_query = f"@{search_fields[0]}:({escaped_query})"
+            else:
+                field_query = "|".join(search_fields)
+                text_query = f"@{field_query}:({escaped_query})"
+            
+            query_parts.append(text_query)
+            
+            # Combine query parts
+            search_query = " ".join(query_parts)
             
             # Build Query object
             query_obj = Query(search_query).paging(0, limit)
@@ -1011,7 +1073,8 @@ class RedisMemoryClient:
         vector_field: str,
         limit: int = 10,
         user_id: Optional[str] = None,
-        return_fields: Optional[List[str]] = None
+        return_fields: Optional[List[str]] = None,
+        filter_tags: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Perform vector similarity search using RediSearch KNN.
@@ -1023,6 +1086,7 @@ class RedisMemoryClient:
             limit: Maximum number of results (K in KNN)
             user_id: Filter by user_id (optional)
             return_fields: Specific fields to return (None = return all)
+            filter_tags: Optional filter tags for additional filtering
         
         Returns:
             List of similar documents sorted by cosine similarity
@@ -1033,7 +1097,8 @@ class RedisMemoryClient:
                 embedding=[0.1, 0.2, ...],  # 1536-dim vector
                 vector_field="summary_embedding",
                 limit=10,
-                user_id="user-123"
+                user_id="user-123",
+                filter_tags={"expert_id": "expert-123"}
             )
         """
         try:
@@ -1043,14 +1108,26 @@ class RedisMemoryClient:
             # Convert embedding to bytes
             embedding_bytes = np.array(embedding, dtype=np.float32).tobytes()
             
-            # Build KNN query
-            # Using KNN syntax: *=>[KNN K @vector_field $vec AS distance]
-            knn_query = f"*=>[KNN {limit} @{vector_field} $vec AS vector_distance]"
+            # Build query parts for pre-filter
+            query_parts = []
             
             # Add user_id filter if provided (escape special characters in TAG field)
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
-                knn_query = f"@user_id:{{{escaped_user_id}}} {knn_query}"
+                query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add filter_tags filters
+            if filter_tags:
+                filter_query = self._build_filter_tags_query(filter_tags)
+                if filter_query:
+                    query_parts.append(filter_query)
+            
+            # Build pre-filter part (if any filters)
+            pre_filter = " ".join(query_parts) if query_parts else "*"
+            
+            # Build KNN query with pre-filter
+            # Using KNN syntax: (pre-filter)=>[KNN K @vector_field $vec AS distance]
+            knn_query = f"({pre_filter})=>[KNN {limit} @{vector_field} $vec AS vector_distance]"
             
             # Build Query object
             query_obj = (
@@ -1105,7 +1182,8 @@ class RedisMemoryClient:
         limit: int = 10,
         user_id: Optional[str] = None,
         sort_by: str = "created_at_ts",
-        return_fields: Optional[List[str]] = None
+        return_fields: Optional[List[str]] = None,
+        filter_tags: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve most recent documents from an index.
@@ -1116,6 +1194,7 @@ class RedisMemoryClient:
             user_id: Filter by user_id (optional)
             sort_by: Field to sort by (default: "created_at_ts")
             return_fields: Specific fields to return (None = return all)
+            filter_tags: Optional filter tags for additional filtering
         
         Returns:
             List of recent documents sorted by timestamp (descending)
@@ -1125,18 +1204,29 @@ class RedisMemoryClient:
                 index_name="idx:episodic_memory",
                 limit=10,
                 user_id="user-123",
-                sort_by="occurred_at_ts"
+                sort_by="occurred_at_ts",
+                filter_tags={"expert_id": "expert-123"}
             )
         """
         try:
             from redis.commands.search.query import Query
             
-            # Build query to match all documents for user (escape special characters in TAG field)
+            # Build query parts
+            query_parts = []
+            
+            # Add user_id filter (escape special characters in TAG field)
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
-                search_query = f"@user_id:{{{escaped_user_id}}}"
-            else:
-                search_query = "*"  # Match all
+                query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add filter_tags filters
+            if filter_tags:
+                filter_query = self._build_filter_tags_query(filter_tags)
+                if filter_query:
+                    query_parts.append(filter_query)
+            
+            # Combine query parts
+            search_query = " ".join(query_parts) if query_parts else "*"
             
             # Build Query object with sorting
             query_obj = (

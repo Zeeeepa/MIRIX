@@ -135,11 +135,21 @@ class QueueWorker:
             # Extract optional parameters
             chaining = message.chaining if message.HasField('chaining') else True
             
+            # Extract filter_tags from protobuf Struct
+            filter_tags = None
+            if message.HasField('filter_tags') and message.filter_tags:
+                filter_tags = dict(message.filter_tags)
+            
+            # Extract use_cache
+            use_cache = message.use_cache if message.HasField('use_cache') else True
+            
             # Log the processing
             log_msg = (
                 f"Processing message via server: "
                 f"agent_id={message.agent_id}, "
-                f"input_messages_count={len(input_messages)}"
+                f"input_messages_count={len(input_messages)}, "
+                f"use_cache={use_cache}, "
+                f"filter_tags={filter_tags}"
             )
             logger.info(log_msg)
             
@@ -149,6 +159,8 @@ class QueueWorker:
                 agent_id=message.agent_id,
                 input_messages=input_messages,
                 chaining=chaining,
+                filter_tags=filter_tags,
+                use_cache=use_cache,
             )
             
             # Log successful processing

@@ -72,6 +72,10 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
 
     for item in items:
         self.episodic_memory_manager.insert_event(
@@ -84,6 +88,8 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
             summary=item["summary"],
             details=item["details"],
             organization_id=self.user.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
     response = "Events inserted! Now you need to check if there are repeated events shown in the system prompt."
     return response
@@ -208,25 +214,71 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
         items (array): List of resource memory items to insert.
 
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: Message about insertion results including any duplicates detected.
     """
+    # No imports needed - using agent instance attributes
+    
     agent_id = (
         self.agent_state.parent_id
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+
+    inserted_count = 0
+    skipped_count = 0
+    skipped_titles = []
 
     for item in items:
-        self.resource_memory_manager.insert_resource(
+        # Check for existing similar resources (by title, summary, and filter_tags)
+        existing_resources = self.resource_memory_manager.list_resources(
             agent_state=self.agent_state,
-            agent_id=agent_id,
-            title=item["title"],
-            summary=item["summary"],
-            resource_type=item["resource_type"],
-            content=item["content"],
             actor=self.user,
-            organization_id=self.user.organization_id,
+            query="",  # Get all resources
+            limit=1000,  # Get enough to check for duplicates
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
+        
+        # Check if this resource already exists
+        is_duplicate = False
+        for existing in existing_resources:
+            if (existing.title == item["title"] and 
+                existing.summary == item["summary"] and
+                existing.content == item["content"]):
+                is_duplicate = True
+                skipped_count += 1
+                skipped_titles.append(item["title"])
+                break
+        
+        if not is_duplicate:
+            self.resource_memory_manager.insert_resource(
+                agent_state=self.agent_state,
+                agent_id=agent_id,
+                title=item["title"],
+                summary=item["summary"],
+                resource_type=item["resource_type"],
+                content=item["content"],
+                actor=self.user,
+                organization_id=self.user.organization_id,
+                filter_tags=filter_tags if filter_tags else None,
+                use_cache=use_cache,
+            )
+            inserted_count += 1
+    
+    # Return feedback message
+    if skipped_count > 0:
+        skipped_list = ", ".join(f"'{t}'" for t in skipped_titles[:3])
+        if len(skipped_titles) > 3:
+            skipped_list += f" and {len(skipped_titles) - 3} more"
+        return f"Inserted {inserted_count} new resource(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
+    elif inserted_count > 0:
+        return f"Successfully inserted {inserted_count} new resource(s)."
+    else:
+        return "No resources were inserted."
 
 
 def resource_memory_update(
@@ -244,6 +296,10 @@ def resource_memory_update(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
 
     for old_id in old_ids:
         self.resource_memory_manager.delete_resource_by_id(
@@ -260,6 +316,8 @@ def resource_memory_update(
             content=item["content"],
             actor=self.user,
             organization_id=self.user.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
 
 
@@ -271,24 +329,67 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
         items (array): List of procedural memory items to insert.
 
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: Message about insertion results including any duplicates detected.
     """
     agent_id = (
         self.agent_state.parent_id
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+
+    inserted_count = 0
+    skipped_count = 0
+    skipped_summaries = []
 
     for item in items:
-        self.procedural_memory_manager.insert_procedure(
+        # Check for existing similar procedures (by summary and filter_tags)
+        existing_procedures = self.procedural_memory_manager.list_procedures(
             agent_state=self.agent_state,
-            agent_id=agent_id,
-            entry_type=item["entry_type"],
-            summary=item["summary"],
-            steps=item["steps"],
             actor=self.user,
-            organization_id=self.user.organization_id,
+            query="",  # Get all procedures
+            limit=1000,  # Get enough to check for duplicates
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
+        
+        # Check if this procedure already exists
+        is_duplicate = False
+        for existing in existing_procedures:
+            if (existing.summary == item["summary"] and 
+                existing.steps == item["steps"]):
+                is_duplicate = True
+                skipped_count += 1
+                skipped_summaries.append(item["summary"])
+                break
+        
+        if not is_duplicate:
+            self.procedural_memory_manager.insert_procedure(
+                agent_state=self.agent_state,
+                agent_id=agent_id,
+                entry_type=item["entry_type"],
+                summary=item["summary"],
+                steps=item["steps"],
+                actor=self.user,
+                organization_id=self.user.organization_id,
+                filter_tags=filter_tags if filter_tags else None,
+                use_cache=use_cache,
+            )
+            inserted_count += 1
+    
+    # Return feedback message
+    if skipped_count > 0:
+        skipped_list = ", ".join(f"'{s}'" for s in skipped_summaries[:3])
+        if len(skipped_summaries) > 3:
+            skipped_list += f" and {len(skipped_summaries) - 3} more"
+        return f"Inserted {inserted_count} new procedure(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
+    elif inserted_count > 0:
+        return f"Successfully inserted {inserted_count} new procedure(s)."
+    else:
+        return "No procedures were inserted."
 
 
 def procedural_memory_update(
@@ -309,6 +410,10 @@ def procedural_memory_update(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
 
     for old_id in old_ids:
         self.procedural_memory_manager.delete_procedure_by_id(
@@ -324,6 +429,8 @@ def procedural_memory_update(
             steps=item["steps"],
             actor=self.user,
             organization_id=self.user.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
 
 
@@ -368,25 +475,69 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
         items (array): List of semantic memory items to insert.
 
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: Message about insertion results including any duplicates detected.
     """
     agent_id = (
         self.agent_state.parent_id
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+
+    inserted_count = 0
+    skipped_count = 0
+    skipped_names = []
 
     for item in items:
-        self.semantic_memory_manager.insert_semantic_item(
+        # Check for existing similar semantic items (by name, summary, and filter_tags)
+        existing_items = self.semantic_memory_manager.list_semantic_items(
             agent_state=self.agent_state,
-            agent_id=agent_id,
-            name=item["name"],
-            summary=item["summary"],
-            details=item["details"],
-            source=item["source"],
-            organization_id=self.user.organization_id,
             actor=self.user,
+            query="",  # Get all items
+            limit=1000,  # Get enough to check for duplicates
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
+        
+        # Check if this semantic item already exists
+        is_duplicate = False
+        for existing in existing_items:
+            if (existing.name == item["name"] and 
+                existing.summary == item["summary"] and
+                existing.details == item["details"]):
+                is_duplicate = True
+                skipped_count += 1
+                skipped_names.append(item["name"])
+                break
+        
+        if not is_duplicate:
+            self.semantic_memory_manager.insert_semantic_item(
+                agent_state=self.agent_state,
+                agent_id=agent_id,
+                name=item["name"],
+                summary=item["summary"],
+                details=item["details"],
+                source=item["source"],
+                organization_id=self.user.organization_id,
+                actor=self.user,
+                filter_tags=filter_tags if filter_tags else None,
+                use_cache=use_cache,
+            )
+            inserted_count += 1
+    
+    # Return feedback message
+    if skipped_count > 0:
+        skipped_list = ", ".join(f"'{n}'" for n in skipped_names[:3])
+        if len(skipped_names) > 3:
+            skipped_list += f" and {len(skipped_names) - 3} more"
+        return f"Inserted {inserted_count} new semantic item(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
+    elif inserted_count > 0:
+        return f"Successfully inserted {inserted_count} new semantic item(s)."
+    else:
+        return "No semantic items were inserted."
 
 
 def semantic_memory_update(
@@ -409,7 +560,11 @@ def semantic_memory_update(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
-
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+    
     for old_id in old_semantic_item_ids:
         self.semantic_memory_manager.delete_semantic_item_by_id(
             semantic_memory_id=old_id, actor=self.user
@@ -426,6 +581,8 @@ def semantic_memory_update(
             source=item["source"],
             actor=self.user,
             organization_id=self.user.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
         new_ids.append(inserted_item.id)
 
@@ -445,26 +602,70 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
         items (array): List of knowledge vault items to insert.
 
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: Message about insertion results including any duplicates detected.
     """
     agent_id = (
         self.agent_state.parent_id
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+
+    inserted_count = 0
+    skipped_count = 0
+    skipped_captions = []
 
     for item in items:
-        self.knowledge_vault_manager.insert_knowledge(
+        # Check for existing similar knowledge vault items (by caption, source, and filter_tags)
+        existing_items = self.knowledge_vault_manager.list_knowledge(
             agent_state=self.agent_state,
-            agent_id=agent_id,
-            entry_type=item["entry_type"],
-            source=item["source"],
-            sensitivity=item["sensitivity"],
-            secret_value=item["secret_value"],
-            caption=item["caption"],
             actor=self.user,
-            organization_id=self.user.organization_id,
+            query="",  # Get all items
+            limit=1000,  # Get enough to check for duplicates
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
+        
+        # Check if this knowledge vault item already exists
+        is_duplicate = False
+        for existing in existing_items:
+            if (existing.caption == item["caption"] and 
+                existing.source == item["source"] and
+                existing.secret_value == item["secret_value"]):
+                is_duplicate = True
+                skipped_count += 1
+                skipped_captions.append(item["caption"])
+                break
+        
+        if not is_duplicate:
+            self.knowledge_vault_manager.insert_knowledge(
+                agent_state=self.agent_state,
+                agent_id=agent_id,
+                entry_type=item["entry_type"],
+                source=item["source"],
+                sensitivity=item["sensitivity"],
+                secret_value=item["secret_value"],
+                caption=item["caption"],
+                actor=self.user,
+                organization_id=self.user.organization_id,
+                filter_tags=filter_tags if filter_tags else None,
+                use_cache=use_cache,
+            )
+            inserted_count += 1
+    
+    # Return feedback message
+    if skipped_count > 0:
+        skipped_list = ", ".join(f"'{c}'" for c in skipped_captions[:3])
+        if len(skipped_captions) > 3:
+            skipped_list += f" and {len(skipped_captions) - 3} more"
+        return f"Inserted {inserted_count} new knowledge vault item(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
+    elif inserted_count > 0:
+        return f"Successfully inserted {inserted_count} new knowledge vault item(s)."
+    else:
+        return "No knowledge vault items were inserted."
 
 
 def knowledge_vault_update(
@@ -485,6 +686,10 @@ def knowledge_vault_update(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags and use_cache from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
 
     for old_id in old_ids:
         self.knowledge_vault_manager.delete_knowledge_by_id(
@@ -502,6 +707,8 @@ def knowledge_vault_update(
             caption=item["caption"],
             actor=self.user,
             organization_id=self.user.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
         )
 
 
@@ -638,10 +845,23 @@ def trigger_memory_update(
         if agent_state is None:
             raise ValueError(f"No agent found with type '{agent_type_str}'")
 
+        # Get filter_tags and use_cache from parent agent instance
+        # Deep copy filter_tags to ensure complete isolation between child agents
+        parent_filter_tags = getattr(self, 'filter_tags', None)
+        # Don't use 'or {}' because empty dict {} is valid and different from None
+        filter_tags = deepcopy(parent_filter_tags) if parent_filter_tags is not None else None
+        use_cache = getattr(self, 'use_cache', True)
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}")
+        
         memory_agent = agent_class(
             agent_state=agent_state,
             interface=self.interface,
             user=self.user,
+            filter_tags=filter_tags,
+            use_cache=use_cache,
         )
 
         # Work on a copy of the user message so parallel updates do not interfere

@@ -138,6 +138,8 @@ class Agent(BaseAgent):
         user: User,
         # extras
         first_message_verify_mono: bool = True,  # TODO move to config?
+        filter_tags: Optional[dict] = None,  # Filter tags for memory operations
+        use_cache: bool = True,  # Control Redis cache behavior for this request
     ):
         assert isinstance(agent_state.memory, Memory), (
             f"Memory object is not of type Memory: {type(agent_state.memory)}"
@@ -149,6 +151,11 @@ class Agent(BaseAgent):
         )
 
         self.user = user
+        # Store filter_tags as a COPY to prevent mutation across agent instances
+        from copy import deepcopy
+        # Keep None as None, don't convert to empty dict - they have different meanings
+        self.filter_tags = deepcopy(filter_tags) if filter_tags is not None else None
+        self.use_cache = use_cache  # Store use_cache for memory operations
 
         # Initialize logger early in constructor
         self.logger = logging.getLogger(f"Mirix.Agent.{agent_state.name}")

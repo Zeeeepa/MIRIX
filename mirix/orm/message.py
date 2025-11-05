@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import ForeignKey, Index
+from sqlalchemy import JSON, ForeignKey, Index
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from mirix.orm.custom_columns import (
@@ -49,6 +49,15 @@ class Message(SqlalchemyBase, OrganizationMixin, UserMixin, AgentMixin):
     tool_call_id: Mapped[Optional[str]] = mapped_column(
         nullable=True, doc="ID of the tool call"
     )
+    
+    # NEW: Filter tags for flexible filtering and categorization
+    filter_tags: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=None,
+        doc="Custom filter tags for filtering and categorization"
+    )
+    
     step_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("steps.id", ondelete="SET NULL"),
         nullable=True,
