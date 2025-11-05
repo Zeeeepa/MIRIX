@@ -18,7 +18,8 @@ Purpose: Complete Mirix AI server with multi-agent memory system
 """
 
 import os
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
 
 # Read the contents of README file
 this_directory = os.path.abspath(os.path.dirname(__file__))
@@ -139,11 +140,11 @@ extras_require = {
 os.chdir(project_root)
 
 setup(
-    name="mirix-server",
+    name="intuit-ecms-server",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
-    description="Mirix Server - Multi-Agent Personal Assistant with Advanced Memory System",
+    description="Intuit ECMS Server - Multi-Agent Personal Assistant with Advanced Memory System",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Mirix-AI/MIRIX",
@@ -201,4 +202,3 @@ setup(
     license="Apache License 2.0",
     zip_safe=False,
 )
-

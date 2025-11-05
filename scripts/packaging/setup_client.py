@@ -47,11 +47,11 @@ client_dependencies = [
 os.chdir(project_root)
 
 setup(
-    name="mirix-client",
+    name="intuit-ecms-client",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
-    description="Mirix Client - Lightweight Python client for Mirix AI server",
+    description="Intuit ECMS Client - Lightweight Python client for Intuit ECMS server",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Mirix-AI/MIRIX",
