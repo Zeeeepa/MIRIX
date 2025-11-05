@@ -498,10 +498,23 @@ async def get_agent_messages(
     agent_id: str,
     cursor: Optional[str] = None,
     limit: int = 1000,
+    use_cache: bool = True,
     x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
-    """Get messages from an agent."""
+    """Get messages from an agent.
+
+    Args:
+        agent_id: The ID of the agent
+        cursor: Cursor for pagination
+        limit: Maximum number of messages to return
+        use_cache: Control Redis cache behavior (default: True)
+        x_user_id: User ID from header
+        x_org_id: Organization ID from header
+    
+    Returns:
+        List of messages
+    """
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     return server.get_agent_recall_cursor(
@@ -510,7 +523,74 @@ async def get_agent_messages(
         before=cursor,
         limit=limit,
         reverse=True,
+        use_cache=use_cache,
     )
+
+
+class SendMessageRequest(BaseModel):
+    """Request to send a message to an agent."""
+    message: str
+    role: str
+    name: Optional[str] = None
+    stream_steps: bool = False
+    stream_tokens: bool = False
+    filter_tags: Optional[Dict[str, Any]] = None  # NEW: filter tags support
+    use_cache: bool = True  # Control Redis cache behavior
+
+
+@app.post("/agents/{agent_id}/messages", response_model=MirixResponse)
+async def send_message_to_agent(
+    agent_id: str,
+    request: SendMessageRequest,
+    x_user_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """Send a message to an agent and get a response.
+    
+    This endpoint allows sending a single message to an agent for immediate processing.
+    The message is processed synchronously through the queue system.
+    
+    Args:
+        agent_id: The ID of the agent to send the message to
+        request: The message request containing text, role, and optional filter_tags
+        x_user_id: User ID from header
+        x_org_id: Organization ID from header
+    
+    Returns:
+        MirixResponse: The agent's response including messages and usage statistics
+    """
+    server = get_server()
+    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user = server.user_manager.get_user_by_id(user_id)
+
+    try:
+        # Prepare the message
+        message_create = MessageCreate(
+            role=MessageRole(request.role),
+            content=request.message,
+            name=request.name,
+        )
+
+        # Put message on queue for processing
+        put_messages(
+            actor=user,
+            agent_id=agent_id,
+            input_messages=[message_create],
+            chaining=True,
+            filter_tags=request.filter_tags,  # Pass filter_tags to queue
+            use_cache=request.use_cache,  # Pass use_cache to queue
+        )
+
+        # For now, return a success response
+        # TODO: In the future, this could wait for and return the actual agent response
+        return MirixResponse(
+            messages=[],
+            usage={},
+        )
+
+    except Exception as e:
+        logger.error("Failed to send message to agent %s: %s", agent_id, e)
+        raise HTTPException(status_code=500, detail=f"Failed to send message: {str(e)}")
 
 
 # ============================================================================
@@ -903,6 +983,8 @@ class AddMemoryRequest(BaseModel):
     messages: List[Dict[str, Any]]
     chaining: bool = True
     verbose: bool = False
+    filter_tags: Optional[Dict[str, Any]] = None
+    use_cache: bool = True  # Control Redis cache behavior
 
 
 @router.post("/memory/add")
@@ -947,6 +1029,8 @@ async def add_memory(
         chaining=request.chaining,
         user_id=request.user_id,
         verbose=request.verbose,
+        filter_tags=request.filter_tags,
+        use_cache=request.use_cache,
     )
     
     logger.debug("Memory queued for processing: %s", meta_agent.id)
@@ -966,7 +1050,8 @@ class RetrieveMemoryRequest(BaseModel):
     user_id: str
     messages: List[Dict[str, Any]]
     limit: int = 10  # Maximum number of items to retrieve per memory type
-
+    filter_tags: Optional[Dict[str, Any]] = None  # Optional filter tags for filtering results
+    use_cache: bool = True  # Control Redis cache behavior
 
 def retrieve_memories_by_keywords(
     server: SyncServer,
@@ -974,6 +1059,8 @@ def retrieve_memories_by_keywords(
     agent_state: AgentState,
     key_words: str = "",
     limit: int = 10,
+    filter_tags: Optional[Dict[str, Any]] = None,
+    use_cache: bool = True,
 ) -> dict:
     """
     Helper function to retrieve memories based on keywords using BM25 search.
@@ -984,7 +1071,9 @@ def retrieve_memories_by_keywords(
         agent_state: Agent state (used as dummy for function signatures, not accessed in BM25)
         key_words: Keywords to search for (empty string returns recent items)
         limit: Maximum number of items to retrieve per memory type
-        
+        filter_tags: Optional filter tags for filtering results
+        use_cache: Control Redis cache behavior
+
     Returns:
         Dictionary containing all memory types with their items
     """
@@ -1002,6 +1091,8 @@ def retrieve_memories_by_keywords(
             actor=user,
             limit=limit,
             timezone_str=timezone_str,
+            filter_tags=filter_tags,
+            use_cache=use_cache,
         )
 
         # Get relevant episodic memories based on keywords
