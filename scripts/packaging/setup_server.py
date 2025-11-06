@@ -140,7 +140,7 @@ extras_require = {
 os.chdir(project_root)
 
 setup(
-    name="intuit-ecms-server",
+    name="jl-ecms-server",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
@@ -157,7 +157,7 @@ setup(
     # Include all packages
     packages=find_packages(
         where=".",
-        exclude=["tests*", "scripts*", "frontend*", "public_evaluations*", "samples*"]
+        exclude=["tests*", "scripts*", "frontend*", "public_evaluations*", "samples*"],
     ),
     package_dir={"": "."},
     include_package_data=True,

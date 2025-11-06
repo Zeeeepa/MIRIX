@@ -1,2 +1,0 @@
-[console_scripts]
-mirix-server = mirix.server.rest_api:main

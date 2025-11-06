@@ -41,6 +41,8 @@ rm -rf mirix_client.egg-info
 rm -rf mirix_server.egg-info
 rm -rf intuit_ecms_client.egg-info
 rm -rf intuit_ecms_server.egg-info
+rm -rf jl_ecms_client.egg-info
+rm -rf jl_ecms_server.egg-info
 echo -e "${GREEN}✓ Cleaned${NC}"
 echo ""
 
@@ -61,7 +63,7 @@ echo -e "${GREEN}✓ Build tools ready${NC}"
 echo ""
 
 # Build client package
-echo -e "${BLUE}[3/5] Building intuit-ecms-client package...${NC}"
+echo -e "${BLUE}[3/5] Building jl-ecms-client package...${NC}"
 python scripts/packaging/setup_client.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Client package built successfully${NC}"
@@ -74,7 +76,7 @@ fi
 echo ""
 
 # Build server package
-echo -e "${BLUE}[4/5] Building intuit-ecms-server package...${NC}"
+echo -e "${BLUE}[4/5] Building jl-ecms-server package...${NC}"
 python scripts/packaging/setup_server.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Server package built successfully${NC}"
@@ -105,8 +107,8 @@ echo -e "  ${BLUE}pip install dist/intuit_ecms_client-${CLIENT_VERSION}-py3-none
 echo -e "  ${BLUE}pip install dist/intuit_ecms_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
 echo ""
 echo "To publish to PyPI:"
-echo -e "  ${BLUE}twine upload dist/intuit-ecms-client-${CLIENT_VERSION}*${NC}"
-echo -e "  ${BLUE}twine upload dist/intuit-ecms-server-${SERVER_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl-ecms-client-${CLIENT_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl-ecms-server-${SERVER_VERSION}*${NC}"
 echo ""
 echo "To test packages:"
 echo -e "  ${BLUE}twine check dist/*${NC}"

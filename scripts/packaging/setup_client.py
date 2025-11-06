@@ -12,7 +12,8 @@ Purpose: Remote client library for Mirix server
 """
 
 import os
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
 
 # Read the contents of README file
 this_directory = os.path.abspath(os.path.dirname(__file__))
@@ -47,7 +48,7 @@ client_dependencies = [
 os.chdir(project_root)
 
 setup(
-    name="intuit-ecms-client",
+    name="jl-ecms-client",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
@@ -103,4 +104,3 @@ setup(
     license="Apache License 2.0",
     zip_safe=False,
 )
-
