@@ -29,15 +29,20 @@ project_root = os.path.dirname(os.path.dirname(this_directory))
 with open(os.path.join(project_root, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
+
 # Get version
 def get_version():
     import re
+
     version_file = os.path.join(project_root, "mirix", "__init__.py")
     with open(version_file, "r", encoding="utf-8") as version_f:
-        version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_f.read(), re.M)
+        version_match = re.search(
+            r"^__version__ = ['\"]([^'\"]*)['\"]", version_f.read(), re.M
+        )
         if version_match:
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
+
 
 # Server dependencies (comprehensive)
 server_dependencies = [
@@ -49,32 +54,27 @@ server_dependencies = [
     "Markdown>=3.5.0",
     "Pillow>=10.2.0,<11.0.0",
     "scikit-image>=0.22.0",
-    
     # LLM APIs
     "openai==1.72.0",
     "tiktoken>=0.5.0",
     "google-genai>=0.4.0",
     "anthropic>=0.23.0",
     "cohere>=4.0.0",
-    
     # FastAPI and server
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.31.1",
     "python-multipart>=0.0.6",
     "httpx>=0.25.0",
     "httpx_sse>=0.3.0",
-    
     # Database
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "pg8000>=1.30.0",
     "pgvector>=0.2.0",
     "redis>=5.0.0",  # Redis client
-    
     # Pydantic and validation
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    
     # Utilities
     "python-dotenv>=1.0.0",
     "demjson3>=3.0.0",
@@ -91,26 +91,27 @@ server_dependencies = [
     "anyio>=4.7.0",
     "pyyaml>=6.0.0",
     "requests>=2.31.0",
-    
     # LlamaIndex
     "llama_index>=0.9.0",
     "llama-index-embeddings-google-genai>=0.1.0",
-    
     # Composio and MCP
     "composio>=0.3.0",
     "mcp>=0.1.0",
-    
     # Google APIs
     "google-auth>=2.0.0",
     "google-auth-oauthlib>=1.0.0",
     "google-auth-httplib2>=0.1.0",
     "google-api-python-client>=2.0.0",
-    
     # Observability
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
     "opentelemetry-exporter-otlp>=1.20.0",
     "opentelemetry-instrumentation-requests>=0.41b0",
+    # Voice processing
+    "SpeechRecognition>=3.10.0",
+    "pydub>=0.25.0",
+    # Protobuf (for queue message serialization) - compatible with pynumaflow
+    "protobuf>=3.20,<6.0",
 ]
 
 # Optional dependencies
@@ -125,14 +126,6 @@ extras_require = {
         "mypy>=1.5.0",
         "ruff>=0.1.0",
         "pyright>=1.1.0",
-    ],
-    "voice": [
-        "SpeechRecognition>=3.10.0",
-        "pydub>=0.25.0",
-    ],
-    "full": [
-        "SpeechRecognition>=3.10.0",
-        "pydub>=0.25.0",
     ],
 }
 
