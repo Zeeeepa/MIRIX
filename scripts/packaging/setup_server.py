@@ -55,7 +55,7 @@ server_dependencies = [
     "Pillow>=10.2.0,<11.0.0",
     "scikit-image>=0.22.0",
     # LLM APIs
-    "openai==1.72.0",
+    "openai>=1.108.1,<2.0.0",
     "tiktoken>=0.5.0",
     "google-genai>=0.4.0",
     "anthropic>=0.23.0",
