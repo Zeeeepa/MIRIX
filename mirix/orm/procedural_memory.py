@@ -25,7 +25,7 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     Stores procedural memory entries, such as workflows, step-by-step guides, or how-to knowledge.
 
     type:        The category or tag of the procedure (e.g. 'workflow', 'guide', 'script')
-    description: Short descriptive text about what this procedure accomplishes
+    summary: Short descriptive text about what this procedure accomplishes
     steps:       Step-by-step instructions or method
     """
 
