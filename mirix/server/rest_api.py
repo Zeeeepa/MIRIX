@@ -10,6 +10,7 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
+import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -44,6 +45,7 @@ from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
 from mirix.server.server import SyncServer
+from mirix.settings import model_settings
 from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
@@ -262,6 +264,115 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
     except Exception as e:
         logger.error("Error in extracting topics from messages: %s", e)
 
+    return None
+
+
+def _flatten_messages_to_plain_text(messages: List[Dict[str, Any]]) -> str:
+    """
+    Flatten OpenAI-style message payloads into a simple conversation transcript.
+    """
+    transcript_parts: List[str] = []
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        parts: List[str] = []
+        if isinstance(content, list):
+            for chunk in content:
+                if isinstance(chunk, dict):
+                    text = chunk.get("text")
+                    if text:
+                        parts.append(text.strip())
+                elif isinstance(chunk, str):
+                    parts.append(chunk.strip())
+        elif isinstance(content, str):
+            parts.append(content.strip())
+
+        combined = " ".join(filter(None, parts)).strip()
+        if combined:
+            transcript_parts.append(f"{role.upper()}: {combined}")
+
+    return "\n".join(transcript_parts)
+
+
+def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: str) -> Optional[str]:
+    """
+    Extract topics using a locally hosted Ollama model via the /api/chat endpoint.
+
+    Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
+    """
+
+    import ipdb; ipdb.set_trace()
+
+    base_url = model_settings.ollama_base_url
+    if not base_url:
+        logger.warning(
+            "local_model_for_retrieval provided (%s) but MIRIX_OLLAMA_BASE_URL is not configured",
+            model_name,
+        )
+        return None
+
+    conversation = _flatten_messages_to_plain_text(messages)
+    if not conversation:
+        logger.debug("No text content found in messages for local topic extraction")
+        return None
+
+    payload = {
+        "model": model_name,
+        "stream": False,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant that extracts the topic from the user's input. "
+                    "Return a concise list of topics separated by ';' and nothing else."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Conversation transcript:\n"
+                    f"{conversation}\n\n"
+                    "Respond ONLY with the topic(s) separated by ';'."
+                ),
+            },
+        ],
+        "options": {
+            "temperature": 0,
+        },
+    }
+
+    try:
+        import ipdb; ipdb.set_trace()
+        response = requests.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json=payload,
+            timeout=30,
+            proxies={"http": None, "https": None},
+        )
+        response.raise_for_status()
+        response_data = response.json()
+    except requests.RequestException as exc:
+        logger.error("Failed to extract topics with local model %s: %s", model_name, exc)
+        return None
+
+    message_payload = response_data.get("message") if isinstance(response_data, dict) else None
+    text_response: Optional[str] = None
+    if isinstance(message_payload, dict):
+        text_response = message_payload.get("content")
+    elif isinstance(response_data, dict):
+        text_response = response_data.get("content")
+
+    if isinstance(text_response, str):
+        topics = text_response.strip()
+        logger.debug("Extracted topics via local model %s: %s", model_name, topics)
+        return topics or None
+
+    logger.warning(
+        "Unexpected response format from Ollama topic extraction: %s",
+        response_data,
+    )
     return None
 
 
@@ -1050,6 +1161,7 @@ class RetrieveMemoryRequest(BaseModel):
     user_id: str
     messages: List[Dict[str, Any]]
     limit: int = 10  # Maximum number of items to retrieve per memory type
+    local_model_for_retrieval: Optional[str] = None  # Optional local Ollama model for topic extraction
     filter_tags: Optional[Dict[str, Any]] = None  # Optional filter tags for filtering results
     use_cache: bool = True  # Control Redis cache behavior
 
@@ -1291,6 +1403,7 @@ async def retrieve_memory_with_conversation(
     Retrieve relevant memories based on conversation context.
     Extracts topics from the conversation messages and uses them to retrieve relevant memories.
     """
+
     server = get_server()
     user_id, org_id = get_user_and_org(x_user_id, x_org_id)
     user = server.user_manager.get_user_by_id(user_id)
@@ -1321,16 +1434,29 @@ async def retrieve_memory_with_conversation(
             if has_content:
                 break
 
+    topics: Optional[str] = None
     if has_content:
-        # Extract topics using LLM only if there's actual content
-        topics = extract_topics_from_messages(request.messages, llm_config)
+        # Prefer local model for topic extraction when explicitly requested
+        if request.local_model_for_retrieval:
+            topics = extract_topics_with_local_model(
+                messages=request.messages,
+                model_name=request.local_model_for_retrieval,
+            )
+            if topics is None:
+                logger.warning(
+                    "Local topic extraction failed for model %s, falling back to default LLM",
+                    request.local_model_for_retrieval,
+                )
+
+        if topics is None:
+            topics = extract_topics_from_messages(request.messages, llm_config)
+
         logger.debug("Extracted topics from conversation: %s", topics)
         key_words = topics if topics else ""
     else:
         # No content - skip LLM call and retrieve recent items
         logger.debug("No content in messages - retrieving recent items")
         key_words = ""
-        topics = None
 
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(

@@ -953,6 +953,7 @@ class MirixClient(AbstractClient):
         limit: int = 10,
         filter_tags: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,
+        local_model_for_retrieval: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on conversation context.
@@ -992,6 +993,7 @@ class MirixClient(AbstractClient):
             "user_id": user_id,
             "messages": messages,
             "limit": limit,
+            "local_model_for_retrieval": local_model_for_retrieval
         }
         
         if filter_tags is not None:
@@ -1115,22 +1117,4 @@ class MirixClient(AbstractClient):
     # ========================================================================
     # LangChain/Composio/CrewAI Integration (Not Supported)
     # ========================================================================
-
-    def load_langchain_tool(
-        self,
-        langchain_tool: "LangChainBaseTool",
-        additional_imports_module_attr_map: dict[str, str] = None,
-    ) -> Tool:
-        """Load LangChain tool."""
-        raise NotImplementedError(
-            "load_langchain_tool not supported in MirixClient. "
-            "Tools must be created on the server side."
-        )
-
-    def load_composio_tool(self, action: "ActionType") -> Tool:
-        """Load Composio tool."""
-        raise NotImplementedError(
-            "load_composio_tool not supported in MirixClient. "
-            "Tools must be created on the server side."
-        )
 

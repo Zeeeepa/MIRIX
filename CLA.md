@@ -1,6 +1,3 @@
-# MIRIX Project Contributor License Agreement (CLA)
-**Version 1.0 – November 2025**
-
 This Contributor License Agreement (“**Agreement**”) is entered into by the individual or entity signing below (“**You**”) and **Yu Wang (the “MIRIX Project Owner”)**, effective as of the latest signature date below.
 
 The purpose of this Agreement is to clarify the intellectual-property rights granted by You to the MIRIX Project, administered by Yu Wang, and to ensure that the MIRIX Project Owner retains full rights to use, modify, and commercialize the MIRIX open-source project.
@@ -99,4 +96,4 @@ I am contributing on behalf of my employer or entity, and have authority to bind
 
 ---
 
-© 2025 Yu Wang. All Rights Reserved.
+© 2025 mirix.io. All Rights Reserved.

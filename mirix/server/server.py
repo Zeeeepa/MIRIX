@@ -533,7 +533,6 @@ class SyncServer(Server):
                 OllamaProvider(
                     base_url=model_settings.ollama_base_url,
                     api_key=None,
-                    default_prompt_formatter=model_settings.default_prompt_formatter,
                 )
             )
         # Check for database-stored API key first, fall back to model_settings
@@ -569,7 +568,7 @@ class SyncServer(Server):
             self._enabled_providers.append(
                 TogetherProvider(
                     api_key=model_settings.together_api_key,
-                    default_prompt_formatter=model_settings.default_prompt_formatter,
+                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
                 )
             )
         if model_settings.vllm_api_base:
@@ -577,7 +576,7 @@ class SyncServer(Server):
             self._enabled_providers.append(
                 VLLMCompletionsProvider(
                     base_url=model_settings.vllm_api_base,
-                    default_prompt_formatter=model_settings.default_prompt_formatter,
+                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
                 )
             )
             # NOTE: to use the /chat/completions endpoint, you need to specify extra flags on vLLM startup
