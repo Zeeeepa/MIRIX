@@ -79,6 +79,7 @@ setup(
         "mirix.schemas.openai",
         "mirix.helpers",
         "mirix.functions",
+        "mirix.functions.function_sets",
     ],
     py_modules=[
         "mirix.system",
