@@ -1,12 +1,12 @@
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
 
 from pydantic import Field
 
+from mirix.constants import DEFAULT_ORG_ID
 from mirix.helpers.datetime_helpers import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
-from mirix.services.organization_manager import OrganizationManager
 
 
 class UserBase(MirixBase):
@@ -34,7 +34,7 @@ class User(UserBase):
         description="The unique identifier of the user.",
     )
     organization_id: Optional[str] = Field(
-        OrganizationManager.DEFAULT_ORG_ID,
+        DEFAULT_ORG_ID,
         description="The organization id of the user",
     )
     name: str = Field(..., description="The name of the user.")

@@ -4,7 +4,7 @@ Mirix Client Package Setup
 ===========================
 
 This setup script packages ONLY the client-side components of Mirix.
-The client package is lightweight and contains only what's needed to 
+The client package is lightweight and contains only what's needed to
 communicate with a Mirix server.
 
 Package Name: mirix-client
@@ -23,15 +23,20 @@ project_root = os.path.dirname(os.path.dirname(this_directory))
 with open(os.path.join(project_root, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
+
 # Get version
 def get_version():
     import re
+
     version_file = os.path.join(project_root, "mirix", "__init__.py")
     with open(version_file, "r", encoding="utf-8") as version_f:
-        version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_f.read(), re.M)
+        version_match = re.search(
+            r"^__version__ = ['\"]([^'\"]*)['\"]", version_f.read(), re.M
+        )
         if version_match:
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
+
 
 # Client-specific dependencies (minimal)
 client_dependencies = [
@@ -40,8 +45,13 @@ client_dependencies = [
     "pydantic-settings>=2.0.0",
     "python-dotenv>=1.0.0",
     "httpx>=0.25.0",
+    "jinja2>=3.1.0",
+    "demjson3>=3.0.0",
+    "json-repair>=0.25.0",
     "rich>=13.7.1,<14.0.0",
     "pytz>=2024.1",
+    "docstring-parser>=0.15",
+    "pyhumps>=3.8.0",
 ]
 
 # Change to project root directory so we can use relative paths
@@ -68,6 +78,14 @@ setup(
         "mirix.schemas",
         "mirix.schemas.openai",
         "mirix.helpers",
+        "mirix.functions",
+    ],
+    py_modules=[
+        "mirix.system",
+        "mirix.settings",
+        "mirix.log",
+        "mirix.constants",
+        "mirix.errors",
     ],
     package_dir={"": "."},
     include_package_data=True,

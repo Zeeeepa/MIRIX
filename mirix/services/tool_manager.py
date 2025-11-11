@@ -18,7 +18,7 @@ from mirix.constants import (
     UNIVERSAL_MEMORY_TOOLS,
 )
 from mirix.functions.functions import derive_openai_json_schema, load_function_set
-from mirix.orm.enums import ToolType
+from mirix.schemas.enums import ToolType
 
 # TODO: Remove this once we translate all of these to the ORM
 from mirix.orm.errors import NoResultFound

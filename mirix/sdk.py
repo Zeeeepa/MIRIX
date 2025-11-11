@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from mirix.client.client import create_client
+from mirix.local_client import create_client
 from mirix.schemas.agent import AgentType, CreateMetaAgent
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.llm_config import LLMConfig
@@ -506,7 +506,7 @@ class Mirix:
                 tags=["math", "utility"]
             )
         """
-        from mirix.orm.enums import ToolType
+        from mirix.schemas.enums import ToolType
         from mirix.schemas.tool import Tool as PydanticTool
         from mirix.services.tool_manager import ToolManager
 

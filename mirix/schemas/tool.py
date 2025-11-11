@@ -15,7 +15,7 @@ from mirix.functions.functions import (
 )
 from mirix.functions.helpers import generate_langchain_tool_wrapper
 from mirix.functions.schema_generator import generate_schema_from_args_schema_v2
-from mirix.orm.enums import ToolType
+from mirix.schemas.enums import ToolType
 from mirix.schemas.mirix_base import MirixBase
 
 if TYPE_CHECKING:

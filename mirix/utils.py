@@ -28,7 +28,7 @@ import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
 
 import mirix
-from mirix.log import get_logger
+from mirix.client.utils import get_utc_time, json_dumps  # Re-export from client
 from mirix.constants import (
     CLI_WARNING_PREFIX,
     CORE_MEMORY_HUMAN_CHAR_LIMIT,
@@ -38,10 +38,16 @@ from mirix.constants import (
     MIRIX_DIR,
     TOOL_CALL_ID_MAX_LEN,
 )
+from mirix.log import get_logger
+from mirix.schemas.message import MessageCreate, MessageRole
+from mirix.schemas.mirix_message_content import (
+    CloudFileContent,
+    FileContent,
+    ImageContent,
+    TextContent,
+)
 from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
-from mirix.schemas.mirix_message_content import TextContent, ImageContent, FileContent, CloudFileContent
-from mirix.schemas.message import MessageCreate, MessageRole
 
 logger = get_logger(__name__)
 
@@ -56,18 +62,23 @@ _default_verbose = True  # Default to True to show logs unless explicitly disabl
 if "MIRIX_VERBOSE" in os.environ:
     _default_verbose = os.environ["MIRIX_VERBOSE"].lower() in ("true", "1", "yes")
 
-verbose_context = contextvars.ContextVar('verbose', default=_default_verbose)
+verbose_context = contextvars.ContextVar("verbose", default=_default_verbose)
+
 
 def get_verbose() -> bool:
     """Get verbose setting for current context (thread-safe)"""
     return verbose_context.get()
 
+
 def set_verbose(value: bool) -> None:
     """Set verbose setting for current context (thread-safe)"""
     verbose_context.set(value)
 
+
 # Keep VERBOSE for backward compatibility (but use contextvars internally)
-VERBOSE = _default_verbose  # Legacy global variable (deprecated, use get_verbose() instead)
+VERBOSE = (
+    _default_verbose  # Legacy global variable (deprecated, use get_verbose() instead)
+)
 
 ADJECTIVE_BANK = [
     "beautiful",
@@ -954,10 +965,7 @@ def get_local_time(timezone=None):
     return time_str.strip()
 
 
-def get_utc_time() -> datetime:
-    """Get the current UTC time"""
-    # return datetime.now(pytz.utc)
-    return datetime.now(timezone.utc)
+# get_utc_time is imported from mirix.client.utils
 
 
 def format_datetime(dt):
@@ -1176,13 +1184,7 @@ def create_uuid_from_string(val: str):
     return uuid.UUID(hex=hex_string)
 
 
-def json_dumps(data, indent=2):
-    def safe_serializer(obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        raise TypeError(f"Type {type(obj)} not serializable")
-
-    return json.dumps(data, indent=indent, default=safe_serializer, ensure_ascii=False)
+# json_dumps is imported from mirix.client.utils
 
 
 def json_loads(data):
@@ -1594,7 +1596,8 @@ def generate_unique_short_id(
     # If we can't find a unique ID after max_attempts, fall back to longer ID
     return generate_short_id(prefix, length + 2)
 
-def convert_message_to_mirix_message(message: List[dict], role='user') -> List:
+
+def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
     if isinstance(message, str):
         content = [TextContent(text=message)]
         input_messages = [
@@ -1692,12 +1695,9 @@ def convert_message_to_mirix_message(message: List[dict], role='user') -> List:
                 raise ValueError(f"Unknown message type: {m['type']}")
 
         content = [convert_message(m) for m in message]
-        input_messages = [
-            MessageCreate(role=MessageRole(role), content=content)
-        ]
+        input_messages = [MessageCreate(role=MessageRole(role), content=content)]
 
     else:
         raise ValueError(f"Invalid message type: {type(message)}")
 
     return input_messages
-

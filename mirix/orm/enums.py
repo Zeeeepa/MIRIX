@@ -1,15 +1,7 @@
 from enum import Enum
 
-
-class ToolType(str, Enum):
-    CUSTOM = "custom"
-    MIRIX_CORE = "mirix_core"
-    MIRIX_CODER_CORE = "mirix_coder_core"
-    MIRIX_MEMORY_CORE = "mirix_memory_core"
-    MIRIX_EXTRA = "mirix_extra"
-    MIRIX_MCP = "mirix_mcp"
-    MIRIX_MULTI_AGENT_CORE = "mirix_multi_agent_core"
-    USER_DEFINED = "user_defined"
+# Import ToolType from schemas (moved to avoid circular imports)
+from mirix.schemas.enums import ToolType  # noqa: F401
 
 
 class JobType(str, Enum):

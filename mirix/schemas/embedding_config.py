@@ -2,9 +2,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from mirix.log import get_logger
-
-logger = get_logger(__name__)
 
 class EmbeddingConfig(BaseModel):
     """
