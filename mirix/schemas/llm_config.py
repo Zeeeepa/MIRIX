@@ -6,13 +6,14 @@ from mirix.log import get_logger
 
 logger = get_logger(__name__)
 
+
 class LLMConfig(BaseModel):
     """
     Configuration for a Language Model (LLM) model. This object specifies all the information necessary to access an LLM model to usage with Letta, except for secret keys.
 
     Attributes:
         model (str): The name of the LLM model.
-        model_endpoint_type (str): The endpoint type for the model.
+        model_endpoint_type (str): The endpoint type for the model (openai, anthropic, azure_openai, etc.).
         model_endpoint (str): The endpoint for the model.
         model_wrapper (str): The wrapper for the model. This is used to wrap additional text around the input/output of the model. This is useful for text-to-text completions, such as the Completions API in OpenAI.
         context_window (int): The context window size for the model.
@@ -45,7 +46,7 @@ class LLMConfig(BaseModel):
         "vllm",
         "hugging-face",
         "mistral",
-        "together",  # completions endpoint
+        "together",
         "bedrock",
         "deepseek",
         "xai",
@@ -80,6 +81,10 @@ class LLMConfig(BaseModel):
     max_reasoning_tokens: int = Field(
         0,
         description="Configurable thinking budget for extended thinking, only used if enable_reasoner is True. Minimum value is 1024.",
+    )
+    put_inner_thoughts_in_kwargs: Optional[bool] = Field(
+        None,
+        description="Whether to put inner thoughts/thinking inside tool call kwargs instead of as separate content",
     )
     api_key: Optional[str] = Field(
         None,
