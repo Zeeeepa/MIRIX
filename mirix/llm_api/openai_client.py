@@ -86,13 +86,13 @@ class OpenAIClient(LLMClientBase):
 
         kwargs = {"api_key": api_key, "base_url": self.llm_config.model_endpoint}
 
-        # Add custom headers from OPENAI_EXTRA_HEADERS env var
+        # Start with headers from OPENAI_EXTRA_HEADERS env var
+        headers = {}
         if model_settings.openai_extra_headers:
             try:
                 import json
 
                 headers = json.loads(model_settings.openai_extra_headers)
-                kwargs["default_headers"] = headers
 
                 logger.info(
                     f"OpenAI Client - Setting {len(headers)} custom header(s) from OPENAI_EXTRA_HEADERS"
@@ -101,6 +101,34 @@ class OpenAIClient(LLMClientBase):
                     logger.info(f"  {header_name}: {header_value}")
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse OPENAI_EXTRA_HEADERS as JSON: {e}")
+
+        # Add auth provider headers (sync)
+        if hasattr(self.llm_config, "auth_provider") and self.llm_config.auth_provider:
+            from mirix.llm_api.auth_provider import get_auth_provider
+
+            auth_provider = get_auth_provider(self.llm_config.auth_provider)
+            if auth_provider:
+                try:
+                    auth_headers = auth_provider.get_auth_headers()  # Sync call
+                    logger.info(
+                        f"OpenAI Client - Using auth provider '{self.llm_config.auth_provider}' "
+                        f"to inject {len(auth_headers)} header(s)"
+                    )
+                    headers.update(auth_headers)
+                except Exception as e:
+                    logger.error(
+                        f"Failed to get auth headers from provider '{self.llm_config.auth_provider}': {e}"
+                    )
+                    # Continue without auth headers rather than failing the request
+            else:
+                logger.warning(
+                    f"Auth provider '{self.llm_config.auth_provider}' not found in registry. "
+                    "Make sure to register it before using."
+                )
+
+        # Set headers if any were collected
+        if headers:
+            kwargs["default_headers"] = headers
 
         return kwargs
 
@@ -340,7 +368,8 @@ class OpenAIClient(LLMClientBase):
         """
         Performs underlying asynchronous request to OpenAI API and returns raw response dict.
         """
-        client = AsyncOpenAI(**self._prepare_client_kwargs())
+        client_kwargs = self._prepare_client_kwargs()
+        client = AsyncOpenAI(**client_kwargs)
         response: ChatCompletion = await client.chat.completions.create(**request_data)
         return response.model_dump()
 
@@ -376,7 +405,8 @@ class OpenAIClient(LLMClientBase):
         """
         Performs underlying asynchronous streaming request to OpenAI and returns the async stream iterator.
         """
-        client = AsyncOpenAI(**self._prepare_client_kwargs())
+        client_kwargs = self._prepare_client_kwargs()
+        client = AsyncOpenAI(**client_kwargs)
         response_stream: AsyncStream[ChatCompletionChunk] = (
             await client.chat.completions.create(**request_data, stream=True)
         )

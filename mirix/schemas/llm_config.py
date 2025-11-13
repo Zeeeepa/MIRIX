@@ -90,6 +90,10 @@ class LLMConfig(BaseModel):
         None,
         description="Custom API key for this specific model configuration (used for custom models)",
     )
+    auth_provider: Optional[str] = Field(
+        None,
+        description="Name of registered auth provider for dynamic header injection (e.g., for claims-based tickets)",
+    )
 
     # Azure-specific fields (Azure OpenAI only)
     api_version: Optional[str] = Field(
