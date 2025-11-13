@@ -28,8 +28,8 @@ def load_config(config_path: str) -> Dict[str, Any]:
         
     Example:
         >>> config = load_config("mirix/configs/mirix.yaml")
-        >>> client = MirixClient(project="test")
-        >>> client.initialize_meta_agent(config=config)
+        >>> client = MirixClient(org_id="demo-org")
+        >>> client.initialize_meta_agent(user_id="user-123", config=config)
     """
     import yaml
     

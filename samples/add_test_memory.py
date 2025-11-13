@@ -308,7 +308,6 @@ def main():
     logger.info("\nInitializing MirixClient...")
     client = MirixClient(
         api_key=None,
-        user_id=user_id,
         org_id=org_id,
         debug=False,  # Reduce noise in output
     )
@@ -321,6 +320,7 @@ def main():
         config_path = project_root / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
         
         client.initialize_meta_agent(
+            user_id=user_id,
             config_path=str(config_path),
             update_agents=True
         )
@@ -374,4 +374,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
 import requests
-from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -139,28 +139,28 @@ app.add_middleware(
 
 
 def get_user_and_org(
-    x_user_id: Optional[str] = None,
-    x_org_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> tuple[str, str]:
     """
-    Get user_id and org_id from headers or use defaults.
+    Return the provided user/org IDs or fall back to server defaults.
     
     Returns:
         tuple[str, str]: (user_id, org_id)
     """
     server = get_server()
     
-    if x_user_id:
-        user_id = x_user_id
-        org_id = x_org_id or server.organization_manager.DEFAULT_ORG_ID
-    else:
-        user_id = server.user_manager.DEFAULT_USER_ID
-        org_id = server.organization_manager.DEFAULT_ORG_ID
+    resolved_user_id = user_id or server.user_manager.DEFAULT_USER_ID
+    resolved_org_id = org_id or server.organization_manager.DEFAULT_ORG_ID
     
-    return user_id, org_id
+    return resolved_user_id, resolved_org_id
 
 
-def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
+def extract_topics_from_messages(
+    messages: List[Dict[str, Any]],
+    llm_config: LLMConfig,
+    org_id: Optional[str] = None,
+) -> Optional[str]:
     """
     Extract topics from a list of messages using LLM.
 
@@ -183,7 +183,9 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
                 new_messages.extend(msg["content"])
             messages = new_messages
 
-        temporary_messages = convert_message_to_mirix_message(messages)
+        temporary_messages = convert_message_to_mirix_message(
+            messages, org_id=org_id
+        )
         temporary_messages = [prepare_input_message_create(msg, agent_id="topic_extraction", wrap_user_message=False, wrap_system_message=True) for msg in temporary_messages]
 
         # Add instruction message for topic extraction
@@ -303,8 +305,6 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
     """
 
-    import ipdb; ipdb.set_trace()
-
     base_url = model_settings.ollama_base_url
     if not base_url:
         logger.warning(
@@ -344,7 +344,6 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     }
 
     try:
-        import ipdb; ipdb.set_trace()
         response = requests.post(
             f"{base_url.rstrip('/')}/api/chat",
             json=payload,
@@ -417,12 +416,10 @@ async def list_agents(
     limit: int = 100,
     cursor: Optional[str] = None,
     parent_id: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List all agents for the authenticated user."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     
     tags_list = tags.split(",") if tags else None
@@ -460,12 +457,10 @@ class CreateAgentRequest(BaseModel):
 @router.post("/agents", response_model=AgentState)
 async def create_agent(
     request: CreateAgentRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Create a new agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(request.user_id, request.org_id)
     user = server.user_manager.get_user_by_id(user_id)
 
     # Create memory blocks if provided
@@ -506,12 +501,10 @@ async def create_agent(
 @router.get("/agents/{agent_id}", response_model=AgentState)
 async def get_agent(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get an agent by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.agent_manager.get_agent_by_id(agent_id, actor=user)
 
@@ -519,12 +512,10 @@ async def get_agent(
 @router.delete("/agents/{agent_id}")
 async def delete_agent(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Delete an agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     server.agent_manager.delete_agent(agent_id, actor=user)
     return {"status": "success", "message": f"Agent {agent_id} deleted"}
@@ -549,12 +540,10 @@ class UpdateAgentRequest(BaseModel):
 async def update_agent(
     agent_id: str,
     request: UpdateAgentRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Update an agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
 
     # TODO: Implement update_agent in server
@@ -568,12 +557,10 @@ async def update_agent(
 @router.get("/agents/{agent_id}/memory", response_model=Memory)
 async def get_agent_memory(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get an agent's in-context memory."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.get_agent_memory(agent_id=agent_id, actor=user)
 
@@ -581,12 +568,10 @@ async def get_agent_memory(
 @router.get("/agents/{agent_id}/memory/archival", response_model=ArchivalMemorySummary)
 async def get_archival_memory_summary(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get archival memory summary."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.get_archival_memory_summary(agent_id=agent_id, actor=user)
 
@@ -594,12 +579,10 @@ async def get_archival_memory_summary(
 @router.get("/agents/{agent_id}/memory/recall", response_model=RecallMemorySummary)
 async def get_recall_memory_summary(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get recall memory summary."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.get_recall_memory_summary(agent_id=agent_id, actor=user)
 
@@ -610,8 +593,6 @@ async def get_agent_messages(
     cursor: Optional[str] = None,
     limit: int = 1000,
     use_cache: bool = True,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get messages from an agent.
 
@@ -620,14 +601,12 @@ async def get_agent_messages(
         cursor: Cursor for pagination
         limit: Maximum number of messages to return
         use_cache: Control Redis cache behavior (default: True)
-        x_user_id: User ID from header
-        x_org_id: Organization ID from header
     
     Returns:
         List of messages
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     return server.get_agent_recall_cursor(
         user_id=user_id,
         agent_id=agent_id,
@@ -653,8 +632,6 @@ class SendMessageRequest(BaseModel):
 async def send_message_to_agent(
     agent_id: str,
     request: SendMessageRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Send a message to an agent and get a response.
     
@@ -664,14 +641,12 @@ async def send_message_to_agent(
     Args:
         agent_id: The ID of the agent to send the message to
         request: The message request containing text, role, and optional filter_tags
-        x_user_id: User ID from header
-        x_org_id: Organization ID from header
     
     Returns:
         MirixResponse: The agent's response including messages and usage statistics
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
 
     try:
@@ -713,12 +688,10 @@ async def send_message_to_agent(
 async def list_tools(
     cursor: Optional[str] = None,
     limit: int = 50,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List all tools."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=user)
 
@@ -726,12 +699,10 @@ async def list_tools(
 @router.get("/tools/{tool_id}", response_model=Tool)
 async def get_tool(
     tool_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get a tool by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.tool_manager.get_tool_by_id(tool_id, actor=user)
 
@@ -739,12 +710,10 @@ async def get_tool(
 @router.post("/tools", response_model=Tool)
 async def create_tool(
     tool: Tool,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Create a new tool."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.tool_manager.create_tool(tool, actor=user)
 
@@ -752,12 +721,10 @@ async def create_tool(
 @router.delete("/tools/{tool_id}")
 async def delete_tool(
     tool_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Delete a tool."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     server.tool_manager.delete_tool_by_id(tool_id, actor=user)
     return {"status": "success", "message": f"Tool {tool_id} deleted"}
@@ -771,12 +738,10 @@ async def delete_tool(
 @router.get("/blocks", response_model=List[Block])
 async def list_blocks(
     label: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List all blocks."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.block_manager.get_blocks(actor=user, label=label)
 
@@ -784,12 +749,10 @@ async def list_blocks(
 @router.get("/blocks/{block_id}", response_model=Block)
 async def get_block(
     block_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get a block by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.block_manager.get_block_by_id(block_id, actor=user)
 
@@ -797,12 +760,10 @@ async def get_block(
 @router.post("/blocks", response_model=Block)
 async def create_block(
     block: Block,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Create a block."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     return server.block_manager.create_or_update_block(block, actor=user)
 
@@ -810,12 +771,10 @@ async def create_block(
 @router.delete("/blocks/{block_id}")
 async def delete_block(
     block_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Delete a block."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org()
     user = server.user_manager.get_user_by_id(user_id)
     server.block_manager.delete_block(block_id, actor=user)
     return {"status": "success", "message": f"Block {block_id} deleted"}
@@ -828,8 +787,6 @@ async def delete_block(
 
 @router.get("/config/llm", response_model=List[LLMConfig])
 async def list_llm_configs(
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List available LLM configurations."""
     server = get_server()
@@ -838,8 +795,6 @@ async def list_llm_configs(
 
 @router.get("/config/embedding", response_model=List[EmbeddingConfig])
 async def list_embedding_configs(
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List available embedding configurations."""
     server = get_server()
@@ -855,8 +810,6 @@ async def list_embedding_configs(
 async def list_organizations(
     cursor: Optional[str] = None,
     limit: int = 50,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """List organizations."""
     server = get_server()
@@ -866,8 +819,6 @@ async def list_organizations(
 @router.post("/organizations", response_model=Organization)
 async def create_organization(
     name: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Create an organization."""
     server = get_server()
@@ -879,8 +830,6 @@ async def create_organization(
 @router.get("/organizations/{org_id}", response_model=Organization)
 async def get_organization(
     org_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get an organization by ID."""
     server = get_server()
@@ -948,8 +897,6 @@ async def create_or_get_organization(
 @router.get("/users/{user_id}", response_model=User)
 async def get_user(
     user_id: str,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """Get a user by ID."""
     server = get_server()
@@ -1020,6 +967,8 @@ async def create_or_get_user(
 class InitializeMetaAgentRequest(BaseModel):
     """Request model for initializing a meta agent."""
 
+    user_id: str
+    org_id: Optional[str] = None
     config: Dict[str, Any]
     project: Optional[str] = None
     update_agents: Optional[bool] = False
@@ -1028,8 +977,6 @@ class InitializeMetaAgentRequest(BaseModel):
 @router.post("/agents/meta/initialize", response_model=AgentState)
 async def initialize_meta_agent(
     request: InitializeMetaAgentRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """
     Initialize a meta agent with configuration.
@@ -1037,7 +984,7 @@ async def initialize_meta_agent(
     This creates a meta memory agent that manages specialized memory agents.
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(request.user_id, request.org_id)
     user = server.user_manager.get_user_by_id(user_id)
 
     # Extract config components
@@ -1090,6 +1037,7 @@ class AddMemoryRequest(BaseModel):
     """Request model for adding memory."""
 
     user_id: str
+    org_id: Optional[str] = None
     meta_agent_id: str
     messages: List[Dict[str, Any]]
     chaining: bool = True
@@ -1101,8 +1049,6 @@ class AddMemoryRequest(BaseModel):
 @router.post("/memory/add")
 async def add_memory(
     request: AddMemoryRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """
     Add conversation turns to memory (async via queue).
@@ -1111,7 +1057,7 @@ async def add_memory(
     Processing happens in the background, allowing for fast API response times.
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(request.user_id, request.org_id)
     user = server.user_manager.get_user_by_id(user_id)
     
     # Get the meta agent by ID
@@ -1130,7 +1076,7 @@ async def add_memory(
             new_message.extend(msg["content"])
         message = new_message
 
-    input_messages = convert_message_to_mirix_message(message)
+    input_messages = convert_message_to_mirix_message(message, org_id=org_id)
 
     # Queue for async processing instead of synchronous execution
     put_messages(
@@ -1159,6 +1105,7 @@ class RetrieveMemoryRequest(BaseModel):
     """Request model for retrieving memory."""
 
     user_id: str
+    org_id: Optional[str] = None
     messages: List[Dict[str, Any]]
     limit: int = 10  # Maximum number of items to retrieve per memory type
     local_model_for_retrieval: Optional[str] = None  # Optional local Ollama model for topic extraction
@@ -1396,8 +1343,6 @@ def retrieve_memories_by_keywords(
 @router.post("/memory/retrieve/conversation")
 async def retrieve_memory_with_conversation(
     request: RetrieveMemoryRequest,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on conversation context.
@@ -1405,7 +1350,7 @@ async def retrieve_memory_with_conversation(
     """
 
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(request.user_id, request.org_id)
     user = server.user_manager.get_user_by_id(user_id)
 
     # Get all agents for this user
@@ -1449,7 +1394,9 @@ async def retrieve_memory_with_conversation(
                 )
 
         if topics is None:
-            topics = extract_topics_from_messages(request.messages, llm_config)
+            topics = extract_topics_from_messages(
+                request.messages, llm_config, org_id=org_id
+            )
 
         logger.debug("Extracted topics from conversation: %s", topics)
         key_words = topics if topics else ""
@@ -1479,8 +1426,7 @@ async def retrieve_memory_with_topic(
     user_id: str,
     topic: str,
     limit: int = 10,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
+    org_id: Optional[str] = None,
 ):
     """
     Retrieve relevant memories based on a topic using BM25 search.
@@ -1491,7 +1437,7 @@ async def retrieve_memory_with_topic(
         limit: Maximum number of items to retrieve per memory type (default: 10)
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(user_id, org_id)
     user = server.user_manager.get_user_by_id(user_id)
 
     # Get all agents for this user
@@ -1529,8 +1475,7 @@ async def search_memory(
     search_field: str = "null",
     search_method: str = "bm25",
     limit: int = 10,
-    x_user_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
+    org_id: Optional[str] = None,
 ):
     """
     Search for memories using various search methods.
@@ -1552,7 +1497,7 @@ async def search_memory(
         limit: Maximum number of results per memory type (default: 10)
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    user_id, org_id = get_user_and_org(user_id, org_id)
     user = server.user_manager.get_user_by_id(user_id)
 
     # Get all agents for this user

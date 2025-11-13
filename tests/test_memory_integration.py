@@ -38,6 +38,9 @@ sys.path.insert(0, str(project_root))
 from mirix import EmbeddingConfig, LLMConfig
 from mirix.client import MirixClient
 
+TEST_USER_ID = "demo-user"
+TEST_ORG_ID = "demo-org"
+
 # Mark all tests as integration tests
 pytestmark = [
     pytest.mark.integration,
@@ -77,19 +80,16 @@ def server_process():
 def client(server_process):
     """Create a client connected to the test server."""
     # Use same user/org as run_client.py to ensure agents are already initialized
-    user_id = "demo-user"
-    org_id = "demo-org"
-    
     client = MirixClient(
         base_url="http://localhost:8899",
-        user_id=user_id,
-        org_id=org_id,  # Explicitly set org_id (same as run_client.py)
+        org_id=TEST_ORG_ID,  # Explicitly set org_id (same as run_client.py)
         debug=False,  # Turn off debug to avoid Unicode encoding issues on Windows
     )
     
     # Initialize meta agent (checks if exists, creates if needed)
     print("\n[SETUP] Initializing user, org, and meta agent...")
     result = client.initialize_meta_agent(
+        user_id=TEST_USER_ID,
         config_path="mirix/configs/examples/mirix_gemini.yaml",
         update_agents=False  # Don't update if already exists, just use existing
     )
@@ -109,7 +109,7 @@ def test_add(client):
     print("\n[TEST] Adding memory via client.add()...")
     
     result = client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -139,7 +139,7 @@ def test_retrieve_with_conversation(client):
     
     # Add a memory first
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -155,7 +155,7 @@ def test_retrieve_with_conversation(client):
     
     # Retrieve with conversation
     result = client.retrieve_with_conversation(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -186,7 +186,7 @@ def test_retrieve_with_topic(client):
     
     # Add topic-related memory
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -202,7 +202,7 @@ def test_retrieve_with_topic(client):
     
     # Retrieve by topic
     result = client.retrieve_with_topic(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         topic="deployment",
         limit=5
     )
@@ -225,7 +225,7 @@ def test_search(client):
     
     # Add searchable memory
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -242,7 +242,7 @@ def test_search(client):
     # Test 1: Search all memory types
     print("  [1] Searching across all memory types...")
     result_all = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="meeting planning",
         memory_type="all",
         limit=10
@@ -255,7 +255,7 @@ def test_search(client):
     # Test 2: Search specific memory type (episodic)
     print("  [2] Searching episodic memory...")
     result_episodic = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="meeting",
         memory_type="episodic",
         search_field="summary",
@@ -270,7 +270,7 @@ def test_search(client):
     # Test 3: Search with embedding method
     print("  [3] Searching with embedding method...")
     result_embedding = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="team collaboration",
         memory_type="episodic",
         search_field="details",

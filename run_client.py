@@ -24,17 +24,16 @@ logger = logging.getLogger(__name__)
 def main():
     
     # Create MirixClient (connects to server via REST API)
-    user_id = 'demo-user'
-    org_id = 'demo-org'
-    
+    user_id = "demo-user"
+    org_id = "demo-org"
     client = MirixClient(
-        api_key=None, # TODO: add authentication later
-        user_id=user_id,
         org_id=org_id,
+        api_key=None, # TODO: add authentication later
         debug=True,
     )
 
     client.initialize_meta_agent(
+        user_id=user_id,
         config_path="mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
         update_agents=False,

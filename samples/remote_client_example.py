@@ -9,13 +9,15 @@ This example shows:
 
 Prerequisites:
 - A Mirix server running and accessible at the specified URL
-- Valid API credentials (API key or user_id)
+- Valid API credentials (API key if required) and an organization ID
 """
 
 from mirix.client import MirixClient, create_client
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.memory import ChatMemory
+
+DEFAULT_ORG_ID = "demo-org"
 
 # ============================================================================
 # Example 1: Basic Connection and Agent Creation
@@ -32,7 +34,7 @@ def example_basic_usage():
     client = MirixClient(
         base_url="http://localhost:8000",  # Change to your server URL
         api_key="your-api-key-here",  # Optional: API key for authentication
-        # user_id="user-123",  # Optional: For development
+        org_id=DEFAULT_ORG_ID,
         debug=True,  # Enable debug logging
     )
     
@@ -82,7 +84,7 @@ def example_multiple_agents():
     
     client = MirixClient(
         base_url="http://localhost:8000",
-        user_id="demo-user",
+        org_id=DEFAULT_ORG_ID,
         debug=False,
     )
     
@@ -128,7 +130,7 @@ def example_memory_management():
     
     client = MirixClient(
         base_url="http://localhost:8000",
-        user_id="demo-user",
+        org_id=DEFAULT_ORG_ID,
     )
     
     print("\n1. Creating agent with custom memory...")
@@ -181,7 +183,7 @@ def example_tool_management():
     
     client = MirixClient(
         base_url="http://localhost:8000",
-        user_id="demo-user",
+        org_id=DEFAULT_ORG_ID,
     )
     
     print("\n1. Listing available tools...")
@@ -227,7 +229,7 @@ def example_error_handling():
     
     client = MirixClient(
         base_url="http://localhost:8000",
-        user_id="demo-user",
+        org_id=DEFAULT_ORG_ID,
         timeout=5,  # Short timeout for demo
         max_retries=2,
     )
@@ -278,7 +280,7 @@ def example_local_vs_remote():
     print("\n2. Creating MirixClient (cloud server)...")
     remote_client = MirixClient(
         base_url="http://localhost:8000",
-        user_id="demo-user",
+        org_id=DEFAULT_ORG_ID,
     )
     print("   ✓ MirixClient created (connects to remote server)")
     
@@ -340,4 +342,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

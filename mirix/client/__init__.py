@@ -33,8 +33,7 @@ def create_client(
     For MirixClient (mode="remote"):
         - base_url: API server URL (required)
         - api_key: API key for authentication
-        - user_id: Optional user ID
-        - org_id: Optional organization ID
+        - org_id: Organization ID (required)
         - debug: Enable debug logging
         - timeout: Request timeout in seconds (default: 60)
         - max_retries: Max number of retries (default: 3)
@@ -66,7 +65,8 @@ def create_client(
     elif mode == "remote":
         if "base_url" not in kwargs:
             raise ValueError("base_url is required for remote mode")
+        if "org_id" not in kwargs:
+            raise ValueError("org_id is required for remote mode")
         return MirixClient(**kwargs)
     else:
         raise ValueError(f"Invalid mode: {mode}. Must be 'local' or 'remote'")
-
