@@ -80,10 +80,6 @@ class OpenAIClient(LLMClientBase):
             # supposedly the openai python client requires a dummy API key
             api_key = api_key or "DUMMY_API_KEY"
 
-        logger.info(
-            f"OpenAI Client Config - base_url: {self.llm_config.model_endpoint}, api_key: {api_key}"
-        )
-
         kwargs = {"api_key": api_key, "base_url": self.llm_config.model_endpoint}
 
         headers = {}
@@ -95,7 +91,7 @@ class OpenAIClient(LLMClientBase):
             if auth_provider:
                 try:
                     auth_headers = auth_provider.get_auth_headers()  # Sync call
-                    logger.info(
+                    logger.debug(
                         f"OpenAI Client - Using auth provider '{self.llm_config.auth_provider}' "
                         f"to inject {len(auth_headers)} header(s)"
                     )
@@ -332,14 +328,14 @@ class OpenAIClient(LLMClientBase):
         Performs underlying synchronous request to OpenAI API and returns raw response dict.
         """
         client_kwargs = self._prepare_client_kwargs()
-        logger.info(
+        logger.debug(
             f"OpenAI Request - Making request to {client_kwargs.get('base_url')}"
         )
-        logger.info(
+        logger.debug(
             f"OpenAI Request - Model: {request_data.get('model')}, Max tokens: {request_data.get('max_completion_tokens')}, Temperature: {request_data.get('temperature')}"
         )
         if "default_headers" in client_kwargs:
-            logger.info(
+            logger.debug(
                 f"OpenAI Request - Custom headers will be included in request (count: {len(client_kwargs['default_headers'])})"
             )
 
