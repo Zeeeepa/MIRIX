@@ -58,9 +58,6 @@ class ModelSettings(BaseSettings):
     # openai
     openai_api_key: Optional[str] = None
     openai_api_base: str = "https://api.openai.com/v1"
-    # Custom headers for OpenAI-compatible endpoints
-    # Set as JSON string: '{"Authorization": "...", "foobar_header_name": "..."}'
-    openai_extra_headers: Optional[str] = Field(None, env="OPENAI_EXTRA_HEADERS")
 
     # groq
     groq_api_key: Optional[str] = None

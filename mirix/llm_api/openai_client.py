@@ -86,23 +86,8 @@ class OpenAIClient(LLMClientBase):
 
         kwargs = {"api_key": api_key, "base_url": self.llm_config.model_endpoint}
 
-        # Start with headers from OPENAI_EXTRA_HEADERS env var
         headers = {}
-        if model_settings.openai_extra_headers:
-            try:
-                import json
-
-                headers = json.loads(model_settings.openai_extra_headers)
-
-                logger.info(
-                    f"OpenAI Client - Setting {len(headers)} custom header(s) from OPENAI_EXTRA_HEADERS"
-                )
-                for header_name, header_value in headers.items():
-                    logger.info(f"  {header_name}: {header_value}")
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse OPENAI_EXTRA_HEADERS as JSON: {e}")
-
-        # Add auth provider headers (sync)
+        # Add auth provider headers
         if hasattr(self.llm_config, "auth_provider") and self.llm_config.auth_provider:
             from mirix.llm_api.auth_provider import get_auth_provider
 
