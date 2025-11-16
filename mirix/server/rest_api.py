@@ -1384,7 +1384,7 @@ def retrieve_memories_by_keywords(
         # Get recent episodic memories
         recent_episodic = episodic_manager.list_episodic_memory(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=client,
+            user=user,
             limit=limit,
             timezone_str=timezone_str,
             filter_tags=filter_tags,
@@ -1396,7 +1396,7 @@ def retrieve_memories_by_keywords(
         if key_words:
             relevant_episodic = episodic_manager.list_episodic_memory(
                 agent_state=agent_state,  # Not accessed during BM25 search
-                actor=client,
+                user=user,
                 query=key_words,
                 search_field="details",
                 search_method=search_method,
@@ -1405,7 +1405,7 @@ def retrieve_memories_by_keywords(
             )
 
         memories["episodic"] = {
-            "total_count": episodic_manager.get_total_number_of_items(actor=client),
+            "total_count": episodic_manager.get_total_number_of_items(user=user),
             "recent": [
                 {
                     "id": event.id,
@@ -1435,7 +1435,7 @@ def retrieve_memories_by_keywords(
 
         semantic_items = semantic_manager.list_semantic_items(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=client,
+            user=user,
             query=key_words,
             search_field="details",
             search_method=search_method,
@@ -1446,7 +1446,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["semantic"] = {
-            "total_count": semantic_manager.get_total_number_of_items(actor=client),
+            "total_count": semantic_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,
@@ -1467,7 +1467,7 @@ def retrieve_memories_by_keywords(
 
         resources = resource_manager.list_resources(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=client,
+            user=user,
             query=key_words,
             search_field="summary",
             search_method=search_method,
@@ -1478,7 +1478,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["resource"] = {
-            "total_count": resource_manager.get_total_number_of_items(actor=client),
+            "total_count": resource_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": resource.id,
@@ -1499,7 +1499,7 @@ def retrieve_memories_by_keywords(
 
         procedures = procedural_manager.list_procedures(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=client,
+            user=user,
             query=key_words,
             search_field="summary",
             search_method=search_method,
@@ -1510,7 +1510,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["procedural"] = {
-            "total_count": procedural_manager.get_total_number_of_items(actor=client),
+            "total_count": procedural_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": procedure.id,
@@ -1530,7 +1530,7 @@ def retrieve_memories_by_keywords(
 
         knowledge_items = knowledge_vault_manager.list_knowledge(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=client,
+            user=user,
             query=key_words,
             search_field="caption",
             search_method=search_method,
@@ -1539,7 +1539,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["knowledge_vault"] = {
-            "total_count": knowledge_vault_manager.get_total_number_of_items(actor=client),
+            "total_count": knowledge_vault_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,

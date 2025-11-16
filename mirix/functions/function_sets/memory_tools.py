@@ -92,6 +92,7 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
             organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
     response = "Events inserted! Now you need to check if there are repeated events shown in the system prompt."
     return response
@@ -150,6 +151,12 @@ def episodic_memory_replace(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for event_id in event_ids:
         # It will raise an error if the event_id is not found in the episodic memory.
@@ -171,6 +178,9 @@ def episodic_memory_replace(
             summary=new_item["summary"],
             details=new_item["details"],
             organization_id=self.actor.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
+            user_id=user_id,
         )
 
 
@@ -602,6 +612,7 @@ def semantic_memory_update(
             organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
         new_ids.append(inserted_item.id)
 
