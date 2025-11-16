@@ -298,7 +298,7 @@ def list_memory_within_timerange(
     if memory_type == "episodic" or memory_type == "all":
         episodic_memory = (
             self.episodic_memory_manager.list_episodic_memory_around_timestamp(
-                actor=self.user,
+                user=self.user,
                 agent_state=self.agent_state,
                 start_time=start_time,
                 end_time=end_time,
