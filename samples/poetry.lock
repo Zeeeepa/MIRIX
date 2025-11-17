@@ -630,6 +630,26 @@ files = [
 ]
 
 [[package]]
+name = "claude-agent-sdk"
+version = "0.1.6"
+description = "Python SDK for Claude Code"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "claude_agent_sdk-0.1.6-py3-none-any.whl", hash = "sha256:54227b096e8c7cfb60fc8b570082fce1f91ea060413092f65a08a2824cb9cb4b"},
+    {file = "claude_agent_sdk-0.1.6.tar.gz", hash = "sha256:3090a595896d65a5d951e158e191b462759aafc97399e700e4f857d5265a8f23"},
+]
+
+[package.dependencies]
+anyio = ">=4.0.0"
+mcp = ">=0.1.0"
+typing-extensions = {version = ">=4.0.0", markers = "python_version < \"3.11\""}
+
+[package.extras]
+dev = ["anyio[trio] (>=4.0.0)", "mypy (>=1.0.0)", "pytest (>=7.0.0)", "pytest-asyncio (>=0.20.0)", "pytest-cov (>=4.0.0)", "ruff (>=0.1.0)"]
+
+[[package]]
 name = "click"
 version = "8.3.0"
 description = "Composable command line interface toolkit"
@@ -1108,7 +1128,7 @@ grpcio = [
 ]
 proto-plus = [
     {version = ">=1.25.0,<2.0.0", markers = "python_version >= \"3.13\""},
-    {version = ">=1.22.3,<2.0.0", markers = "python_version < \"3.13\""},
+    {version = ">=1.22.3,<2.0.0"},
 ]
 protobuf = ">=3.20.2,<4.21.0 || >4.21.0,<4.21.1 || >4.21.1,<4.21.2 || >4.21.2,<4.21.3 || >4.21.3,<4.21.4 || >4.21.4,<4.21.5 || >4.21.5,<7.0.0"
 
@@ -1139,7 +1159,7 @@ grpcio-status = [
 ]
 proto-plus = [
     {version = ">=1.25.0,<2.0.0", markers = "python_version >= \"3.13\""},
-    {version = ">=1.22.3,<2.0.0"},
+    {version = ">=1.22.3,<2.0.0", markers = "python_version < \"3.13\""},
 ]
 protobuf = ">=3.19.5,<3.20.0 || >3.20.0,<3.20.1 || >3.20.1,<4.21.0 || >4.21.0,<4.21.1 || >4.21.1,<4.21.2 || >4.21.2,<4.21.3 || >4.21.3,<4.21.4 || >4.21.4,<4.21.5 || >4.21.5,<7.0.0"
 requests = ">=2.18.0,<3.0.0"
@@ -1817,8 +1837,8 @@ files = [
 ]
 
 [package.dependencies]
-decorator = {version = "*", markers = "python_version > \"3.6\""}
-ipython = {version = ">=7.31.1", markers = "python_version > \"3.6\""}
+decorator = {version = "*", markers = "python_version >= \"3.11\""}
+ipython = {version = ">=7.31.1", markers = "python_version >= \"3.11\""}
 tomli = {version = "*", markers = "python_version > \"3.6\" and python_version < \"3.11\""}
 
 [[package]]
@@ -7141,4 +7161,4 @@ voice = ["SpeechRecognition", "pydub"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "e22f19213635097598ad6044252e9aedbbc9c154771cb1845a9fa87ed1d28db1"
+content-hash = "37062834a18d282b7f5e52906ca66408574218ed810c8bcbc51efad03f5bb04e"
