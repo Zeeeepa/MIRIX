@@ -1,4 +1,4 @@
-__version__ = "0.2.24"
+__version__ = "0.6.0"
 
 
 # Client imports (always available)
