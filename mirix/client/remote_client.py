@@ -1120,7 +1120,8 @@ class MirixClient(AbstractClient):
         user_id: str,
         topic: str,
         limit: int = 10,
-        org_id: Optional[str] = None,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on a topic.
@@ -1131,7 +1132,9 @@ class MirixClient(AbstractClient):
             user_id: User ID for the conversation
             topic: Topic or keyword to search for
             limit: Maximum number of items to retrieve per memory type (default: 10)
-            #org_id: Optional organization scope override (defaults to client's org)
+            filter_tags: Optional dict of tags for filtering results.
+                        Only memories matching these tags will be returned.
+            use_cache: Control Redis cache behavior (default: True)
         
         Returns:
             Dict containing retrieved memories organized by type
@@ -1140,7 +1143,8 @@ class MirixClient(AbstractClient):
             >>> memories = client.retrieve_with_topic(
             ...     user_id='user_123',
             ...     topic="dinner",
-            ...     limit=5
+            ...     limit=5,
+            ...     filter_tags={"session_id": "sess-789"}
             ... )
         """
         if not self._meta_agent:
@@ -1150,10 +1154,14 @@ class MirixClient(AbstractClient):
         
         params = {
             "user_id": user_id,
-            "org_id": org_id or self.org_id,
             "topic": topic,
             "limit": limit,
+            "use_cache": use_cache,
         }
+        
+        # Encode filter_tags as JSON string for query parameter
+        if filter_tags is not None:
+            params["filter_tags"] = json.dumps(filter_tags)
         
         return self._request("GET", "/memory/retrieve/topic", params=params)
     
