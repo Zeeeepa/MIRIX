@@ -14,3 +14,10 @@ class ToolSourceType(str, Enum):
 
     python = "python"
     json = "json"
+
+
+class AccessType(str, Enum):
+    """Defines the access scope for ORM operations"""
+    
+    ORGANIZATION = "organization"
+    USER = "user"

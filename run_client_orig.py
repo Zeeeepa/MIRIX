@@ -24,41 +24,43 @@ logger = logging.getLogger(__name__)
 def main():
     
     # Create MirixClient (connects to server via REST API)
-    user_id = "demo-user"
-    org_id = "demo-org"
+    client_id = 'demo-client-app'  # Identifies the client application
+    user_id = 'demo-user'  # Identifies the end-user within the client app
+    org_id = 'demo-org'
+    
     client = MirixClient(
-        org_id=org_id,
         api_key=None, # TODO: add authentication later
+        client_id=client_id,
+        org_id=org_id,
         debug=True,
     )
 
     client.initialize_meta_agent(
-        user_id=user_id,
         config_path="mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
         update_agents=False,
     )
 
-    result = client.add(
-       user_id=user_id,
-          messages=[
-           {
-               "role": "user",
-               "content": [{
-                   "type": "text",
-                   "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-               }]
-           },
-       ],
-       chaining=False
-    )
-    print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    # result = client.add(
+    #    user_id=user_id,
+    #    messages=[
+    #        {
+    #            "role": "user",
+    #            "content": [{
+    #                "type": "text",
+    #                "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+    #            }]
+    #        },
+    #    ],
+    #    chaining=False
+    #)
+    #print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
     # 4. Example: Retrieve memories using new API
     print("Step 4: Retrieving memories with conversation context...")
     print("-" * 70)
     try:
-        filter_tags = {"expert_id": "expert-234"}
+        filter_tags = {} #{"expert_id": "expert-234"}
 
         memories = client.retrieve_with_conversation(
             user_id=user_id,
@@ -67,18 +69,12 @@ def main():
                     "role": "user",
                     "content": [{
                         "type": "text",
-                        "text": "I went to a meeting with Sarah from the design team today. What do you know about our discussion?"
-                    }],
-                    "role": "assistant",
-                    "content": [{
-                        "type": "text",
-                        "text": "Yes, I remembered that it is a meeting about the new UI mockups and she showed you three different color schemes."
+                        "text": ""
                     }]
                 }
             ],
             limit=10,  # Retrieve up to 10 items per memory type
-            filter_tags = filter_tags,
-            local_model_for_retrieval="gemma3:1b"
+            filter_tags = filter_tags
         )
 
         print("[OK] Retrieved memories successfully")
@@ -234,65 +230,60 @@ def main():
     print()
 
     # 5. Example: Retrieve by topic
-    print("Step 5: Retrieving by topic...")
-    print("-" * 70)
-    try:
-        topic_memories = client.retrieve_with_topic(
-            user_id=user_id,
-            topic="design",
-            limit=5  # Retrieve up to 5 items per memory type
-        )
-        print(f"[OK] Topic retrieval completed: {topic_memories.get('success', False)}")
-        if topic_memories.get("memories"):
-            print(f"  Topics searched: {topic_memories.get('topic')}")
-            for memory_type, items in topic_memories["memories"].items():
-                if items and items.get('total_count', 0) > 0:
-                    print(f"  {memory_type.upper()}: {items['total_count']} total, {len(items.get('items', items.get('recent', [])))} retrieved")
-    except Exception as e:
-        print(f"[ERROR] Error retrieving by topic: {e}")
-        import traceback
-        traceback.print_exc()
-    print()
+    # print("Step 5: Retrieving by topic...")
+    # print("-" * 70)
+    # try:
+    #    topic_memories = client.retrieve_with_topic(
+    #        user_id=user_id,
+    #        topic="design",
+    #        limit=5  # Retrieve up to 5 items per memory type
+    #    )
+    #    print(f"[OK] Topic retrieval completed: {topic_memories.get('success', False)}")
+    #    if topic_memories.get("memories"):
+    #        print(f"  Topics searched: {topic_memories.get('topic')}")
+    #        for memory_type, items in topic_memories["memories"].items():
+    #            if items and items.get('total_count', 0) > 0:
+    #                print(f"  {memory_type.upper()}: {items['total_count']} total, {len(items.get('items', items.get('recent', [])))} retrieved")
+    #    except Exception as e:
+    #        print(f"[ERROR] Error retrieving by topic: {e}")
+    #        import traceback
+    #        traceback.print_exc()
+    #    print()
 
     # 6. Example: Search memories - returns flat list of results
-    print("Step 6: Searching memories...")
-    print("-" * 70)
-    try:
-        # Example 1: Search all memory types
-        results = client.search(
-            user_id=user_id,
-            query="meeting design",
-            memory_type="all",
-            limit=5
-        )
-        print(f"[OK] Search completed: {results.get('success', False)}")
-        print(f"  Found {results.get('count', 0)} total results across all memory types")
+    # print("Step 6: Searching memories...")
+    # print("-" * 70)
+    # try:
+    #    # Example 1: Search all memory types
+    #    results = client.search(
+    #        user_id=user_id,
+    #        query="meeting design",
+    #        memory_type="all",
+    #        limit=5
+    #    )
+    #    print(f"[OK] Search completed: {results.get('success', False)}")
+    #    print(f"  Found {results.get('count', 0)} total results across all memory types")
         
         # Display sample results
-        if results.get("results"):
-            print(f"  Sample results:")
-            for i, item in enumerate(results["results"][:3], 1):
-                mem_type = item.get("memory_type", "unknown").upper()
-                summary = item.get("summary", item.get("caption", item.get("name", "N/A")))
-                print(f"    {i}. [{mem_type}] {summary[:60]}...")
+    #    if results.get("results"):
+    #        print(f"  Sample results:")
+    #        for i, item in enumerate(results["results"][:3], 1):
+    #            mem_type = item.get("memory_type", "unknown").upper()
+    #            summary = item.get("summary", item.get("caption", item.get("name", "N/A")))
+    #            print(f"    {i}. [{mem_type}] {summary[:60]}...")
         
         # Example 2: Search only episodic memories
-        print("\n  Searching only episodic memories in details field...")
-        episodic_results = client.search(
-            user_id=user_id,
-            query="Sarah",
-            memory_type="episodic",
-            search_field="details",
-            search_method='bm25',
-            limit=5
-        )
-        print(f"  Found {episodic_results.get('count', 0)} episodic results")
-        
-    except Exception as e:
-        print(f"[ERROR] Error searching: {e}")
-        import traceback
-        traceback.print_exc()
-    print()
+    #    print("\n  Searching only episodic memories in details field...")
+    #    episodic_results = client.search(
+    #        user_id=user_id,
+    #        query="Sarah",
+    #        memory_type="episodic",
+    #        search_field="details",
+    #        search_method='bm25',
+    #        limit=5
+    #    )
+    #    print(f"  Found {episodic_results.get('count', 0)} episodic results")
+    #    print()
 
     print("=" * 70)
     print("Demo completed!")

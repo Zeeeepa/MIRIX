@@ -293,11 +293,7 @@ class OllamaProvider(OpenAIProvider):
     api_key: Optional[str] = Field(
         None, description="API key for the Ollama API (default: `None`)."
     )
-    default_prompt_formatter: str = Field(
-        ...,
-        description="Default prompt formatter (aka model wrapper) to use on a /completions style API.",
-    )
-
+    
     def list_llm_models(self) -> List[LLMConfig]:
         # https://github.com/ollama/ollama/blob/main/docs/api.md#list-local-models
         import requests

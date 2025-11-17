@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         LangChainBaseTool = Any  # type: ignore
 
 # Server-side imports
+import mirix.utils
 from mirix.client.client import AbstractClient
 from mirix.constants import (
     BASE_TOOLS,
@@ -115,7 +116,7 @@ class LocalClient(AbstractClient):
         from mirix.server.server import SyncServer
 
         # set logging levels
-        # DEBUG flag not needed for LocalClient (server-side only)
+        mirix.utils.DEBUG = debug
         logging.getLogger().setLevel(logging.CRITICAL)
 
         # save default model config
@@ -532,9 +533,9 @@ class LocalClient(AbstractClient):
         ]
 
         # check if default configs are provided
-        assert embedding_config or self._default_embedding_config, (
-            "Embedding config must be provided"
-        )
+        assert (
+            embedding_config or self._default_embedding_config
+        ), "Embedding config must be provided"
         assert llm_config or self._default_llm_config, "LLM config must be provided"
 
         # TODO: This should not happen here, we need to have clear separation between create/add blocks
@@ -559,9 +560,9 @@ class LocalClient(AbstractClient):
             "system": system,
             "agent_type": agent_type,
             "llm_config": llm_config if llm_config else self._default_llm_config,
-            "embedding_config": embedding_config
-            if embedding_config
-            else self._default_embedding_config,
+            "embedding_config": (
+                embedding_config if embedding_config else self._default_embedding_config
+            ),
             "initial_message_sequence": initial_message_sequence,
             "tags": tags,
         }
@@ -581,7 +582,9 @@ class LocalClient(AbstractClient):
         )
 
     def create_user(self, user_id: str, user_name: str) -> PydanticUser:
-        return self.server.user_manager.create_user(UserCreate(id=user_id, name=user_name))
+        return self.server.user_manager.create_user(
+            UserCreate(id=user_id, name=user_name)
+        )
 
     def create_meta_agent(self, config: dict):
         """Create a MetaAgent for memory management operations.
@@ -1171,7 +1174,7 @@ class LocalClient(AbstractClient):
         Returns:
             persona (Persona): Updated persona block
         """
-        blocks = self.server.block_manager.get_blocks(self.user)
+        blocks = self.server.block_manager.get_blocks(user=self.user)
         persona_block = [block for block in blocks if block.label == "persona"][0]
         return self.server.block_manager.update_block(
             block_id=persona_block.id,
@@ -2132,9 +2135,11 @@ class LocalClient(AbstractClient):
                 actor=self.user,
                 agent_state=agent_state,
                 query=query,
-                search_field=search_field
-                if search_field != "null"
-                else ("summary" if search_method == "embedding" else "content"),
+                search_field=(
+                    search_field
+                    if search_field != "null"
+                    else ("summary" if search_method == "embedding" else "content")
+                ),
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,

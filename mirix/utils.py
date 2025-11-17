@@ -1,3 +1,4 @@
+import base64
 import contextvars
 import copy
 import difflib
@@ -10,6 +11,7 @@ import pickle
 import platform
 import random
 import re
+import shutil
 import string
 import subprocess
 import sys
@@ -19,11 +21,24 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from logging import Logger
-from typing import List, Union, _GenericAlias, get_args, get_origin, get_type_hints
+from pathlib import Path
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Union,
+    _GenericAlias,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from urllib.parse import urljoin, urlparse
 
 import demjson3 as demjson
 import pytz
+import requests
 import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
 
@@ -39,15 +54,24 @@ from mirix.constants import (
     TOOL_CALL_ID_MAX_LEN,
 )
 from mirix.log import get_logger
+from mirix.schemas.file import FileMetadata
 from mirix.schemas.message import MessageCreate, MessageRole
 from mirix.schemas.mirix_message_content import (
     CloudFileContent,
     FileContent,
     ImageContent,
+    MessageContentType,
     TextContent,
 )
 from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
 from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
+
+if TYPE_CHECKING:
+    from mirix.services.file_manager import FileManager
+
+
+_FILE_MANAGER: Optional["FileManager"] = None
+_DEFAULT_IMAGES_DIR: Optional[Path] = None
 
 logger = get_logger(__name__)
 
@@ -1597,13 +1621,320 @@ def generate_unique_short_id(
     return generate_short_id(prefix, length + 2)
 
 
-def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
+def _get_file_manager_instance() -> "FileManager":
+    """Return a cached FileManager instance to avoid repeated construction."""
+    global _FILE_MANAGER
+    if _FILE_MANAGER is None:
+        from mirix.services.file_manager import FileManager
+
+        _FILE_MANAGER = FileManager()
+    return _FILE_MANAGER
+
+
+def _get_images_directory() -> Path:
+    """Return the configured images directory, ensuring it exists."""
+    global _DEFAULT_IMAGES_DIR
+    if _DEFAULT_IMAGES_DIR is None:
+        from mirix.settings import settings
+
+        images_dir = settings.images_dir or (Path.home() / ".mirix" / "images")
+        images_dir = Path(images_dir)
+        images_dir.mkdir(parents=True, exist_ok=True)
+        _DEFAULT_IMAGES_DIR = images_dir
+    return _DEFAULT_IMAGES_DIR
+
+
+def _generate_file_hash(content: bytes) -> str:
+    """Generate a deterministic short hash for file contents."""
+    return hashlib.sha256(content).hexdigest()[:16]
+
+
+def _save_image_from_base64(
+    base64_data: str,
+    file_manager: "FileManager",
+    org_id: str,
+    images_dir: Path,
+    detail: str = "auto",
+) -> FileMetadata:
+    """Save an image from base64 data and return FileMetadata."""
+    del detail  # detail currently unused but kept for signature parity
+    try:
+        if base64_data.startswith("data:"):
+            header, encoded = base64_data.split(",", 1)
+            mime_type = header.split(":")[1].split(";")[0]
+            file_extension = mime_type.split("/")[-1]
+        else:
+            encoded = base64_data
+            file_extension = "jpg"
+
+        image_data = base64.b64decode(encoded)
+
+        file_hash = _generate_file_hash(image_data)
+        file_name = f"image_{file_hash}.{file_extension}"
+        file_path = images_dir / file_name
+
+        if not file_path.exists():
+            with open(file_path, "wb") as f:
+                f.write(image_data)
+
+        return file_manager.create_file_metadata_from_path(
+            file_path=str(file_path), organization_id=org_id
+        )
+
+    except Exception as e:
+        raise ValueError(f"Failed to save base64 image: {str(e)}") from e
+
+
+def _save_image_from_url(
+    url: str,
+    file_manager: "FileManager",
+    org_id: str,
+    images_dir: Path,
+    detail: str = "auto",
+) -> FileMetadata:
+    """Download and save an image from URL and return FileMetadata."""
+    del detail  # detail currently unused but kept for signature parity
+    try:
+        response = requests.get(url, stream=True, timeout=30)
+        response.raise_for_status()
+
+        content_type = response.headers.get("content-type", "image/jpeg")
+        file_extension = content_type.split("/")[-1]
+        if file_extension not in ["jpg", "jpeg", "png", "gif", "webp"]:
+            file_extension = "jpg"
+
+        image_data = response.content
+
+        file_hash = _generate_file_hash(image_data)
+        file_name = f"image_{file_hash}.{file_extension}"
+        file_path = images_dir / file_name
+
+        if not file_path.exists():
+            with open(file_path, "wb") as f:
+                f.write(image_data)
+
+        return file_manager.create_file_metadata_from_path(
+            file_path=str(file_path), organization_id=org_id
+        )
+
+    except Exception as e:
+        raise ValueError(
+            f"Failed to download and save image from URL {url}: {str(e)}"
+        ) from e
+
+
+def _save_image_from_file_uri(
+    file_uri: str,
+    file_manager: "FileManager",
+    org_id: str,
+    images_dir: Path,
+) -> FileMetadata:
+    """Copy an image from file URI and return FileMetadata."""
+    try:
+        if file_uri.startswith("file://"):
+            source_path = file_uri[7:]
+        else:
+            source_path = file_uri
+
+        source_path = Path(source_path)
+
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source file not found: {source_path}")
+
+        with open(source_path, "rb") as f:
+            image_data = f.read()
+
+        file_hash = _generate_file_hash(image_data)
+        file_extension = source_path.suffix.lstrip(".") or "jpg"
+        file_name = f"image_{file_hash}.{file_extension}"
+        file_path = images_dir / file_name
+
+        if not file_path.exists():
+            shutil.copy2(source_path, file_path)
+
+        return file_manager.create_file_metadata_from_path(
+            file_path=str(file_path), organization_id=org_id
+        )
+
+    except Exception as e:
+        raise ValueError(
+            f"Failed to copy image from file URI {file_uri}: {str(e)}"
+        ) from e
+
+
+def _save_image_from_google_cloud_uri(
+    cloud_uri: str, file_manager: "FileManager", org_id: str
+) -> FileMetadata:
+    """Create FileMetadata from Google Cloud URI without downloading the image."""
+    parsed_uri = urlparse(cloud_uri)
+    file_id = os.path.basename(parsed_uri.path) or "google_cloud_file"
+    file_name = f"google_cloud_{file_id}"
+
+    if not os.path.splitext(file_name)[1]:
+        file_name += ".jpg"
+
+    file_extension = os.path.splitext(file_name)[1].lower()
+    file_type_map = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+    }
+    file_type = file_type_map.get(file_extension, "image/jpeg")
+
+    return file_manager.create_file_metadata(
+        FileMetadata(
+            organization_id=org_id,
+            file_name=file_name,
+            file_path=None,
+            source_url=None,
+            google_cloud_url=cloud_uri,
+            file_type=file_type,
+            file_size=None,
+            file_creation_date=None,
+            file_last_modified_date=None,
+        )
+    )
+
+
+def _save_file_from_path(
+    file_path: str, file_manager: "FileManager", org_id: str
+) -> FileMetadata:
+    """Save a file from local path and return FileMetadata."""
+    try:
+        file_path_obj = Path(file_path)
+
+        if not file_path_obj.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        return file_manager.create_file_metadata_from_path(
+            file_path=str(file_path_obj), organization_id=org_id
+        )
+
+    except Exception as e:
+        raise ValueError(f"Failed to save file from path {file_path}: {str(e)}") from e
+
+
+def _determine_file_type(file_path: str) -> str:
+    """Determine file type from file extension."""
+    file_extension = os.path.splitext(file_path)[1].lower()
+    file_type_map = {
+        # Images
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+        ".svg": "image/svg+xml",
+        # Documents
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".txt": "text/plain",
+        ".rtf": "application/rtf",
+        ".html": "text/html",
+        ".htm": "text/html",
+        # Spreadsheets
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".csv": "text/csv",
+        # Presentations
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        # Other common formats
+        ".json": "application/json",
+        ".xml": "application/xml",
+        ".zip": "application/zip",
+    }
+    return file_type_map.get(file_extension, "application/octet-stream")
+
+
+def _create_file_metadata_from_url(
+    url: str, file_manager: "FileManager", org_id: str, detail: str = "auto"
+) -> FileMetadata:
+    """Create FileMetadata from URL without downloading the image."""
+    del detail  # detail currently unused but kept for signature parity
+    try:
+        parsed_url = urlparse(url)
+        file_name = os.path.basename(parsed_url.path) or "remote_image"
+
+        if not os.path.splitext(file_name)[1]:
+            file_name += ".jpg"
+
+        file_extension = os.path.splitext(file_name)[1].lower()
+        file_type_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
+        }
+        file_type = file_type_map.get(file_extension, "image/jpeg")
+
+        return file_manager.create_file_metadata(
+            FileMetadata(
+                organization_id=org_id,
+                file_name=file_name,
+                file_path=None,
+                source_url=url,
+                file_type=file_type,
+                file_size=None,
+                file_creation_date=None,
+                file_last_modified_date=None,
+            )
+        )
+
+    except Exception as e:
+        raise ValueError(
+            f"Failed to create file metadata from URL {url}: {str(e)}"
+        ) from e
+
+
+def convert_message_to_mirix_message(
+    message: Union[str, List[dict]],
+    role: str = "user",
+    *,
+    org_id: Optional[str] = None,
+    file_manager: Optional["FileManager"] = None,
+    images_dir: Optional[Path] = None,
+) -> List[MessageCreate]:
     if isinstance(message, str):
         content = [TextContent(text=message)]
-        input_messages = [
-            MessageCreate(role=MessageRole(role), content=content, name=name)
-        ]
+        input_messages = [MessageCreate(role=MessageRole(role), content=content)]
     elif isinstance(message, list):
+        resolved_file_manager = file_manager
+        resolved_images_dir = None
+
+        if images_dir is not None:
+            resolved_images_dir = Path(images_dir)
+            resolved_images_dir.mkdir(parents=True, exist_ok=True)
+
+        def ensure_file_context(
+            needs_images_dir: bool = False,
+        ) -> tuple["FileManager", str, Optional[Path]]:
+            if org_id is None:
+                raise ValueError(
+                    "org_id is required when converting messages containing file or image data."
+                )
+
+            nonlocal resolved_file_manager, resolved_images_dir
+
+            if resolved_file_manager is None:
+                resolved_file_manager = _get_file_manager_instance()
+
+            images_root = resolved_images_dir
+            if needs_images_dir:
+                if images_root is None:
+                    images_root = _get_images_directory()
+                    resolved_images_dir = images_root
+
+            return resolved_file_manager, org_id, images_root
 
         def convert_message(m):
             if m["type"] == "text":
@@ -1614,11 +1945,17 @@ def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
 
                 # Handle the image based on URL type
                 if url.startswith("data:"):
-                    # Base64 encoded image - save locally
-                    file_metadata = self._save_image_from_base64(url, detail)
+                    fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                        needs_images_dir=True
+                    )
+                    file_metadata = _save_image_from_base64(
+                        url, fm, resolved_org_id, resolved_images_dir, detail
+                    )
                 else:
-                    # HTTP URL - just create FileMetadata without downloading
-                    file_metadata = self._create_file_metadata_from_url(url, detail)
+                    fm, resolved_org_id, _ = ensure_file_context()
+                    file_metadata = _create_file_metadata_from_url(
+                        url, fm, resolved_org_id, detail
+                    )
 
                 return ImageContent(
                     type=MessageContentType.image_url,
@@ -1631,8 +1968,12 @@ def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
                 data = m["image_data"]["data"]
                 detail = m["image_data"].get("detail", "auto")
 
-                # Save the base64 image to file_manager
-                file_metadata = self._save_image_from_base64(data, detail)
+                fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                    needs_images_dir=True
+                )
+                file_metadata = _save_image_from_base64(
+                    data, fm, resolved_org_id, resolved_images_dir, detail
+                )
 
                 return ImageContent(
                     type=MessageContentType.image_url,
@@ -1644,11 +1985,16 @@ def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
                 file_path = m["file_uri"]
 
                 # Check if it's an image or other file type
-                file_type = self._determine_file_type(file_path)
+                file_type = _determine_file_type(file_path)
 
                 if file_type.startswith("image/"):
                     # Handle as image
-                    file_metadata = self._save_image_from_file_uri(file_path)
+                    fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                        needs_images_dir=True
+                    )
+                    file_metadata = _save_image_from_file_uri(
+                        file_path, fm, resolved_org_id, resolved_images_dir
+                    )
                     return ImageContent(
                         type=MessageContentType.image_url,
                         image_id=file_metadata.id,
@@ -1656,7 +2002,8 @@ def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
                     )
                 else:
                     # Handle as general file (e.g., PDF, DOC, etc.)
-                    file_metadata = self._save_file_from_path(file_path)
+                    fm, resolved_org_id, _ = ensure_file_context()
+                    file_metadata = _save_file_from_path(file_path, fm, resolved_org_id)
                     return FileContent(
                         type=MessageContentType.file_uri, file_id=file_metadata.id
                     )
@@ -1666,7 +2013,10 @@ def convert_message_to_mirix_message(message: List[dict], role="user") -> List:
                 # Handle both the typo version and the correct version from the test file
                 file_uri = m.get("google_cloud_file_uri") or m.get("file_uri")
 
-                file_metadata = self._save_image_from_google_cloud_uri(file_uri)
+                fm, resolved_org_id, _ = ensure_file_context()
+                file_metadata = _save_image_from_google_cloud_uri(
+                    file_uri, fm, resolved_org_id
+                )
                 return CloudFileContent(
                     type=MessageContentType.google_cloud_file_uri,
                     cloud_file_uri=file_metadata.id,

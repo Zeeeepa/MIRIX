@@ -49,12 +49,12 @@ config_path = os.path.join(mirix_root, "mirix/configs/examples/mirix_gemini.yaml
     
 client = MirixClient(
     api_key=None, # TODO: add authentication later
-    user_id=user_id,
     org_id=org_id,
     debug=True,
 )
 
 client.initialize_meta_agent(
+    user_id=user_id,
     config_path=config_path,
     update_agents=True
 )

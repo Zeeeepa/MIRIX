@@ -267,7 +267,6 @@ def convert_google_ai_response_to_chatcompletion(
     input_messages: Optional[
         List[dict]
     ] = None,  # Required if the API doesn't return UsageMetadata
-    pull_inner_thoughts_from_args: Optional[bool] = True,
 ) -> ChatCompletionResponse:
     """Google AI API response format is not the same as ChatCompletion, requires unpacking
 
@@ -537,5 +536,4 @@ def google_ai_chat_completions_request(
         response_json=response_json,
         model=data.get("model"),
         input_messages=data["contents"],
-        pull_inner_thoughts_from_args=inner_thoughts_in_kwargs,
     )

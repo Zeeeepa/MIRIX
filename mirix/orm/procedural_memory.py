@@ -25,7 +25,7 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
     Stores procedural memory entries, such as workflows, step-by-step guides, or how-to knowledge.
 
     type:        The category or tag of the procedure (e.g. 'workflow', 'guide', 'script')
-    description: Short descriptive text about what this procedure accomplishes
+    summary: Short descriptive text about what this procedure accomplishes
     steps:       Step-by-step instructions or method
     """
 
@@ -45,6 +45,14 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         ForeignKey("agents.id", ondelete="CASCADE"),
         nullable=True,
         doc="ID of the agent this procedural memory item belongs to",
+    )
+
+    # Foreign key to client (for access control and filtering)
+    client_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey("clients.id", ondelete="CASCADE"),
+        nullable=True,
+        doc="ID of the client application that created this item",
     )
 
     # Distinguish the type/category of the procedure
