@@ -3,7 +3,7 @@ from typing import List, Optional
 from mirix.orm.errors import NoResultFound
 from mirix.orm.organization import Organization as OrganizationModel
 from mirix.schemas.organization import Organization as PydanticOrganization
-from mirix.utils import enforce_types
+from mirix.utils import create_random_username, enforce_types
 
 
 class OrganizationManager:
@@ -79,7 +79,12 @@ class OrganizationManager:
         self, pydantic_org: PydanticOrganization
     ) -> PydanticOrganization:
         with self.session_maker() as session:
-            org = OrganizationModel(**pydantic_org.model_dump())
+            # Generate a random name if none provided
+            org_data = pydantic_org.model_dump()
+            if org_data.get("name") is None:
+                org_data["name"] = create_random_username()
+            
+            org = OrganizationModel(**org_data)
             org.create_with_redis(session, actor=None)  # ⭐ Auto-caches to Redis
             return org.to_pydantic()
 

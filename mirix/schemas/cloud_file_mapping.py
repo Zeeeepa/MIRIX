@@ -2,8 +2,8 @@ from datetime import datetime
 
 from pydantic import Field
 
+from mirix.client.utils import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
-from mirix.utils import get_utc_time
 
 
 class CloudFileMappingBase(MirixBase):

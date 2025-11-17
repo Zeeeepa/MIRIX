@@ -5,10 +5,10 @@ from typing import List, Union
 
 from pydantic import BaseModel, Field
 
+from mirix.client.utils import json_dumps
 from mirix.schemas.enums import MessageStreamStatus
 from mirix.schemas.mirix_message import MirixMessage, MirixMessageUnion
 from mirix.schemas.usage import MirixUsageStatistics
-from mirix.utils import json_dumps
 
 # TODO: consider moving into own file
 

@@ -14,7 +14,8 @@ from mirix.schemas.mirix_base import OrmMetadataBase
 from mirix.schemas.openai.chat_completion_response import UsageStatistics
 from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import ToolRule
-from mirix.utils import create_random_username
+
+# Removed create_random_username import - server generates names if not provided
 
 
 class AgentType(str, Enum):
@@ -108,9 +109,9 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
 
 class CreateAgent(BaseModel, validate_assignment=True):  #
     # all optional as server can generate defaults
-    name: str = Field(
-        default_factory=lambda: create_random_username(),
-        description="The name of the agent.",
+    name: Optional[str] = Field(
+        None,
+        description="The name of the agent. If not provided, server will generate one.",
     )
 
     # memory creation

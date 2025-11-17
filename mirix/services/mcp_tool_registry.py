@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from mirix.functions.mcp_client import get_mcp_client_manager
-from mirix.orm.enums import ToolType
+from mirix.schemas.enums import ToolType
 from mirix.schemas.tool import Tool as PydanticTool
 from mirix.schemas.client import Client as PydanticClient
 from mirix.services.tool_manager import ToolManager

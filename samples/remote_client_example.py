@@ -12,9 +12,9 @@ Prerequisites:
 - Valid API credentials (API key if required) and an organization ID
 """
 
-from mirix.client import MirixClient, create_client
-from mirix.schemas.llm_config import LLMConfig
+from mirix import MirixClient, create_client
 from mirix.schemas.embedding_config import EmbeddingConfig
+from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.memory import ChatMemory
 
 DEFAULT_ORG_ID = "demo-org"
@@ -270,25 +270,25 @@ def example_local_vs_remote():
     print("\n" + "=" * 80)
     print("Example 6: LocalClient vs MirixClient")
     print("=" * 80)
-    
+
     print("\n1. Creating LocalClient (embedded server)...")
-    from mirix.client import LocalClient
-    
+    from mirix import LocalClient
+
     local_client = LocalClient()
     print("   ✓ LocalClient created (server runs in-process)")
-    
+
     print("\n2. Creating MirixClient (cloud server)...")
     remote_client = MirixClient(
         base_url="http://localhost:8000",
         org_id=DEFAULT_ORG_ID,
     )
     print("   ✓ MirixClient created (connects to remote server)")
-    
+
     print("\n3. Both clients have the same interface!")
     print("   - local_client.create_agent(...)")
     print("   - remote_client.create_agent(...)")
     print("   - Both return AgentState objects")
-    
+
     print("\n4. Key differences:")
     print("   LocalClient:")
     print("     + No network latency")

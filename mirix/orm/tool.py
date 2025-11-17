@@ -4,9 +4,10 @@ from sqlalchemy import JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # TODO everything in functions should live in this model
-from mirix.orm.enums import ToolSourceType, ToolType
+from mirix.orm.enums import ToolSourceType
 from mirix.orm.mixins import OrganizationMixin
 from mirix.orm.sqlalchemy_base import SqlalchemyBase
+from mirix.schemas.enums import ToolType
 from mirix.schemas.tool import Tool as PydanticTool
 
 if TYPE_CHECKING:

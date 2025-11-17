@@ -1,12 +1,25 @@
-__version__ = "0.1.5"
+__version__ = "0.6.4"
 
 
-# import clients
-from mirix.client.client import LocalClient as LocalClient
-from mirix.client.client import create_client as create_client
-from mirix.client.remote_client import MirixClient as MirixClient
+# Client imports (always available)
+from mirix.client import MirixClient as MirixClient
 
-# # imports for easier access
+# Server-only imports (only available when full package is installed)
+try:
+    from mirix.local_client import LocalClient as LocalClient
+    from mirix.local_client import create_client as create_client
+except ImportError:
+    LocalClient = None
+    create_client = None
+
+try:
+    from mirix.sdk import Mirix as Mirix
+    from mirix.sdk import load_config as load_config
+except ImportError:
+    Mirix = None
+    load_config = None
+
+# Schema imports for easier access (available in both client and server)
 from mirix.schemas.agent import AgentState as AgentState
 from mirix.schemas.block import Block as Block
 from mirix.schemas.embedding_config import EmbeddingConfig as EmbeddingConfig
@@ -26,7 +39,3 @@ from mirix.schemas.organization import Organization as Organization
 from mirix.schemas.tool import Tool as Tool
 from mirix.schemas.usage import MirixUsageStatistics as MirixUsageStatistics
 from mirix.schemas.user import User as User
-
-# Import the new SDK interface
-from mirix.sdk import Mirix as Mirix
-from mirix.sdk import load_config as load_config
