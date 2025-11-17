@@ -144,17 +144,16 @@ class QueueManager:
         """
         Cleanup function called when the program exits
         Stops the worker and closes queue connections gracefully
-        """
-        logger.debug("Cleaning up queue manager")
         
+        Note: No logging during cleanup to avoid errors when logging system
+        has already shut down during Python/pytest teardown.
+        """
         if self._worker:
             self._worker.stop()
             self._worker = None
         
         self._queue = None
         self._initialized = False
-        
-        logger.debug("Queue manager cleanup complete")
     
     @property
     def is_initialized(self) -> bool:

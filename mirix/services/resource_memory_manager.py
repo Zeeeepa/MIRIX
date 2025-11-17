@@ -144,7 +144,7 @@ class ResourceMemoryManager:
             return None
 
     def _postgresql_fulltext_search(
-        self, session, base_query, query_text, search_field, limit, actor
+        self, session, base_query, query_text, search_field, limit, user_id
     ):
         """
         Efficient PostgreSQL-native full-text search using ts_rank_cd for BM25-like functionality.
@@ -246,7 +246,7 @@ class ResourceMemoryManager:
                     and_query_sql,
                     {
                         "tsquery": tsquery_string_and,
-                        "user_id": user.id,
+                        "user_id": user_id,
                         "limit_val": limit or 50,
                     },
                 )
@@ -300,7 +300,7 @@ class ResourceMemoryManager:
                 or_query_sql,
                 {
                     "tsquery": tsquery_string_or,
-                    "user_id": user.id,
+                    "user_id": user_id,
                     "limit_val": limit or 50,
                 },
             )
@@ -705,7 +705,7 @@ class ResourceMemoryManager:
                 if settings.mirix_pg_uri_no_default:
                     # Use PostgreSQL native full-text search
                     return self._postgresql_fulltext_search(
-                        session, base_query, query, search_field, limit, actor
+                        session, base_query, query, search_field, limit, user.id
                     )
                 else:
                     # Fallback to in-memory BM25 for SQLite (legacy method)

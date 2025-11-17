@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)  # Use Mirix logger for proper configuration
 
+
 class QueueWorker:
     """Background worker that processes messages from the queue"""
     
@@ -247,7 +248,8 @@ class QueueWorker:
                 else:
                     logger.error("Error in message consumption loop: %s", e, exc_info=True)
         
-        logger.info("Queue worker stopped")
+        # Note: No logging here to avoid errors during shutdown
+        # when logging system may already be closed
     
     def start(self) -> None:
         """Start the background worker thread"""
@@ -271,27 +273,22 @@ class QueueWorker:
         logger.info("✅ Queue worker thread started successfully")
     
     def stop(self) -> None:
-        """Stop the background worker thread"""
+        """
+        Stop the background worker thread
+        
+        Note: No logging during stop to avoid errors when called during shutdown,
+        as the logging system may have already closed its file handlers.
+        """
         if not self._running:
-            logger.warning("Queue worker not running, nothing to stop")
             return  # Not running
         
-        logger.debug("Stopping queue worker")
         self._running = False
         
         # Wait for thread to finish
         if self._thread:
-            logger.debug("Waiting for worker thread to finish")
             self._thread.join(timeout=5.0)
-            if self._thread.is_alive():
-                logger.warning("Worker thread did not finish within timeout")
-            else:
-                logger.debug("Worker thread finished successfully")
         
         # Close queue resources
-        logger.debug("Closing queue resources")
         self.queue.close()
-        
-        logger.debug("Queue worker stopped")
 
 
