@@ -53,6 +53,7 @@ from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.episodic_memory import EpisodicEvent as PydanticEpisodicEvent
 from mirix.schemas.semantic_memory import SemanticMemoryItem as PydanticSemanticMemoryItem
 from mirix.schemas.user import User as PydanticUser
+from mirix.schemas.client import Client
 from mirix.log import get_logger
 
 logger = get_logger(__name__)
@@ -132,6 +133,32 @@ def test_user(test_organization, user_manager):
 
 
 @pytest.fixture
+def test_client(test_organization):
+    """Create and persist a test client (represents client application)."""
+    from mirix.services.client_manager import ClientManager
+    client_manager = ClientManager()
+    
+    client = Client(
+        id=generate_test_id("client"),
+        name="Test Client App",
+        organization_id=test_organization.id,
+        status="active",
+        scope="read_write",
+        created_at=datetime.now(dt_timezone.utc),
+        updated_at=datetime.now(dt_timezone.utc),
+        is_deleted=False,
+        api_key_hash=None
+    )
+    created_client = client_manager.create_client(client)
+    yield created_client
+    # Cleanup
+    try:
+        client_manager.delete_client_by_id(created_client.id)
+    except Exception:  # pylint: disable=broad-except
+        pass  # May already be deleted
+
+
+@pytest.fixture
 def block_manager():
     """Create block manager instance."""
     return BlockManager()
@@ -192,7 +219,7 @@ def agent_manager():
 
 
 @pytest.fixture
-def test_agent(test_user, agent_manager):
+def test_agent(test_client, agent_manager):
     """Create and persist a test agent."""
     llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
     embedding_config = EmbeddingConfig(embedding_model="text-embedding-ada-002", embedding_endpoint_type="openai", embedding_dim=1536)
@@ -205,11 +232,11 @@ def test_agent(test_user, agent_manager):
         embedding_config=embedding_config,
         tool_ids=[]
     )
-    created_agent = agent_manager.create_agent(agent_data, test_user)
+    created_agent = agent_manager.create_agent(agent_data, test_client)
     yield created_agent
     # Cleanup
     try:
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     except Exception:  # pylint: disable=broad-except
         pass  # May already be deleted
 
@@ -386,7 +413,7 @@ class TestUserManagerRedis:
 class TestAgentAndToolManagerRedis:
     """Test Agent and Tool Managers with Redis Hash caching and denormalized tools_agents."""
     
-    def test_agent_create_with_tools_caches_both(self, agent_manager, test_user, redis_client):
+    def test_agent_create_with_tools_caches_both(self, agent_manager, test_client, redis_client):
         """Test creating agent with tools caches both agent and tools separately."""
         # Create agent with tools
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -403,7 +430,7 @@ class TestAgentAndToolManagerRedis:
         )
         
         # Create agent
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Verify agent in Redis Hash
         redis_key = f"{redis_client.AGENT_PREFIX}{created_agent.id}"
@@ -418,9 +445,9 @@ class TestAgentAndToolManagerRedis:
         assert "embedding_config" in cached_data
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     
-    def test_agent_with_tools_denormalizes_tools_agents(self, agent_manager, test_user, redis_client):
+    def test_agent_with_tools_denormalizes_tools_agents(self, agent_manager, test_client, redis_client):
         """Test that agent caches tool_ids (denormalized tools_agents junction table)."""
         # Create agent with mock tool IDs
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -436,7 +463,7 @@ class TestAgentAndToolManagerRedis:
             tool_ids=[]  # In real scenario, these would be actual tool IDs
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Verify agent in cache
         redis_key = f"{redis_client.AGENT_PREFIX}{created_agent.id}"
@@ -447,9 +474,9 @@ class TestAgentAndToolManagerRedis:
         # Format: "tool_ids": "[\"tool-1\", \"tool-2\"]"
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     
-    def test_agent_retrieval_uses_pipeline_for_tools(self, agent_manager, test_user, redis_client):
+    def test_agent_retrieval_uses_pipeline_for_tools(self, agent_manager, test_client, redis_client):
         """Test that agent retrieval uses Redis pipeline to fetch tools efficiently."""
         # Create agent
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -464,11 +491,11 @@ class TestAgentAndToolManagerRedis:
             tool_ids=[]
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Retrieve agent (should use pipeline for tools if any exist)
         start_time = time.time()
-        retrieved_agent = agent_manager.get_agent_by_id(created_agent.id, test_user)
+        retrieved_agent = agent_manager.get_agent_by_id(created_agent.id, test_client)
         retrieval_time = time.time() - start_time
         
         assert retrieved_agent.id == created_agent.id
@@ -480,9 +507,9 @@ class TestAgentAndToolManagerRedis:
         logger.info("✅ Agent retrieval with pipeline: %.3fms", retrieval_time*1000)
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     
-    def test_agent_update_invalidates_cache(self, agent_manager, test_user, redis_client):
+    def test_agent_update_invalidates_cache(self, agent_manager, test_client, redis_client):
         """Test updating agent invalidates and updates Redis cache."""
         # Create agent
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -497,11 +524,11 @@ class TestAgentAndToolManagerRedis:
             tool_ids=[]
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Update agent
         update_data = UpdateAgent(name="Updated Agent Name")
-        agent_manager.update_agent(created_agent.id, update_data, test_user)
+        agent_manager.update_agent(created_agent.id, update_data, test_client)
         
         # Verify cache is updated
         redis_key = f"{redis_client.AGENT_PREFIX}{created_agent.id}"
@@ -510,9 +537,9 @@ class TestAgentAndToolManagerRedis:
         assert cached_data["name"] == "Updated Agent Name"
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     
-    def test_agent_delete_removes_cache(self, agent_manager, test_user, redis_client):
+    def test_agent_delete_removes_cache(self, agent_manager, test_client, redis_client):
         """Test deleting agent removes from Redis cache."""
         # Create agent
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -527,19 +554,19 @@ class TestAgentAndToolManagerRedis:
             tool_ids=[]
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Verify in cache
         redis_key = f"{redis_client.AGENT_PREFIX}{created_agent.id}"
         assert redis_client.get_hash(redis_key) is not None
         
         # Delete agent
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
         
         # Verify removed from cache
         assert redis_client.get_hash(redis_key) is None
     
-    def test_agent_cache_hit_performance(self, agent_manager, test_user, redis_client):
+    def test_agent_cache_hit_performance(self, agent_manager, test_client, redis_client):
         """Test agent cache hit performance (should be 40-60% faster)."""
         # Create agent
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -554,16 +581,16 @@ class TestAgentAndToolManagerRedis:
             tool_ids=[]
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Warm cache
-        agent_manager.get_agent_by_id(created_agent.id, test_user)
+        agent_manager.get_agent_by_id(created_agent.id, test_client)
         
         # Measure cached reads
         cache_times = []
         for _ in range(10):
             start = time.time()
-            agent_manager.get_agent_by_id(created_agent.id, test_user)
+            agent_manager.get_agent_by_id(created_agent.id, test_client)
             cache_times.append(time.time() - start)
         
         avg_cache_time = sum(cache_times) / len(cache_times)
@@ -573,7 +600,7 @@ class TestAgentAndToolManagerRedis:
         assert avg_cache_time < 0.01, f"Agent cache hit should be <10ms, got {avg_cache_time*1000:.2f}ms"
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
 
 
 # ============================================================================
@@ -583,7 +610,7 @@ class TestAgentAndToolManagerRedis:
 class TestToolsAgentsDenormalization:
     """Test denormalized tools_agents junction table."""
     
-    def test_tools_agents_not_cached_separately(self, agent_manager, test_user, redis_client):
+    def test_tools_agents_not_cached_separately(self, agent_manager, test_client, redis_client):
         """Verify tools_agents junction table is NOT cached separately."""
         # Create agent with tools
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -598,7 +625,7 @@ class TestToolsAgentsDenormalization:
             tool_ids=[]  # Would have actual tool IDs in real scenario
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Verify NO separate junction table cache
         # The relationship is denormalized into agent cache as tool_ids
@@ -616,9 +643,9 @@ class TestToolsAgentsDenormalization:
         logger.info("✅ Verified tools_agents is denormalized (not cached separately)")
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
     
-    def test_agent_with_tools_single_pipeline_retrieval(self, agent_manager, test_user, redis_client):
+    def test_agent_with_tools_single_pipeline_retrieval(self, agent_manager, test_client, redis_client):
         """Test that agent+tools are retrieved in single pipeline operation."""
         # Create agent
         llm_config = LLMConfig(model="gpt-4", model_endpoint_type="openai", model_endpoint="https://api.openai.com", context_window=8192)
@@ -633,11 +660,11 @@ class TestToolsAgentsDenormalization:
             tool_ids=[]
         )
         
-        created_agent = agent_manager.create_agent(agent_data, test_user)
+        created_agent = agent_manager.create_agent(agent_data, test_client)
         
         # Retrieve agent (uses pipeline internally for tools)
         start_time = time.time()
-        agent = agent_manager.get_agent_by_id(created_agent.id, test_user)
+        agent = agent_manager.get_agent_by_id(created_agent.id, test_client)
         total_time = time.time() - start_time
         
         # With denormalized tools_agents and pipeline:
@@ -652,7 +679,7 @@ class TestToolsAgentsDenormalization:
         assert total_time < 0.01, f"Pipeline retrieval should be <10ms, got {total_time*1000:.2f}ms"
         
         # Cleanup
-        agent_manager.delete_agent(created_agent.id, test_user)
+        agent_manager.delete_agent(created_agent.id, test_client)
 
 
 # ============================================================================
@@ -662,7 +689,7 @@ class TestToolsAgentsDenormalization:
 class TestBlockManagerRedis:
     """Test Block Manager with Redis Hash caching."""
     
-    def test_block_create_with_redis(self, block_manager, test_user, redis_client):
+    def test_block_create_with_redis(self, block_manager, test_client, test_user, redis_client):
         """Test creating a block caches to Redis Hash."""
         block_data = PydanticBlock(
             id=generate_test_id("block"),
@@ -672,7 +699,7 @@ class TestBlockManagerRedis:
         )
         
         # Create block
-        created_block = block_manager.create_or_update_block(block_data, test_user)
+        created_block = block_manager.create_or_update_block(block_data, actor=test_client, user=test_user)
         
         # Verify in Redis Hash
         redis_key = f"{redis_client.BLOCK_PREFIX}{created_block.id}"
@@ -684,9 +711,9 @@ class TestBlockManagerRedis:
         assert cached_data["value"] == "I am a test assistant"
         
         # Cleanup
-        block_manager.delete_block(created_block.id, test_user)
+        block_manager.delete_block(created_block.id, test_client)
     
-    def test_block_cache_hit(self, block_manager, test_user, redis_client):
+    def test_block_cache_hit(self, block_manager, test_client, test_user, redis_client):
         """Test cache hit for block retrieval."""
         # Create block
         block_data = PydanticBlock(
@@ -695,7 +722,7 @@ class TestBlockManagerRedis:
             value="Test user info",
             limit=2000
         )
-        created_block = block_manager.create_or_update_block(block_data, test_user)
+        created_block = block_manager.create_or_update_block(block_data, test_client, user=test_user)
         
         # First get (should populate cache)
         block1 = block_manager.get_block_by_id(created_block.id, test_user)
@@ -710,9 +737,9 @@ class TestBlockManagerRedis:
         assert cache_time < 0.005, f"Cache hit should be <5ms, got {cache_time*1000:.2f}ms"
         
         # Cleanup
-        block_manager.delete_block(created_block.id, test_user)
+        block_manager.delete_block(created_block.id, test_client)
     
-    def test_block_update_invalidates_cache(self, block_manager, test_user, redis_client):
+    def test_block_update_invalidates_cache(self, block_manager, test_client, test_user, redis_client):
         """Test updating a block updates Redis cache."""
         # Create block
         block_data = PydanticBlock(
@@ -721,11 +748,11 @@ class TestBlockManagerRedis:
             value="Original value",
             limit=2000
         )
-        created_block = block_manager.create_or_update_block(block_data, test_user)
+        created_block = block_manager.create_or_update_block(block_data, test_client, user=test_user)
         
         # Update block
         update_data = BlockUpdate(value="Updated value")
-        block_manager.update_block(created_block.id, update_data, test_user)
+        block_manager.update_block(created_block.id, update_data, test_client, user=test_user)
         
         # Verify Redis cache is updated
         redis_key = f"{redis_client.BLOCK_PREFIX}{created_block.id}"
@@ -738,9 +765,9 @@ class TestBlockManagerRedis:
         assert retrieved_block.value == "Updated value"
         
         # Cleanup
-        block_manager.delete_block(created_block.id, test_user)
+        block_manager.delete_block(created_block.id, test_client)
     
-    def test_block_delete_removes_cache(self, block_manager, test_user, redis_client):
+    def test_block_delete_removes_cache(self, block_manager, test_client, test_user, redis_client):
         """Test deleting a block removes from Redis cache."""
         # Create block
         block_data = PydanticBlock(
@@ -749,14 +776,14 @@ class TestBlockManagerRedis:
             value="To be deleted",
             limit=2000
         )
-        created_block = block_manager.create_or_update_block(block_data, test_user)
+        created_block = block_manager.create_or_update_block(block_data, test_client, user=test_user)
         
         # Verify in cache
         redis_key = f"{redis_client.BLOCK_PREFIX}{created_block.id}"
         assert redis_client.get_hash(redis_key) is not None
         
         # Delete block
-        block_manager.delete_block(created_block.id, test_user)
+        block_manager.delete_block(created_block.id, test_client)
         
         # Verify removed from cache
         assert redis_client.get_hash(redis_key) is None
@@ -769,7 +796,7 @@ class TestBlockManagerRedis:
 class TestMessageManagerRedis:
     """Test Message Manager with Redis Hash caching."""
     
-    def test_message_create_with_redis(self, message_manager, test_user, test_agent, redis_client):
+    def test_message_create_with_redis(self, message_manager, test_client, test_user, test_agent, redis_client):
         """Test creating a message caches to Redis Hash."""
         message_data = PydanticMessage(
             id=generate_test_id("message"),
@@ -779,7 +806,7 @@ class TestMessageManagerRedis:
         )
         
         # Create message
-        created_message = message_manager.create_message(message_data, test_user)
+        created_message = message_manager.create_message(message_data, test_client)
         
         # Verify in Redis Hash
         redis_key = f"{redis_client.MESSAGE_PREFIX}{created_message.id}"
@@ -791,9 +818,9 @@ class TestMessageManagerRedis:
         # Note: Message uses 'content' field, not 'text'
         
         # Cleanup
-        message_manager.delete_message_by_id(created_message.id, test_user)
+        message_manager.delete_message_by_id(created_message.id, test_client)
     
-    def test_message_cache_hit_performance(self, message_manager, test_user, test_agent, redis_client):
+    def test_message_cache_hit_performance(self, message_manager, test_client, test_user, test_agent, redis_client):
         """Test message cache hit is significantly faster than DB."""
         # Create message
         message_data = PydanticMessage(
@@ -802,16 +829,16 @@ class TestMessageManagerRedis:
             content=[TextContent(text="Test response")],
             agent_id=test_agent.id
         )
-        created_message = message_manager.create_message(message_data, test_user)
+        created_message = message_manager.create_message(message_data, test_client)
         
         # Warm up cache
-        message_manager.get_message_by_id(created_message.id, test_user)
+        message_manager.get_message_by_id(created_message.id, test_client)
         
         # Measure cache hit performance
         cache_times = []
         for _ in range(10):
             start = time.time()
-            message_manager.get_message_by_id(created_message.id, test_user)
+            message_manager.get_message_by_id(created_message.id, test_client)
             cache_times.append(time.time() - start)
         
         avg_cache_time = sum(cache_times) / len(cache_times)
@@ -820,7 +847,7 @@ class TestMessageManagerRedis:
         logger.info("✅ Average cache hit time: %.2fms", avg_cache_time*1000)
         
         # Cleanup
-        message_manager.delete_message_by_id(created_message.id, test_user)
+        message_manager.delete_message_by_id(created_message.id, test_client)
 
 
 # ============================================================================
@@ -830,7 +857,7 @@ class TestMessageManagerRedis:
 class TestEpisodicMemoryManagerRedis:
     """Test Episodic Memory Manager with Redis JSON caching."""
     
-    def test_episodic_create_with_redis(self, episodic_manager, test_user, test_agent, redis_client):
+    def test_episodic_create_with_redis(self, episodic_manager, test_client, test_user, test_agent, redis_client):
         """Test creating episodic memory caches to Redis JSON."""
         event_data = PydanticEpisodicEvent(
             id=generate_test_id("episodic"),
@@ -845,7 +872,7 @@ class TestEpisodicMemoryManagerRedis:
         )
         
         # Create event
-        created_event = episodic_manager.create_episodic_memory(event_data, test_user)
+        created_event = episodic_manager.create_episodic_memory(event_data, test_client, user_id=test_user.id)
         
         # Verify in Redis JSON
         redis_key = f"{redis_client.EPISODIC_PREFIX}{created_event.id}"
@@ -857,9 +884,9 @@ class TestEpisodicMemoryManagerRedis:
         assert cached_data["summary"] == "User asked about Python"
         
         # Cleanup
-        episodic_manager.delete_event_by_id(created_event.id, test_user)
+        episodic_manager.delete_event_by_id(created_event.id, test_client)
     
-    def test_episodic_cache_with_embeddings(self, episodic_manager, test_user, test_agent, redis_client):
+    def test_episodic_cache_with_embeddings(self, episodic_manager, test_client, test_user, test_agent, redis_client):
         """Test episodic memory with embeddings caches correctly."""
         # Create mock embeddings (4096 dimensions)
         mock_embedding = [0.1] * 4096
@@ -879,7 +906,7 @@ class TestEpisodicMemoryManagerRedis:
         )
         
         # Create event
-        created_event = episodic_manager.create_episodic_memory(event_data, test_user)
+        created_event = episodic_manager.create_episodic_memory(event_data, test_client, user_id=test_user.id)
         
         # Verify embeddings are in Redis JSON
         redis_key = f"{redis_client.EPISODIC_PREFIX}{created_event.id}"
@@ -892,7 +919,7 @@ class TestEpisodicMemoryManagerRedis:
         assert len(cached_data["summary_embedding"]) == 4096
         
         # Cleanup
-        episodic_manager.delete_event_by_id(created_event.id, test_user)
+        episodic_manager.delete_event_by_id(created_event.id, test_client)
 
 
 # ============================================================================
@@ -902,7 +929,7 @@ class TestEpisodicMemoryManagerRedis:
 class TestSemanticMemoryManagerRedis:
     """Test Semantic Memory Manager with Redis JSON caching (3 embeddings - 48KB!)."""
     
-    def test_semantic_create_with_three_embeddings(self, semantic_manager, test_user, test_agent, redis_client):
+    def test_semantic_create_with_three_embeddings(self, semantic_manager, test_client, test_user, test_agent, redis_client):
         """Test semantic memory with 3 embeddings (48KB total) caches to Redis JSON."""
         # Create mock embeddings (each is 16KB)
         mock_embedding = [0.2] * 4096
@@ -922,7 +949,7 @@ class TestSemanticMemoryManagerRedis:
         )
         
         # Create item
-        created_item = semantic_manager.create_item(item_data, test_user)
+        created_item = semantic_manager.create_item(item_data, test_client, user_id=test_user.id)
         
         # Verify all 3 embeddings are in Redis JSON
         redis_key = f"{redis_client.SEMANTIC_PREFIX}{created_item.id}"
@@ -939,7 +966,7 @@ class TestSemanticMemoryManagerRedis:
         logger.info("✅ Cached semantic memory with 48KB of embeddings (3 × 16KB)")
         
         # Cleanup
-        semantic_manager.delete_semantic_item_by_id(created_item.id, test_user)
+        semantic_manager.delete_semantic_item_by_id(created_item.id, test_client)
 
 
 # ============================================================================
@@ -949,7 +976,7 @@ class TestSemanticMemoryManagerRedis:
 class TestProceduralMemoryManagerRedis:
     """Test Procedural Memory Manager with Redis JSON caching (2 embeddings)."""
     
-    def test_procedural_create_with_embeddings(self, procedural_manager, test_user, test_agent, redis_client):
+    def test_procedural_create_with_embeddings(self, procedural_manager, test_client, test_user, test_agent, redis_client):
         """Test procedural memory with 2 embeddings (32KB total) caches to Redis JSON."""
         # Create mock embeddings (each is 16KB)
         from mirix.schemas.procedural_memory import ProceduralMemoryItem
@@ -968,7 +995,7 @@ class TestProceduralMemoryManagerRedis:
         )
         
         # Create item
-        created_item = procedural_manager.create_item(item_data, test_user)
+        created_item = procedural_manager.create_item(item_data, test_client, user_id=test_user.id)
         
         # Verify both embeddings are in Redis JSON
         redis_key = f"{redis_client.PROCEDURAL_PREFIX}{created_item.id}"
@@ -983,7 +1010,7 @@ class TestProceduralMemoryManagerRedis:
         logger.info("✅ Cached procedural memory with 32KB of embeddings (2 × 16KB)")
         
         # Cleanup
-        procedural_manager.delete_procedure_by_id(created_item.id, test_user)
+        procedural_manager.delete_procedure_by_id(created_item.id, test_client)
 
 
 # ============================================================================
@@ -993,7 +1020,7 @@ class TestProceduralMemoryManagerRedis:
 class TestResourceMemoryManagerRedis:
     """Test Resource Memory Manager with Redis JSON caching (1 embedding)."""
     
-    def test_resource_create_with_embedding(self, resource_manager, test_user, test_agent, redis_client):
+    def test_resource_create_with_embedding(self, resource_manager, test_client, test_user, test_agent, redis_client):
         """Test resource memory with 1 embedding (16KB) caches to Redis JSON."""
         # Create mock embedding
         from mirix.schemas.resource_memory import ResourceMemoryItem
@@ -1012,7 +1039,7 @@ class TestResourceMemoryManagerRedis:
         )
         
         # Create item
-        created_item = resource_manager.create_item(item_data, test_user)
+        created_item = resource_manager.create_item(item_data, test_client, user_id=test_user.id)
         
         # Verify embedding is in Redis JSON
         redis_key = f"{redis_client.RESOURCE_PREFIX}{created_item.id}"
@@ -1025,7 +1052,7 @@ class TestResourceMemoryManagerRedis:
         logger.info("✅ Cached resource memory with 16KB embedding")
         
         # Cleanup
-        resource_manager.delete_resource_by_id(created_item.id, test_user)
+        resource_manager.delete_resource_by_id(created_item.id, test_client)
 
 
 # ============================================================================
@@ -1035,7 +1062,7 @@ class TestResourceMemoryManagerRedis:
 class TestKnowledgeVaultManagerRedis:
     """Test Knowledge Vault Manager with Redis JSON caching (1 embedding)."""
     
-    def test_knowledge_create_with_embedding(self, knowledge_manager, test_user, test_agent, redis_client):
+    def test_knowledge_create_with_embedding(self, knowledge_manager, test_client, test_user, test_agent, redis_client):
         """Test knowledge vault item with 1 embedding (16KB) caches to Redis JSON."""
         # Create mock embedding
         from mirix.schemas.knowledge_vault import KnowledgeVaultItem
@@ -1055,7 +1082,7 @@ class TestKnowledgeVaultManagerRedis:
         )
         
         # Create item
-        created_item = knowledge_manager.create_item(item_data, test_user)
+        created_item = knowledge_manager.create_item(item_data, test_client, user_id=test_user.id)
         
         # Verify embedding is in Redis JSON
         redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{created_item.id}"
@@ -1068,7 +1095,7 @@ class TestKnowledgeVaultManagerRedis:
         logger.info("Cached knowledge vault item with 16KB embedding")
         
         # Cleanup
-        knowledge_manager.delete_knowledge_by_id(created_item.id, test_user)
+        knowledge_manager.delete_knowledge_by_id(created_item.id, test_client)
 
 
 # ============================================================================
@@ -1078,7 +1105,7 @@ class TestKnowledgeVaultManagerRedis:
 class TestRedisFallback:
     """Test graceful degradation when Redis is unavailable."""
     
-    def test_block_manager_works_without_redis(self, block_manager, test_user):
+    def test_block_manager_works_without_redis(self, block_manager, test_client, test_user):
         """Test block manager works when Redis is disabled."""
         # Temporarily disable Redis
         original_enabled = settings.redis_enabled
@@ -1093,7 +1120,7 @@ class TestRedisFallback:
                 limit=2000
             )
             
-            created_block = block_manager.create_or_update_block(block_data, test_user)
+            created_block = block_manager.create_or_update_block(block_data, test_client, user=test_user)
             assert created_block.id == block_data.id
             
             # Retrieve block (should work from PostgreSQL)
@@ -1102,7 +1129,7 @@ class TestRedisFallback:
             assert retrieved_block.value == "No Redis test"
             
             # Cleanup
-            block_manager.delete_block(created_block.id, test_user)
+            block_manager.delete_block(created_block.id, test_client)
             
         finally:
             # Restore Redis setting
@@ -1116,7 +1143,7 @@ class TestRedisFallback:
 class TestRedisPerformance:
     """Performance benchmarks for Redis caching."""
     
-    def test_block_cache_speedup(self, block_manager, test_user, redis_client):
+    def test_block_cache_speedup(self, block_manager, test_client, test_user, redis_client):
         """Measure speedup from Redis Hash caching."""
         # Create test blocks
         blocks = []
@@ -1127,7 +1154,7 @@ class TestRedisPerformance:
                 value=f"Test value {i}",
                 limit=2000
             )
-            created_block = block_manager.create_or_update_block(block_data, test_user)
+            created_block = block_manager.create_or_update_block(block_data, test_client, user=test_user)
             blocks.append(created_block)
         
         # Warm up cache
@@ -1149,9 +1176,9 @@ class TestRedisPerformance:
         
         # Cleanup
         for block in blocks:
-            block_manager.delete_block(block.id, test_user)
+            block_manager.delete_block(block.id, test_client)
     
-    def test_message_cache_vs_db_comparison(self, message_manager, test_user, test_agent, redis_client):
+    def test_message_cache_vs_db_comparison(self, message_manager, test_client, test_user, test_agent, redis_client):
         """Compare Redis cache vs PostgreSQL performance for messages."""
         # Create test message
         message_data = PydanticMessage(
@@ -1160,15 +1187,15 @@ class TestRedisPerformance:
             content=[TextContent(text="Performance test message")],
             agent_id=test_agent.id
         )
-        created_message = message_manager.create_message(message_data, test_user)
+        created_message = message_manager.create_message(message_data, test_client)
         
         # Measure with Redis (warm cache)
-        message_manager.get_message_by_id(created_message.id, test_user)
+        message_manager.get_message_by_id(created_message.id, test_client)
         
         redis_times = []
         for _ in range(20):
             start = time.time()
-            message_manager.get_message_by_id(created_message.id, test_user)
+            message_manager.get_message_by_id(created_message.id, test_client)
             redis_times.append(time.time() - start)
         
         avg_redis_time = sum(redis_times) / len(redis_times)
@@ -1180,7 +1207,7 @@ class TestRedisPerformance:
         assert avg_redis_time < 0.010, f"Redis should be <10ms, got {avg_redis_time*1000:.2f}ms"
         
         # Cleanup
-        message_manager.delete_message_by_id(created_message.id, test_user)
+        message_manager.delete_message_by_id(created_message.id, test_client)
 
 
 # ============================================================================
@@ -1196,6 +1223,7 @@ class TestRedisIntegrationEnd2End:
         message_manager,
         episodic_manager,
         semantic_manager,
+        test_client,
         test_user,
         test_agent,
         redis_client
@@ -1208,7 +1236,7 @@ class TestRedisIntegrationEnd2End:
             value="I am a helpful assistant",
             limit=2000
         )
-        created_block = block_manager.create_or_update_block(block, test_user)
+        created_block = block_manager.create_or_update_block(block, test_client, user=test_user)
         
         # 2. Create message (Hash)
         message = PydanticMessage(
@@ -1217,7 +1245,7 @@ class TestRedisIntegrationEnd2End:
             content=[TextContent(text="Hello!")],
             agent_id=test_agent.id
         )
-        created_message = message_manager.create_message(message, test_user)
+        created_message = message_manager.create_message(message, test_client)
         
         # 3. Create episodic memory (JSON)
         event = PydanticEpisodicEvent(
@@ -1231,7 +1259,7 @@ class TestRedisIntegrationEnd2End:
             user_id=test_user.id,
             agent_id=test_agent.id
         )
-        created_event = episodic_manager.create_episodic_memory(event, test_user)
+        created_event = episodic_manager.create_episodic_memory(event, test_client, user_id=test_user.id)
         
         # 4. Create semantic memory (JSON with 3 embeddings)
         semantic = PydanticSemanticMemoryItem(
@@ -1244,7 +1272,7 @@ class TestRedisIntegrationEnd2End:
             user_id=test_user.id,
             agent_id=test_agent.id
         )
-        created_semantic = semantic_manager.create_item(semantic, test_user)
+        created_semantic = semantic_manager.create_item(semantic, test_client, user_id=test_user.id)
         
         # 5. Verify all cached
         assert redis_client.get_hash(f"{redis_client.BLOCK_PREFIX}{created_block.id}") is not None
@@ -1254,7 +1282,7 @@ class TestRedisIntegrationEnd2End:
         
         # 6. Retrieve all (should hit cache)
         retrieved_block = block_manager.get_block_by_id(created_block.id, test_user)
-        retrieved_message = message_manager.get_message_by_id(created_message.id, test_user)
+        retrieved_message = message_manager.get_message_by_id(created_message.id, test_client)
         retrieved_event = episodic_manager.get_episodic_memory_by_id(created_event.id, test_user)
         retrieved_semantic = semantic_manager.get_semantic_item_by_id(created_semantic.id, test_user, test_user.timezone)
         
@@ -1266,10 +1294,10 @@ class TestRedisIntegrationEnd2End:
         logger.info("✅ Full workflow test passed - all managers using Redis!")
         
         # Cleanup
-        block_manager.delete_block(created_block.id, test_user)
-        message_manager.delete_message_by_id(created_message.id, test_user)
-        episodic_manager.delete_event_by_id(created_event.id, test_user)
-        semantic_manager.delete_semantic_item_by_id(created_semantic.id, test_user)
+        block_manager.delete_block(created_block.id, test_client)
+        message_manager.delete_message_by_id(created_message.id, test_client)
+        episodic_manager.delete_event_by_id(created_event.id, test_client)
+        semantic_manager.delete_semantic_item_by_id(created_semantic.id, test_client)
         
         # Verify all removed from cache
         assert redis_client.get_hash(f"{redis_client.BLOCK_PREFIX}{created_block.id}") is None

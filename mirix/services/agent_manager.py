@@ -42,6 +42,7 @@ from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.message import Message as PydanticMessage
 from mirix.schemas.message import MessageCreate
 from mirix.schemas.tool_rule import ToolRule as PydanticToolRule
+from mirix.schemas.user import User as PydanticUser
 from mirix.services.block_manager import BlockManager
 from mirix.services.helpers.agent_manager_helper import (
     _process_relationship,
@@ -1368,6 +1369,7 @@ class AgentManager:
         limit: Optional[int] = 50,
         query_text: Optional[str] = None,
         parent_id: Optional[str] = None,
+        user: Optional[PydanticUser] = None,
         **kwargs,
     ) -> List[PydanticAgentState]:
         """

@@ -201,8 +201,8 @@ class KnowledgeVaultManager:
         query_text,
         search_field,
         limit,
+        user_id,
         sensitivity=None,
-        actor=None,
     ):
         """
         Efficient PostgreSQL-native full-text search using ts_rank_cd for BM25-like functionality.
@@ -299,7 +299,7 @@ class KnowledgeVaultManager:
 
             query_params = {
                 "tsquery": tsquery_string_and,
-                "user_id": user.id,
+                "user_id": user_id,
                 "limit_val": limit or 50,
             }
             if sensitivity is not None:
@@ -354,7 +354,7 @@ class KnowledgeVaultManager:
 
             query_params = {
                 "tsquery": tsquery_string_or,
-                "user_id": user.id,
+                "user_id": user_id,
                 "limit_val": limit or 50,
             }
             if sensitivity is not None:
@@ -399,7 +399,7 @@ class KnowledgeVaultManager:
             fallback_query = (
                 select(KnowledgeVaultItem)
                 .where(func.lower(fallback_field).contains(query_text.lower()))
-                .where(KnowledgeVaultItem.user_id == user.id)
+                .where(KnowledgeVaultItem.user_id == user_id)
             )
 
             # Add sensitivity filter to fallback query if provided
@@ -442,6 +442,17 @@ class KnowledgeVaultManager:
         # Cache MISS - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
+                # Construct a PydanticClient for actor using user's organization_id.
+                # Note: We can pass in a PydanticClient with a default client ID because
+                # KnowledgeVaultItem.read() only uses the organization_id from the actor for
+                # access control (see apply_access_predicate in sqlalchemy_base.py).
+                # The actual client ID is not used for filtering.
+                actor = PydanticClient(
+                    id="system-default-client",
+                    organization_id=user.organization_id,
+                    name="system-client"
+                )
+                
                 item = KnowledgeVaultItem.read(
                     db_session=session, identifier=knowledge_vault_item_id, actor=actor
                 )
@@ -833,8 +844,8 @@ class KnowledgeVaultManager:
                             query,
                             search_field,
                             limit,
+                            user.id,
                             sensitivity,
-                            actor,
                         )
                     else:
                         # Fallback to in-memory BM25 for SQLite (legacy method)

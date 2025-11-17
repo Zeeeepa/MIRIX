@@ -161,6 +161,17 @@ class EpisodicMemoryManager:
         # Cache MISS or Redis unavailable - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
+                # Construct a PydanticClient for actor using user's organization_id.
+                # Note: We can pass in a PydanticClient with a default client ID because
+                # EpisodicEvent.read() only uses the organization_id from the actor for
+                # access control (see apply_access_predicate in sqlalchemy_base.py).
+                # The actual client ID is not used for filtering.
+                actor = PydanticClient(
+                    id="system-default-client",
+                    organization_id=user.organization_id,
+                    name="system-client"
+                )
+                
                 episodic_memory_item = EpisodicEvent.read(
                     db_session=session, identifier=episodic_memory_id, actor=actor
                 )
@@ -310,7 +321,7 @@ class EpisodicMemoryManager:
         with self.session_maker() as session:
             try:
                 episodic_memory_item = EpisodicEvent.read(
-                    db_session=session, identifier=id, actor=user
+                    db_session=session, identifier=id, actor=actor
                 )
                 # Remove from Redis cache before hard delete
                 from mirix.database.redis_client import get_redis_client
@@ -972,11 +983,22 @@ class EpisodicMemoryManager:
         """
 
         with self.session_maker() as session:
+            # Construct a PydanticClient for actor using user's organization_id.
+            # Note: We can pass in a PydanticClient with a default client ID because
+            # EpisodicEvent.read() only uses the organization_id from the actor for
+            # access control (see apply_access_predicate in sqlalchemy_base.py).
+            # The actual client ID is not used for filtering.
+            actor = PydanticClient(
+                id="system-default-client",
+                organization_id=user.organization_id,
+                name="system-client"
+            )
+            
             # query = select(EpisodicEvent)
             # query = query.where(EpisodicEvent.id == event_id)
             # selected_event = session.execute(query).scalar_one_or_none()
             selected_event = EpisodicEvent.read(
-                db_session=session, identifier=event_id, actor=user
+                db_session=session, identifier=event_id, actor=actor
             )
 
             if not selected_event:

@@ -1667,6 +1667,8 @@ async def retrieve_memory_with_topic(
     user_id: str,
     topic: str,
     limit: int = 10,
+    filter_tags: Optional[str] = None,
+    use_cache: bool = True,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
@@ -1677,10 +1679,25 @@ async def retrieve_memory_with_topic(
         user_id: The user ID to retrieve memories for
         topic: The topic/keywords to search for
         limit: Maximum number of items to retrieve per memory type (default: 10)
+        filter_tags: Optional JSON string of tags to filter memories (default: None)
+        use_cache: Whether to use cached results (default: True)
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
+
+    # Parse filter_tags from JSON string to dict
+    parsed_filter_tags = None
+    if filter_tags:
+        try:
+            parsed_filter_tags = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            return {
+                "success": False,
+                "error": f"Invalid filter_tags JSON: {filter_tags}",
+                "topic": topic,
+                "memories": {},
+            }
 
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
@@ -1701,7 +1718,7 @@ async def retrieve_memory_with_topic(
         agent_state=all_agents[0],
         key_words=topic,
         limit=limit,
-        filter_tags=filter_tags,
+        filter_tags=parsed_filter_tags,
         use_cache=use_cache,
     )
 
