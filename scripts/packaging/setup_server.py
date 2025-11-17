@@ -111,7 +111,7 @@ server_dependencies = [
     "SpeechRecognition>=3.10.0",
     "pydub>=0.25.0",
     # Protobuf (for queue message serialization) - compatible with pynumaflow
-    "protobuf>=3.20,<6.0",
+    "protobuf>=5.0.0,<6.0.0",
 ]
 
 # Optional dependencies

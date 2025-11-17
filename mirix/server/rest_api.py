@@ -10,6 +10,7 @@ import traceback
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Union
 
+import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -43,7 +44,9 @@ from mirix.schemas.sandbox_config import (
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
+from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.server.server import SyncServer
+from mirix.settings import model_settings
 from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
@@ -136,26 +139,26 @@ app.add_middleware(
 # ============================================================================
 
 
-def get_user_and_org(
-    x_user_id: Optional[str] = None,
+def get_client_and_org(
+    x_client_id: Optional[str] = None,
     x_org_id: Optional[str] = None,
 ) -> tuple[str, str]:
     """
-    Get user_id and org_id from headers or use defaults.
+    Get client_id and org_id from headers or use defaults.
     
     Returns:
-        tuple[str, str]: (user_id, org_id)
+        tuple[str, str]: (client_id, org_id)
     """
     server = get_server()
     
-    if x_user_id:
-        user_id = x_user_id
+    if x_client_id:
+        client_id = x_client_id
         org_id = x_org_id or server.organization_manager.DEFAULT_ORG_ID
     else:
-        user_id = server.user_manager.DEFAULT_USER_ID
+        client_id = server.client_manager.DEFAULT_CLIENT_ID
         org_id = server.organization_manager.DEFAULT_ORG_ID
     
-    return user_id, org_id
+    return client_id, org_id
 
 
 def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
@@ -265,6 +268,115 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
     return None
 
 
+def _flatten_messages_to_plain_text(messages: List[Dict[str, Any]]) -> str:
+    """
+    Flatten OpenAI-style message payloads into a simple conversation transcript.
+    """
+    transcript_parts: List[str] = []
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        parts: List[str] = []
+        if isinstance(content, list):
+            for chunk in content:
+                if isinstance(chunk, dict):
+                    text = chunk.get("text")
+                    if text:
+                        parts.append(text.strip())
+                elif isinstance(chunk, str):
+                    parts.append(chunk.strip())
+        elif isinstance(content, str):
+            parts.append(content.strip())
+
+        combined = " ".join(filter(None, parts)).strip()
+        if combined:
+            transcript_parts.append(f"{role.upper()}: {combined}")
+
+    return "\n".join(transcript_parts)
+
+
+def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: str) -> Optional[str]:
+    """
+    Extract topics using a locally hosted Ollama model via the /api/chat endpoint.
+
+    Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
+    """
+
+    import ipdb; ipdb.set_trace()
+
+    base_url = model_settings.ollama_base_url
+    if not base_url:
+        logger.warning(
+            "local_model_for_retrieval provided (%s) but MIRIX_OLLAMA_BASE_URL is not configured",
+            model_name,
+        )
+        return None
+
+    conversation = _flatten_messages_to_plain_text(messages)
+    if not conversation:
+        logger.debug("No text content found in messages for local topic extraction")
+        return None
+
+    payload = {
+        "model": model_name,
+        "stream": False,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant that extracts the topic from the user's input. "
+                    "Return a concise list of topics separated by ';' and nothing else."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Conversation transcript:\n"
+                    f"{conversation}\n\n"
+                    "Respond ONLY with the topic(s) separated by ';'."
+                ),
+            },
+        ],
+        "options": {
+            "temperature": 0,
+        },
+    }
+
+    try:
+        import ipdb; ipdb.set_trace()
+        response = requests.post(
+            f"{base_url.rstrip('/')}/api/chat",
+            json=payload,
+            timeout=30,
+            proxies={"http": None, "https": None},
+        )
+        response.raise_for_status()
+        response_data = response.json()
+    except requests.RequestException as exc:
+        logger.error("Failed to extract topics with local model %s: %s", model_name, exc)
+        return None
+
+    message_payload = response_data.get("message") if isinstance(response_data, dict) else None
+    text_response: Optional[str] = None
+    if isinstance(message_payload, dict):
+        text_response = message_payload.get("content")
+    elif isinstance(response_data, dict):
+        text_response = response_data.get("content")
+
+    if isinstance(text_response, str):
+        topics = text_response.strip()
+        logger.debug("Extracted topics via local model %s: %s", model_name, topics)
+        return topics or None
+
+    logger.warning(
+        "Unexpected response format from Ollama topic extraction: %s",
+        response_data,
+    )
+    return None
+
+
 # ============================================================================
 # Error Handling
 # ============================================================================
@@ -306,18 +418,18 @@ async def list_agents(
     limit: int = 100,
     cursor: Optional[str] = None,
     parent_id: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List all agents for the authenticated user."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
     
     tags_list = tags.split(",") if tags else None
     
     return server.agent_manager.list_agents(
-        actor=user,
+        actor=client,
         tags=tags_list,
         query_text=query_text,
         limit=limit,
@@ -349,18 +461,18 @@ class CreateAgentRequest(BaseModel):
 @router.post("/agents", response_model=AgentState)
 async def create_agent(
     request: CreateAgentRequest,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Create a new agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
     # Create memory blocks if provided
     if request.memory:
         for block in request.memory.get_blocks():
-            server.block_manager.create_or_update_block(block, actor=user)
+            server.block_manager.create_or_update_block(block, actor=client)
 
     # Prepare block IDs
     block_ids = request.block_ids or []
@@ -387,35 +499,35 @@ async def create_agent(
     if request.name:
         create_params["name"] = request.name
 
-    agent_state = server.create_agent(CreateAgent(**create_params), actor=user)
+    agent_state = server.create_agent(CreateAgent(**create_params), actor=client)
 
-    return server.agent_manager.get_agent_by_id(agent_state.id, actor=user)
+    return server.agent_manager.get_agent_by_id(agent_state.id, actor=client)
 
 
 @router.get("/agents/{agent_id}", response_model=AgentState)
 async def get_agent(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get an agent by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.agent_manager.get_agent_by_id(agent_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.agent_manager.get_agent_by_id(agent_id, actor=client)
 
 
 @router.delete("/agents/{agent_id}")
 async def delete_agent(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Delete an agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    server.agent_manager.delete_agent(agent_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    server.agent_manager.delete_agent(agent_id, actor=client)
     return {"status": "success", "message": f"Agent {agent_id} deleted"}
 
 
@@ -438,13 +550,13 @@ class UpdateAgentRequest(BaseModel):
 async def update_agent(
     agent_id: str,
     request: UpdateAgentRequest,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Update an agent."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
@@ -457,40 +569,40 @@ async def update_agent(
 @router.get("/agents/{agent_id}/memory", response_model=Memory)
 async def get_agent_memory(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get an agent's in-context memory."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.get_agent_memory(agent_id=agent_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.get_agent_memory(agent_id=agent_id, actor=client)
 
 
 @router.get("/agents/{agent_id}/memory/archival", response_model=ArchivalMemorySummary)
 async def get_archival_memory_summary(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get archival memory summary."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.get_archival_memory_summary(agent_id=agent_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.get_archival_memory_summary(agent_id=agent_id, actor=client)
 
 
 @router.get("/agents/{agent_id}/memory/recall", response_model=RecallMemorySummary)
 async def get_recall_memory_summary(
     agent_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get recall memory summary."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.get_recall_memory_summary(agent_id=agent_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.get_recall_memory_summary(agent_id=agent_id, actor=client)
 
 
 @router.get("/agents/{agent_id}/messages", response_model=List[Message])
@@ -499,7 +611,7 @@ async def get_agent_messages(
     cursor: Optional[str] = None,
     limit: int = 1000,
     use_cache: bool = True,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get messages from an agent.
@@ -516,7 +628,7 @@ async def get_agent_messages(
         List of messages
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     return server.get_agent_recall_cursor(
         user_id=user_id,
         agent_id=agent_id,
@@ -542,7 +654,7 @@ class SendMessageRequest(BaseModel):
 async def send_message_to_agent(
     agent_id: str,
     request: SendMessageRequest,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Send a message to an agent and get a response.
@@ -560,8 +672,8 @@ async def send_message_to_agent(
         MirixResponse: The agent's response including messages and usage statistics
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
     try:
         # Prepare the message
@@ -573,7 +685,7 @@ async def send_message_to_agent(
 
         # Put message on queue for processing
         put_messages(
-            actor=user,
+            actor=client,
             agent_id=agent_id,
             input_messages=[message_create],
             chaining=True,
@@ -602,53 +714,53 @@ async def send_message_to_agent(
 async def list_tools(
     cursor: Optional[str] = None,
     limit: int = 50,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List all tools."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=client)
 
 
 @router.get("/tools/{tool_id}", response_model=Tool)
 async def get_tool(
     tool_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get a tool by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.tool_manager.get_tool_by_id(tool_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.tool_manager.get_tool_by_id(tool_id, actor=client)
 
 
 @router.post("/tools", response_model=Tool)
 async def create_tool(
     tool: Tool,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Create a new tool."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.tool_manager.create_tool(tool, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.tool_manager.create_tool(tool, actor=client)
 
 
 @router.delete("/tools/{tool_id}")
 async def delete_tool(
     tool_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Delete a tool."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    server.tool_manager.delete_tool_by_id(tool_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    server.tool_manager.delete_tool_by_id(tool_id, actor=client)
     return {"status": "success", "message": f"Tool {tool_id} deleted"}
 
 
@@ -660,53 +772,58 @@ async def delete_tool(
 @router.get("/blocks", response_model=List[Block])
 async def list_blocks(
     label: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List all blocks."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.block_manager.get_blocks(actor=user, label=label)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    # Get default user for block queries (blocks are user-scoped, not client-scoped)
+    user = server.user_manager.get_default_user()
+    return server.block_manager.get_blocks(user=user, label=label)
 
 
 @router.get("/blocks/{block_id}", response_model=Block)
 async def get_block(
     block_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get a block by ID."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.block_manager.get_block_by_id(block_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    # Get default user for block queries (blocks are user-scoped, not client-scoped)
+    user = server.user_manager.get_default_user()
+    return server.block_manager.get_block_by_id(block_id, user=user)
 
 
 @router.post("/blocks", response_model=Block)
 async def create_block(
     block: Block,
-    x_user_id: Optional[str] = Header(None),
+    user: Optional[User] = None,
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Create a block."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    return server.block_manager.create_or_update_block(block, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    return server.block_manager.create_or_update_block(block, actor=client, user=user)
 
 
 @router.delete("/blocks/{block_id}")
 async def delete_block(
     block_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Delete a block."""
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
-    server.block_manager.delete_block(block_id, actor=user)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    server.block_manager.delete_block(block_id, actor=client)
     return {"status": "success", "message": f"Block {block_id} deleted"}
 
 
@@ -717,7 +834,7 @@ async def delete_block(
 
 @router.get("/config/llm", response_model=List[LLMConfig])
 async def list_llm_configs(
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List available LLM configurations."""
@@ -727,7 +844,7 @@ async def list_llm_configs(
 
 @router.get("/config/embedding", response_model=List[EmbeddingConfig])
 async def list_embedding_configs(
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List available embedding configurations."""
@@ -744,7 +861,7 @@ async def list_embedding_configs(
 async def list_organizations(
     cursor: Optional[str] = None,
     limit: int = 50,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """List organizations."""
@@ -755,7 +872,7 @@ async def list_organizations(
 @router.post("/organizations", response_model=Organization)
 async def create_organization(
     name: Optional[str] = None,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Create an organization."""
@@ -768,7 +885,7 @@ async def create_organization(
 @router.get("/organizations/{org_id}", response_model=Organization)
 async def get_organization(
     org_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get an organization by ID."""
@@ -837,7 +954,7 @@ async def create_or_get_organization(
 @router.get("/users/{user_id}", response_model=User)
 async def get_user(
     user_id: str,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """Get a user by ID."""
@@ -901,6 +1018,149 @@ async def create_or_get_user(
     logger.debug("Created new user: %s", user_id)
     return user
 
+
+# ============================================================================
+# Client API Endpoints
+# ============================================================================
+
+
+class CreateOrGetClientRequest(BaseModel):
+    """Request model for creating or getting a client."""
+    client_id: Optional[str] = None
+    name: Optional[str] = None
+    org_id: Optional[str] = None
+    scope: Optional[str] = "read_write"
+    status: Optional[str] = "active"
+
+
+@router.post("/clients/create_or_get", response_model=Client)
+async def create_or_get_client(
+    request: CreateOrGetClientRequest,
+    fail_if_exists: bool = False,
+):
+    """
+    Create client if it doesn't exist, or get existing one.
+    
+    If client_id is not provided, a random ID will be generated.
+    If fail_if_exists is True, return 409 if client already exists.
+    """
+    server = get_server()
+
+    # Use provided client_id or generate a new one
+    if request.client_id:
+        client_id = request.client_id
+    else:
+        import uuid
+        client_id = f"client-{uuid.uuid4().hex[:8]}"
+
+    org_id = request.org_id or server.organization_manager.DEFAULT_ORG_ID
+    
+    try:
+        # Try to get existing client
+        client = server.client_manager.get_client_by_id(client_id)
+        
+        if client:
+            if fail_if_exists:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Client with id '{client_id}' already exists"
+                )
+            else:
+                logger.debug("Client already exists: %s", client_id)
+                return JSONResponse(
+                    status_code=200,
+                    content=client.model_dump(mode='json')
+                )
+    except Exception as e:
+        if fail_if_exists and "already exists" in str(e):
+            raise
+        pass  # Client doesn't exist, proceed to create
+
+    # Create a Client object with all required fields
+    client = server.client_manager.create_client(
+        pydantic_client=Client(
+            id=client_id,
+            name=request.name or client_id,
+            organization_id=org_id,
+            status=request.status or "active",
+            scope=request.scope or "read_write"
+        )
+    )
+    logger.info("Created new client: %s", client_id)
+    return JSONResponse(
+        status_code=201,
+        content=client.model_dump(mode='json')
+    )
+
+
+@router.get("/clients", response_model=List[Client])
+async def list_clients(
+    cursor: Optional[str] = None,
+    limit: int = 50,
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    List all clients with optional pagination.
+    """
+    server = get_server()
+    org_id = x_org_id or server.organization_manager.DEFAULT_ORG_ID
+    
+    clients = server.client_manager.list_clients(
+        cursor=cursor,
+        limit=limit,
+        organization_id=org_id
+    )
+    return clients
+
+
+@router.get("/clients/{client_id}", response_model=Client)
+async def get_client(client_id: str):
+    """
+    Get a specific client by ID.
+    """
+    server = get_server()
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    
+    return client
+
+
+@router.patch("/clients/{client_id}", response_model=Client)
+async def update_client(
+    client_id: str,
+    update: ClientUpdate,
+):
+    """
+    Update a client's properties.
+    """
+    server = get_server()
+    
+    # Ensure the client_id in the path matches the update object
+    update.id = client_id
+    
+    try:
+        updated_client = server.client_manager.update_client(update)
+        return updated_client
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/clients/{client_id}")
+async def delete_client(client_id: str):
+    """
+    Delete a client by ID.
+    """
+    server = get_server()
+    
+    try:
+        server.client_manager.delete_client_by_id(client_id)
+        return {"message": f"Client {client_id} deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ============================================================================
 # Memory API Endpoints (New)
 # ============================================================================
@@ -917,7 +1177,7 @@ class InitializeMetaAgentRequest(BaseModel):
 @router.post("/agents/meta/initialize", response_model=AgentState)
 async def initialize_meta_agent(
     request: InitializeMetaAgentRequest,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
@@ -926,8 +1186,8 @@ async def initialize_meta_agent(
     This creates a meta memory agent that manages specialized memory agents.
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
     # Extract config components
     config = request.config
@@ -952,7 +1212,7 @@ async def initialize_meta_agent(
             create_params["system_prompts"] = meta_config["system_prompts"]
 
     # Check if meta agent already exists for this project
-    existing_meta_agents = server.agent_manager.list_agents(actor=user, limit=1000)
+    existing_meta_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     assert len(existing_meta_agents) <= 1, "Only one meta agent can be created for a project"
 
@@ -967,11 +1227,11 @@ async def initialize_meta_agent(
             meta_agent = server.agent_manager.update_meta_agent(
                 meta_agent_id=meta_agent.id,
                 meta_agent_update=UpdateMetaAgent(**create_params),
-                actor=user
+                actor=client
             )
     else:
         from mirix.schemas.agent import CreateMetaAgent
-        meta_agent = server.agent_manager.create_meta_agent(meta_agent_create=CreateMetaAgent(**create_params), actor=user)
+        meta_agent = server.agent_manager.create_meta_agent(meta_agent_create=CreateMetaAgent(**create_params), actor=client)
 
     return meta_agent
 
@@ -990,8 +1250,8 @@ class AddMemoryRequest(BaseModel):
 @router.post("/memory/add")
 async def add_memory(
     request: AddMemoryRequest,
-    x_user_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
 ):
     """
     Add conversation turns to memory (async via queue).
@@ -1000,12 +1260,26 @@ async def add_memory(
     Processing happens in the background, allowing for fast API response times.
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    # If client doesn't exist, create the default client
+    if client is None:
+        logger.warning("Client %s not found, creating default client", client_id)
+        from mirix.services.client_manager import ClientManager
+        if client_id == ClientManager.DEFAULT_CLIENT_ID:
+            # Create the default client
+            client = server.client_manager.create_default_client(org_id)
+        else:
+            # Client ID was provided but doesn't exist - error
+            raise HTTPException(
+                status_code=404,
+                detail=f"Client {client_id} not found. Please create the client first."
+            )
     
     # Get the meta agent by ID
     # TODO: need to check if we really need to check if the meta_agent exists here 
-    meta_agent = server.agent_manager.get_agent_by_id(request.meta_agent_id, actor=user)
+    meta_agent = server.agent_manager.get_agent_by_id(request.meta_agent_id, actor=client)
 
     message = request.messages
 
@@ -1021,15 +1295,28 @@ async def add_memory(
 
     input_messages = convert_message_to_mirix_message(message)
 
+    # Add client scope to filter_tags (create if not provided)
+    if request.filter_tags is not None:
+        # Create a copy to avoid modifying the original request
+        filter_tags = dict(request.filter_tags)
+    else:
+        # Create new filter_tags if not provided
+        filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    filter_tags["scope"] = client.scope
+
     # Queue for async processing instead of synchronous execution
+    # Note: actor is Client for org-level access control
+    #       user_id in request body represents the actual end-user
     put_messages(
-        actor=user,
+        actor=client,
         agent_id=meta_agent.id,
         input_messages=input_messages,
         chaining=request.chaining,
-        user_id=request.user_id,
+        user_id=request.user_id,  # End-user for data filtering
         verbose=request.verbose,
-        filter_tags=request.filter_tags,
+        filter_tags=filter_tags,
         use_cache=request.use_cache,
     )
     
@@ -1050,12 +1337,14 @@ class RetrieveMemoryRequest(BaseModel):
     user_id: str
     messages: List[Dict[str, Any]]
     limit: int = 10  # Maximum number of items to retrieve per memory type
+    local_model_for_retrieval: Optional[str] = None  # Optional local Ollama model for topic extraction
     filter_tags: Optional[Dict[str, Any]] = None  # Optional filter tags for filtering results
     use_cache: bool = True  # Control Redis cache behavior
 
 def retrieve_memories_by_keywords(
     server: SyncServer,
-    user: User,
+    client: Client,
+    user_id: str,
     agent_state: AgentState,
     key_words: str = "",
     limit: int = 10,
@@ -1067,18 +1356,25 @@ def retrieve_memories_by_keywords(
     
     Args:
         server: The Mirix server instance
-        user: The user whose memories to retrieve
-        agent_state: Agent state (used as dummy for function signatures, not accessed in BM25)
+        client: The authenticated client application (for authorization)
+        user_id: The end-user ID whose memories to retrieve
+        agent_state: Agent state (used for configuration)
         key_words: Keywords to search for (empty string returns recent items)
         limit: Maximum number of items to retrieve per memory type
-        filter_tags: Optional filter tags for filtering results
+        filter_tags: Tag-based filtering (user_id + filter_tags = complete filter)
         use_cache: Control Redis cache behavior
 
     Returns:
         Dictionary containing all memory types with their items
     """
     search_method = "bm25"
-    timezone_str = server.user_manager.get_user_by_id(user.id).timezone
+    
+    # Get timezone from user record (if exists)
+    try:
+        user = server.user_manager.get_user_by_id(user_id)
+        timezone_str = user.timezone
+    except:
+        timezone_str = "UTC"
     memories = {}
 
     # Get episodic memories (recent + relevant)
@@ -1088,7 +1384,7 @@ def retrieve_memories_by_keywords(
         # Get recent episodic memories
         recent_episodic = episodic_manager.list_episodic_memory(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=user,
+            user=user,
             limit=limit,
             timezone_str=timezone_str,
             filter_tags=filter_tags,
@@ -1100,7 +1396,7 @@ def retrieve_memories_by_keywords(
         if key_words:
             relevant_episodic = episodic_manager.list_episodic_memory(
                 agent_state=agent_state,  # Not accessed during BM25 search
-                actor=user,
+                user=user,
                 query=key_words,
                 search_field="details",
                 search_method=search_method,
@@ -1109,7 +1405,7 @@ def retrieve_memories_by_keywords(
             )
 
         memories["episodic"] = {
-            "total_count": episodic_manager.get_total_number_of_items(actor=user),
+            "total_count": episodic_manager.get_total_number_of_items(user=user),
             "recent": [
                 {
                     "id": event.id,
@@ -1139,7 +1435,7 @@ def retrieve_memories_by_keywords(
 
         semantic_items = semantic_manager.list_semantic_items(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=user,
+            user=user,
             query=key_words,
             search_field="details",
             search_method=search_method,
@@ -1150,7 +1446,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["semantic"] = {
-            "total_count": semantic_manager.get_total_number_of_items(actor=user),
+            "total_count": semantic_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,
@@ -1171,7 +1467,7 @@ def retrieve_memories_by_keywords(
 
         resources = resource_manager.list_resources(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=user,
+            user=user,
             query=key_words,
             search_field="summary",
             search_method=search_method,
@@ -1182,7 +1478,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["resource"] = {
-            "total_count": resource_manager.get_total_number_of_items(actor=user),
+            "total_count": resource_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": resource.id,
@@ -1203,7 +1499,7 @@ def retrieve_memories_by_keywords(
 
         procedures = procedural_manager.list_procedures(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=user,
+            user=user,
             query=key_words,
             search_field="summary",
             search_method=search_method,
@@ -1214,7 +1510,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["procedural"] = {
-            "total_count": procedural_manager.get_total_number_of_items(actor=user),
+            "total_count": procedural_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": procedure.id,
@@ -1234,7 +1530,7 @@ def retrieve_memories_by_keywords(
 
         knowledge_items = knowledge_vault_manager.list_knowledge(
             agent_state=agent_state,  # Not accessed during BM25 search
-            actor=user,
+            user=user,
             query=key_words,
             search_field="caption",
             search_method=search_method,
@@ -1243,7 +1539,7 @@ def retrieve_memories_by_keywords(
         )
 
         memories["knowledge_vault"] = {
-            "total_count": knowledge_vault_manager.get_total_number_of_items(actor=user),
+            "total_count": knowledge_vault_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,
@@ -1261,7 +1557,8 @@ def retrieve_memories_by_keywords(
         block_manager = server.block_manager
 
         # Get all blocks for the user (these are the Human and Persona blocks)
-        blocks = block_manager.get_blocks(actor=user)
+        # Note: blocks are user-scoped, not client-scoped
+        blocks = block_manager.get_blocks(user=user)
 
         memories["core"] = {
             "total_count": len(blocks),
@@ -1284,19 +1581,20 @@ def retrieve_memories_by_keywords(
 @router.post("/memory/retrieve/conversation")
 async def retrieve_memory_with_conversation(
     request: RetrieveMemoryRequest,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on conversation context.
     Extracts topics from the conversation messages and uses them to retrieve relevant memories.
     """
+
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
     # Get all agents for this user
-    all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:
         return {
@@ -1321,24 +1619,40 @@ async def retrieve_memory_with_conversation(
             if has_content:
                 break
 
+    topics: Optional[str] = None
     if has_content:
-        # Extract topics using LLM only if there's actual content
-        topics = extract_topics_from_messages(request.messages, llm_config)
+        # Prefer local model for topic extraction when explicitly requested
+        if request.local_model_for_retrieval:
+            topics = extract_topics_with_local_model(
+                messages=request.messages,
+                model_name=request.local_model_for_retrieval,
+            )
+            if topics is None:
+                logger.warning(
+                    "Local topic extraction failed for model %s, falling back to default LLM",
+                    request.local_model_for_retrieval,
+                )
+
+        if topics is None:
+            topics = extract_topics_from_messages(request.messages, llm_config)
+
         logger.debug("Extracted topics from conversation: %s", topics)
         key_words = topics if topics else ""
     else:
         # No content - skip LLM call and retrieve recent items
         logger.debug("No content in messages - retrieving recent items")
         key_words = ""
-        topics = None
 
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(
         server=server,
-        user=user,
+        client=client,
+        user_id=request.user_id,
         agent_state=all_agents[0],
         key_words=key_words,
         limit=request.limit,
+        filter_tags=request.filter_tags,
+        use_cache=request.use_cache,
     )
 
     return {
@@ -1353,7 +1667,9 @@ async def retrieve_memory_with_topic(
     user_id: str,
     topic: str,
     limit: int = 10,
-    x_user_id: Optional[str] = Header(None),
+    filter_tags: Optional[str] = None,
+    use_cache: bool = True,
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
@@ -1363,13 +1679,28 @@ async def retrieve_memory_with_topic(
         user_id: The user ID to retrieve memories for
         topic: The topic/keywords to search for
         limit: Maximum number of items to retrieve per memory type (default: 10)
+        filter_tags: Optional JSON string of tags to filter memories (default: None)
+        use_cache: Whether to use cached results (default: True)
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+
+    # Parse filter_tags from JSON string to dict
+    parsed_filter_tags = None
+    if filter_tags:
+        try:
+            parsed_filter_tags = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            return {
+                "success": False,
+                "error": f"Invalid filter_tags JSON: {filter_tags}",
+                "topic": topic,
+                "memories": {},
+            }
 
     # Get all agents for this user
-    all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:
         return {
@@ -1382,10 +1713,13 @@ async def retrieve_memory_with_topic(
     # Retrieve memories using the helper function
     memories = retrieve_memories_by_keywords(
         server=server,
-        user=user,
+        client=client,
+        user_id=user_id,
         agent_state=all_agents[0],
         key_words=topic,
         limit=limit,
+        filter_tags=parsed_filter_tags,
+        use_cache=use_cache,
     )
 
     return {
@@ -1403,7 +1737,7 @@ async def search_memory(
     search_field: str = "null",
     search_method: str = "bm25",
     limit: int = 10,
-    x_user_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
@@ -1426,23 +1760,29 @@ async def search_memory(
         limit: Maximum number of results per memory type (default: 10)
     """
     server = get_server()
-    user_id, org_id = get_user_and_org(x_user_id, x_org_id)
-    user = server.user_manager.get_user_by_id(user_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
 
-    # Get all agents for this user
-    all_agents = server.agent_manager.list_agents(actor=user, limit=1000)
+    # Get all agents for this client
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:
         return {
             "success": False,
-            "error": "No agents found for this user",
+            "error": "No agents found for this client",
             "query": query,
             "results": [],
             "count": 0,
         }
 
     agent_state = all_agents[0]
-    timezone_str = server.user_manager.get_user_by_id(user.id).timezone
+    
+    # Get timezone from user record (if exists)
+    try:
+        user = server.user_manager.get_user_by_id(user_id)
+        timezone_str = user.timezone
+    except:
+        timezone_str = "UTC"
 
     # Validate search parameters
     if memory_type == "resource" and search_field == "content" and search_method == "embedding":
@@ -1473,7 +1813,7 @@ async def search_memory(
     if memory_type in ["episodic", "all"]:
         try:
             episodic_memories = server.episodic_memory_manager.list_episodic_memory(
-                actor=user,
+                actor=client,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
@@ -1500,7 +1840,7 @@ async def search_memory(
     if memory_type in ["resource", "all"]:
         try:
             resource_memories = server.resource_memory_manager.list_resources(
-                actor=user,
+                actor=client,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
@@ -1526,7 +1866,7 @@ async def search_memory(
     if memory_type in ["procedural", "all"]:
         try:
             procedural_memories = server.procedural_memory_manager.list_procedures(
-                actor=user,
+                actor=client,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
@@ -1551,7 +1891,7 @@ async def search_memory(
     if memory_type in ["knowledge_vault", "all"]:
         try:
             knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge(
-                actor=user,
+                actor=client,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "caption",
@@ -1578,7 +1918,7 @@ async def search_memory(
     if memory_type in ["semantic", "all"]:
         try:
             semantic_memories = server.semantic_memory_manager.list_semantic_items(
-                actor=user,
+                actor=client,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",

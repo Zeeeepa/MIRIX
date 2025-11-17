@@ -189,6 +189,9 @@ class Settings(BaseSettings):
     redis_ttl_users: int = Field(
         43200, env="MIRIX_REDIS_TTL_USERS"
     )  # 12 hours for users
+    redis_ttl_clients: int = Field(
+        43200, env="MIRIX_REDIS_TTL_CLIENTS"
+    )  # 12 hours for clients
     redis_ttl_agents: int = Field(
         43200, env="MIRIX_REDIS_TTL_AGENTS"
     )  # 12 hours for agents

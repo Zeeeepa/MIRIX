@@ -8,7 +8,7 @@ Prerequisites:
     export GEMINI_API_KEY=your_api_key_here
 
 Run tests:
-    Terminal 1: python scripts/start_server.py --port 8899
+    Terminal 1: python scripts/start_server.py --port 8000
     Terminal 2: pytest tests/test_memory_integration.py -v -m integration
 
 Test Coverage:
@@ -38,6 +38,10 @@ sys.path.insert(0, str(project_root))
 from mirix import EmbeddingConfig, LLMConfig
 from mirix.client import MirixClient
 
+TEST_USER_ID = "demo-user"
+TEST_CLIENT_ID = "demo-client"
+TEST_ORG_ID = "demo-org"
+
 # Mark all tests as integration tests
 pytestmark = [
     pytest.mark.integration,
@@ -51,11 +55,11 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def server_process():
     """Check if server is running (requires manual server start)."""
-    # Check if server is already running on port 8899
+    # Check if server is already running on port 8000
     try:
-        response = requests.get("http://localhost:8899/health", timeout=2)
+        response = requests.get("http://localhost:8000/health", timeout=2)
         if response.status_code == 200:
-            print("\n[OK] Server is running on port 8899")
+            print("\n[OK] Server is running on port 8000")
             yield None  # No process to manage
             return
     except (requests.ConnectionError, requests.Timeout):
@@ -64,9 +68,9 @@ def server_process():
     # If not, fail with helpful message
     pytest.fail(
         "\n" + "="*70 + "\n"
-        "Server is not running on port 8899!\n\n"
+        "Server is not running on port 8000!\n\n"
         "Integration tests require a manually started server:\n"
-        "  Terminal 1: python scripts/start_server.py --port 8899\n"
+        "  Terminal 1: python scripts/start_server.py --port 8000\n"
         "  Terminal 2: pytest tests/test_memory_integration.py -v -m integration\n\n"
         "See tests/README.md for details.\n"
         + "="*70
@@ -77,13 +81,9 @@ def server_process():
 def client(server_process):
     """Create a client connected to the test server."""
     # Use same user/org as run_client.py to ensure agents are already initialized
-    user_id = "demo-user"
-    org_id = "demo-org"
-    
     client = MirixClient(
-        base_url="http://localhost:8899",
-        user_id=user_id,
-        org_id=org_id,  # Explicitly set org_id (same as run_client.py)
+        client_id = "demo-client",
+        org_id=TEST_ORG_ID,  # Explicitly set org_id (same as run_client.py)
         debug=False,  # Turn off debug to avoid Unicode encoding issues on Windows
     )
     
@@ -109,7 +109,7 @@ def test_add(client):
     print("\n[TEST] Adding memory via client.add()...")
     
     result = client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -139,7 +139,7 @@ def test_retrieve_with_conversation(client):
     
     # Add a memory first
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -155,7 +155,7 @@ def test_retrieve_with_conversation(client):
     
     # Retrieve with conversation
     result = client.retrieve_with_conversation(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -186,7 +186,7 @@ def test_retrieve_with_topic(client):
     
     # Add topic-related memory
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -202,7 +202,7 @@ def test_retrieve_with_topic(client):
     
     # Retrieve by topic
     result = client.retrieve_with_topic(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         topic="deployment",
         limit=5
     )
@@ -225,7 +225,7 @@ def test_search(client):
     
     # Add searchable memory
     client.add(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         messages=[
             {
                 "role": "user",
@@ -242,7 +242,7 @@ def test_search(client):
     # Test 1: Search all memory types
     print("  [1] Searching across all memory types...")
     result_all = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="meeting planning",
         memory_type="all",
         limit=10
@@ -255,7 +255,7 @@ def test_search(client):
     # Test 2: Search specific memory type (episodic)
     print("  [2] Searching episodic memory...")
     result_episodic = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="meeting",
         memory_type="episodic",
         search_field="summary",
@@ -270,7 +270,7 @@ def test_search(client):
     # Test 3: Search with embedding method
     print("  [3] Searching with embedding method...")
     result_embedding = client.search(
-        user_id=client.user_id,
+        user_id=TEST_USER_ID,
         query="team collaboration",
         memory_type="episodic",
         search_field="details",

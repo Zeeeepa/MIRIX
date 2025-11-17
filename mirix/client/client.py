@@ -1,13 +1,4 @@
-import base64
-import hashlib
-import logging
-import os
-import shutil
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
-from urllib.parse import urlparse
-
-import requests
 
 if TYPE_CHECKING:
     try:
@@ -23,42 +14,24 @@ if TYPE_CHECKING:
     except ImportError:
         LangChainBaseTool = Any  # type: ignore
 from mirix.constants import FUNCTION_RETURN_CHAR_LIMIT
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent
-from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.agent import AgentState, AgentType
+from mirix.schemas.block import Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
 
 # new schemas
-from mirix.schemas.enums import MessageRole
-from mirix.schemas.environment_variables import (
-    SandboxEnvironmentVariable,
-    SandboxEnvironmentVariableCreate,
-    SandboxEnvironmentVariableUpdate,
-)
-from mirix.schemas.file import FileMetadata
-from mirix.schemas.file import FileMetadata as PydanticFileMetadata
+from mirix.schemas.environment_variables import SandboxEnvironmentVariable
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
-from mirix.schemas.message import Message, MessageCreate
-from mirix.schemas.mirix_message_content import (
-    CloudFileContent,
-    FileContent,
-    ImageContent,
-    MessageContentType,
-    TextContent,
-)
+from mirix.schemas.message import Message
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
 from mirix.schemas.sandbox_config import (
     E2BSandboxConfig,
     LocalSandboxConfig,
     SandboxConfig,
-    SandboxConfigCreate,
-    SandboxConfigUpdate,
 )
-from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
+from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import BaseToolRule
-from mirix.schemas.user import User as PydanticUser
-from mirix.schemas.user import UserCreate
 
 
 class AbstractClient(object):

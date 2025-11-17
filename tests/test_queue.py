@@ -12,19 +12,20 @@ Tests cover:
 import pytest
 import time
 import threading
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock
 from datetime import datetime
 
 # Import queue components
 from mirix.queue import initialize_queue, save
-from mirix.queue.manager import QueueManager, get_manager
+from mirix.queue.manager import get_manager
 from mirix.queue.worker import QueueWorker
 from mirix.queue.memory_queue import MemoryQueue
 from mirix.queue.queue_util import put_messages
+# Note: ProtoUser and ProtoMessageCreate are generated from message.proto
 from mirix.queue.message_pb2 import QueueMessage, User as ProtoUser, MessageCreate as ProtoMessageCreate
 
 # Import schemas
-from mirix.schemas.user import User as PydanticUser
+from mirix.schemas.client import Client
 from mirix.schemas.message import MessageCreate
 from mirix.schemas.enums import MessageRole
 
@@ -47,17 +48,18 @@ def mock_server():
 
 
 @pytest.fixture
-def sample_user():
-    """Create a sample Pydantic User"""
-    return PydanticUser(
-        id="user-123",
+def sample_client():
+    """Create a sample Client (represents a client application)"""
+    return Client(
+        id="client-123",
         organization_id="org-456",
-        name="Test User",
+        name="Test Client App",
         status="active",
-        timezone="UTC",
+        scope="read_write",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        is_deleted=False
+        is_deleted=False,
+        api_key_hash=None
     )
 
 
@@ -77,17 +79,17 @@ def sample_messages():
 
 
 @pytest.fixture
-def sample_queue_message(sample_user):
+def sample_queue_message(sample_client):
     """Create a sample QueueMessage protobuf"""
     msg = QueueMessage()
     
-    # Set user
-    msg.actor.id = sample_user.id
-    msg.actor.organization_id = sample_user.organization_id
-    msg.actor.name = sample_user.name
-    msg.actor.status = sample_user.status
-    msg.actor.timezone = sample_user.timezone
-    msg.actor.is_deleted = sample_user.is_deleted
+    # Set actor (Client converted to protobuf User)
+    msg.actor.id = sample_client.id
+    msg.actor.organization_id = sample_client.organization_id
+    msg.actor.name = sample_client.name
+    msg.actor.status = sample_client.status
+    msg.actor.timezone = "UTC"  # Client doesn't have timezone, use default
+    msg.actor.is_deleted = sample_client.is_deleted
     
     # Set agent and messages
     msg.agent_id = "agent-789"
@@ -149,7 +151,7 @@ class TestMemoryQueue:
         with pytest.raises(q.Empty):
             mem_queue.get(timeout=0.1)
     
-    def test_memory_queue_fifo_order(self, sample_user):
+    def test_memory_queue_fifo_order(self, sample_client):
         """Test that messages are retrieved in FIFO order"""
         queue = MemoryQueue()
         
@@ -157,7 +159,7 @@ class TestMemoryQueue:
         messages = []
         for i in range(5):
             msg = QueueMessage()
-            msg.actor.id = sample_user.id
+            msg.actor.id = sample_client.id
             msg.agent_id = f"agent-{i}"
             messages.append(msg)
             queue.put(msg)
@@ -388,13 +390,13 @@ class TestQueueManager:
 class TestQueueUtil:
     """Test queue utility functions"""
     
-    def test_put_messages_basic(self, clean_manager, sample_user, sample_messages):
+    def test_put_messages_basic(self, clean_manager, sample_client, sample_messages):
         """Test put_messages with basic parameters"""
         manager = clean_manager
         manager.initialize()
         
         put_messages(
-            actor=sample_user,
+            actor=sample_client,
             agent_id="agent-789",
             input_messages=sample_messages
         )
@@ -402,19 +404,19 @@ class TestQueueUtil:
         # Retrieve and verify
         msg = manager._queue.get(timeout=1.0)
         assert msg.agent_id == "agent-789"
-        assert msg.actor.id == sample_user.id
+        assert msg.actor.id == sample_client.id
         assert len(msg.input_messages) == len(sample_messages)
         
         # Cleanup
         manager.cleanup()
     
-    def test_put_messages_with_options(self, clean_manager, sample_user, sample_messages):
+    def test_put_messages_with_options(self, clean_manager, sample_client, sample_messages):
         """Test put_messages with optional parameters"""
         manager = clean_manager
         manager.initialize()
         
         put_messages(
-            actor=sample_user,
+            actor=sample_client,
             agent_id="agent-789",
             input_messages=sample_messages,
             chaining=False,
@@ -433,7 +435,7 @@ class TestQueueUtil:
         # Cleanup
         manager.cleanup()
     
-    def test_put_messages_role_mapping(self, clean_manager, sample_user):
+    def test_put_messages_role_mapping(self, clean_manager, sample_client):
         """Test that message roles are correctly mapped"""
         manager = clean_manager
         manager.initialize()
@@ -444,7 +446,7 @@ class TestQueueUtil:
         ]
         
         put_messages(
-            actor=sample_user,
+            actor=sample_client,
             agent_id="agent-789",
             input_messages=messages
         )
@@ -513,7 +515,7 @@ class TestQueueInit:
 class TestQueueIntegration:
     """Integration tests for the complete queue system"""
     
-    def test_end_to_end_message_flow(self, clean_manager, mock_server, sample_user, sample_messages):
+    def test_end_to_end_message_flow(self, clean_manager, mock_server, sample_client, sample_messages):
         """Test complete message flow from enqueue to processing"""
         manager = clean_manager
         
@@ -522,7 +524,7 @@ class TestQueueIntegration:
         
         # Enqueue message
         put_messages(
-            actor=sample_user,
+            actor=sample_client,
             agent_id="agent-integration",
             input_messages=sample_messages
         )
@@ -540,7 +542,7 @@ class TestQueueIntegration:
         # Cleanup
         manager.cleanup()
     
-    def test_multiple_messages_processing(self, clean_manager, mock_server, sample_user, sample_messages):
+    def test_multiple_messages_processing(self, clean_manager, mock_server, sample_client, sample_messages):
         """Test processing multiple messages"""
         manager = clean_manager
         initialize_queue(mock_server)
@@ -548,7 +550,7 @@ class TestQueueIntegration:
         # Enqueue multiple messages
         for i in range(5):
             put_messages(
-                actor=sample_user,
+                actor=sample_client,
                 agent_id=f"agent-{i}",
                 input_messages=sample_messages
             )
@@ -562,7 +564,7 @@ class TestQueueIntegration:
         # Cleanup
         manager.cleanup()
     
-    def test_worker_handles_processing_errors(self, clean_manager, sample_user, sample_messages):
+    def test_worker_handles_processing_errors(self, clean_manager, sample_client, sample_messages):
         """Test that worker handles errors gracefully"""
         manager = clean_manager
         
@@ -574,7 +576,7 @@ class TestQueueIntegration:
         
         # Enqueue message
         put_messages(
-            actor=sample_user,
+            actor=sample_client,
             agent_id="agent-error",
             input_messages=sample_messages
         )
@@ -596,7 +598,7 @@ class TestQueueIntegration:
 class TestQueuePerformance:
     """Performance tests for queue operations"""
     
-    def test_enqueue_performance(self, clean_manager, sample_user, sample_messages):
+    def test_enqueue_performance(self, clean_manager, sample_client, sample_messages):
         """Test enqueueing performance"""
         manager = clean_manager
         manager.initialize()
@@ -606,7 +608,7 @@ class TestQueuePerformance:
         # Enqueue 100 messages
         for i in range(100):
             put_messages(
-                actor=sample_user,
+                actor=sample_client,
                 agent_id=f"agent-{i}",
                 input_messages=sample_messages
             )
@@ -621,15 +623,28 @@ class TestQueuePerformance:
         # Cleanup
         manager.cleanup()
     
-    def test_concurrent_enqueue(self, clean_manager, sample_user, sample_messages):
+    def test_concurrent_enqueue(self, sample_client, sample_messages, mock_server):
         """Test concurrent enqueueing from multiple threads"""
-        manager = clean_manager
-        manager.initialize()
+        # Initialize the global queue manager with mock server
+        # This prevents messages from being discarded
+        initialize_queue(server=mock_server)
+        manager = get_manager()
+        
+        # Track processed messages
+        processed_messages = []
+        processed_lock = threading.Lock()
+        
+        def mock_send_messages(**kwargs):
+            with processed_lock:
+                processed_messages.append(kwargs['agent_id'])
+            return None
+        
+        mock_server.send_messages = mock_send_messages
         
         def enqueue_messages(thread_id, count):
             for i in range(count):
                 put_messages(
-                    actor=sample_user,
+                    actor=sample_client,
                     agent_id=f"agent-{thread_id}-{i}",
                     input_messages=sample_messages
                 )
@@ -645,16 +660,11 @@ class TestQueuePerformance:
         for thread in threads:
             thread.join()
         
-        # Verify all messages were enqueued
-        message_count = 0
-        try:
-            while True:
-                manager._queue.get(timeout=0.1)
-                message_count += 1
-        except:
-            pass
+        # Wait a bit for worker to process all messages
+        time.sleep(1.0)
         
-        assert message_count == 100  # 5 threads * 20 messages
+        # Verify all 100 messages were processed
+        assert len(processed_messages) == 100  # 5 threads * 20 messages
         
         # Cleanup
         manager.cleanup()

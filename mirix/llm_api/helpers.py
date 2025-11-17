@@ -180,7 +180,6 @@ def make_post_request(
             error_message = f"Unexpected content type returned: {response.headers.get('Content-Type')}"
             printd(error_message)
             raise ValueError(error_message)
-
         # Process the response using the callback function
         return response_data
 

@@ -1,5 +1,5 @@
-import re
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import List, Optional
@@ -73,13 +73,15 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for item in items:
         self.episodic_memory_manager.insert_event(
-            actor=self.user,
+            actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
             timestamp=item["occurred_at"],
@@ -87,9 +89,10 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
             event_actor=item["actor"],
             summary=item["summary"],
             details=item["details"],
-            organization_id=self.user.organization_id,
+            organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
     response = "Events inserted! Now you need to check if there are repeated events shown in the system prompt."
     return response
@@ -117,7 +120,7 @@ def episodic_memory_merge(
         event_id=event_id,
         new_summary=combined_summary,
         new_details=combined_details,
-        actor=self.user,
+        actor=self.actor,
     )
     response = (
         "These are the `summary` and the `details` of the updated event:\n",
@@ -148,19 +151,25 @@ def episodic_memory_replace(
         if self.agent_state.parent_id is not None
         else self.agent_state.id
     )
+    
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    filter_tags = getattr(self, 'filter_tags', None)
+    use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for event_id in event_ids:
         # It will raise an error if the event_id is not found in the episodic memory.
         self.episodic_memory_manager.get_episodic_memory_by_id(
-            event_id, actor=self.user
+            event_id, actor=self.actor
         )
 
     for event_id in event_ids:
-        self.episodic_memory_manager.delete_event_by_id(event_id, actor=self.user)
+        self.episodic_memory_manager.delete_event_by_id(event_id, actor=self.actor)
 
     for new_item in new_items:
         self.episodic_memory_manager.insert_event(
-            actor=self.user,
+            actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
             timestamp=new_item["occurred_at"],
@@ -168,7 +177,10 @@ def episodic_memory_replace(
             event_actor=new_item["actor"],
             summary=new_item["summary"],
             details=new_item["details"],
-            organization_id=self.user.organization_id,
+            organization_id=self.actor.organization_id,
+            filter_tags=filter_tags if filter_tags else None,
+            use_cache=use_cache,
+            user_id=user_id,
         )
 
 
@@ -186,7 +198,7 @@ def check_episodic_memory(
     """
     episodic_memory = [
         self.episodic_memory_manager.get_episodic_memory_by_id(
-            event_id, timezone_str=timezone_str, actor=self.user
+            event_id, timezone_str=timezone_str, actor=self.actor
         )
         for event_id in event_ids
     ]
@@ -224,9 +236,11 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
     skipped_count = 0
@@ -236,7 +250,7 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
         # Check for existing similar resources (by title, summary, and filter_tags)
         existing_resources = self.resource_memory_manager.list_resources(
             agent_state=self.agent_state,
-            actor=self.user,
+            user=self.user,  # User for read operations (data filtering)
             query="",  # Get all resources
             limit=1000,  # Get enough to check for duplicates
             filter_tags=filter_tags if filter_tags else None,
@@ -256,16 +270,17 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
         
         if not is_duplicate:
             self.resource_memory_manager.insert_resource(
+                actor=self.actor,
                 agent_state=self.agent_state,
                 agent_id=agent_id,
                 title=item["title"],
                 summary=item["summary"],
                 resource_type=item["resource_type"],
                 content=item["content"],
-                actor=self.user,
-                organization_id=self.user.organization_id,
+                organization_id=self.actor.organization_id,
                 filter_tags=filter_tags if filter_tags else None,
                 use_cache=use_cache,
+                user_id=user_id,
             )
             inserted_count += 1
     
@@ -297,27 +312,30 @@ def resource_memory_update(
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
         self.resource_memory_manager.delete_resource_by_id(
-            resource_id=old_id, actor=self.user
+            resource_id=old_id, actor=self.actor
         )
 
     for item in new_items:
         self.resource_memory_manager.insert_resource(
+            actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
             title=item["title"],
             summary=item["summary"],
             resource_type=item["resource_type"],
             content=item["content"],
-            actor=self.user,
-            organization_id=self.user.organization_id,
+            organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
 
 
@@ -337,9 +355,11 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
     skipped_count = 0
@@ -349,7 +369,7 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
         # Check for existing similar procedures (by summary and filter_tags)
         existing_procedures = self.procedural_memory_manager.list_procedures(
             agent_state=self.agent_state,
-            actor=self.user,
+            user=self.user,  # User for read operations (data filtering)
             query="",  # Get all procedures
             limit=1000,  # Get enough to check for duplicates
             filter_tags=filter_tags if filter_tags else None,
@@ -373,10 +393,11 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
                 entry_type=item["entry_type"],
                 summary=item["summary"],
                 steps=item["steps"],
-                actor=self.user,
+                actor=self.actor,
                 organization_id=self.user.organization_id,
                 filter_tags=filter_tags if filter_tags else None,
                 use_cache=use_cache,
+                user_id=user_id,
             )
             inserted_count += 1
     
@@ -411,13 +432,15 @@ def procedural_memory_update(
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
         self.procedural_memory_manager.delete_procedure_by_id(
-            procedure_id=old_id, actor=self.user
+            procedure_id=old_id, actor=self.actor
         )
 
     for item in new_items:
@@ -427,10 +450,11 @@ def procedural_memory_update(
             entry_type=item["entry_type"],
             summary=item["summary"],
             steps=item["steps"],
-            actor=self.user,
-            organization_id=self.user.organization_id,
+            actor=self.actor,
+            organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
 
 
@@ -448,7 +472,7 @@ def check_semantic_memory(
     """
     semantic_memory = [
         self.semantic_memory_manager.get_semantic_item_by_id(
-            semantic_memory_id=id, timezone_str=timezone_str, actor=self.user
+            semantic_memory_id=id, timezone_str=timezone_str, actor=self.actor
         )
         for id in semantic_item_ids
     ]
@@ -483,9 +507,11 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
     skipped_count = 0
@@ -495,7 +521,7 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
         # Check for existing similar semantic items (by name, summary, and filter_tags)
         existing_items = self.semantic_memory_manager.list_semantic_items(
             agent_state=self.agent_state,
-            actor=self.user,
+            user=self.user,  # User for read operations (data filtering)
             query="",  # Get all items
             limit=1000,  # Get enough to check for duplicates
             filter_tags=filter_tags if filter_tags else None,
@@ -521,10 +547,11 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
                 summary=item["summary"],
                 details=item["details"],
                 source=item["source"],
-                organization_id=self.user.organization_id,
-                actor=self.user,
+                organization_id=self.actor.organization_id,
+                actor=self.actor,  # Client for write operations
                 filter_tags=filter_tags if filter_tags else None,
                 use_cache=use_cache,
+                user_id=user_id,
             )
             inserted_count += 1
     
@@ -561,13 +588,15 @@ def semantic_memory_update(
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
     
     for old_id in old_semantic_item_ids:
         self.semantic_memory_manager.delete_semantic_item_by_id(
-            semantic_memory_id=old_id, actor=self.user
+            semantic_memory_id=old_id, actor=self.actor
         )
 
     new_ids = []
@@ -579,10 +608,11 @@ def semantic_memory_update(
             summary=item["summary"],
             details=item["details"],
             source=item["source"],
-            actor=self.user,
-            organization_id=self.user.organization_id,
+            actor=self.actor,
+            organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
         new_ids.append(inserted_item.id)
 
@@ -610,9 +640,11 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
     skipped_count = 0
@@ -622,7 +654,7 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
         # Check for existing similar knowledge vault items (by caption, source, and filter_tags)
         existing_items = self.knowledge_vault_manager.list_knowledge(
             agent_state=self.agent_state,
-            actor=self.user,
+            user=self.user,  # User for read operations (data filtering)
             query="",  # Get all items
             limit=1000,  # Get enough to check for duplicates
             filter_tags=filter_tags if filter_tags else None,
@@ -642,6 +674,7 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
         
         if not is_duplicate:
             self.knowledge_vault_manager.insert_knowledge(
+                actor=self.actor,
                 agent_state=self.agent_state,
                 agent_id=agent_id,
                 entry_type=item["entry_type"],
@@ -649,10 +682,10 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
                 sensitivity=item["sensitivity"],
                 secret_value=item["secret_value"],
                 caption=item["caption"],
-                actor=self.user,
-                organization_id=self.user.organization_id,
+                organization_id=self.actor.organization_id,
                 filter_tags=filter_tags if filter_tags else None,
                 use_cache=use_cache,
+                user_id=user_id,
             )
             inserted_count += 1
     
@@ -687,17 +720,20 @@ def knowledge_vault_update(
         else self.agent_state.id
     )
     
-    # Get filter_tags and use_cache from agent instance
+    # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
+    client_id = getattr(self, 'client_id', None)
+    user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
         self.knowledge_vault_manager.delete_knowledge_by_id(
-            knowledge_vault_item_id=old_id, actor=self.user
+            knowledge_vault_item_id=old_id, actor=self.actor
         )
 
     for item in new_items:
         self.knowledge_vault_manager.insert_knowledge(
+            actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
             entry_type=item["entry_type"],
@@ -705,10 +741,10 @@ def knowledge_vault_update(
             sensitivity=item["sensitivity"],
             secret_value=item["secret_value"],
             caption=item["caption"],
-            actor=self.user,
-            organization_id=self.user.organization_id,
+            organization_id=self.actor.organization_id,
             filter_tags=filter_tags if filter_tags else None,
             use_cache=use_cache,
+            user_id=user_id,
         )
 
 
@@ -726,7 +762,7 @@ def trigger_memory_update_with_instruction(
         Optional[str]: None is always returned as this function does not produce a response.
     """
 
-    from mirix import create_client
+    from mirix.local_client import create_client
 
     client = create_client()
     agents = client.list_agents()
@@ -830,7 +866,7 @@ def trigger_memory_update(
             )
 
     # Get child agents
-    child_agent_states = self.agent_manager.list_agents(parent_id=self.agent_state.id, actor=self.user)
+    child_agent_states = self.agent_manager.list_agents(parent_id=self.agent_state.id, actor=self.actor)
 
     # Map agent types to agent states
     agent_type_to_state = {
@@ -845,21 +881,24 @@ def trigger_memory_update(
         if agent_state is None:
             raise ValueError(f"No agent found with type '{agent_type_str}'")
 
-        # Get filter_tags and use_cache from parent agent instance
+        # Get filter_tags, use_cache, client_id, and user_id from parent agent instance
         # Deep copy filter_tags to ensure complete isolation between child agents
         parent_filter_tags = getattr(self, 'filter_tags', None)
         # Don't use 'or {}' because empty dict {} is valid and different from None
         filter_tags = deepcopy(parent_filter_tags) if parent_filter_tags is not None else None
         use_cache = getattr(self, 'use_cache', True)
+        actor = getattr(self, 'actor', None)
+        user = getattr(self, 'user', None)
         
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}")
+        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}, client_id={actor.id if actor else None}, user_id={user.id if user else None}")
         
         memory_agent = agent_class(
             agent_state=agent_state,
             interface=self.interface,
-            user=self.user,
+            actor=actor,
+            user=user,
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
@@ -887,9 +926,13 @@ def trigger_memory_update(
         else:
             message_copy.content = [system_msg]
 
+        # Pass actor (Client) and user (User) to memory agent
+        # actor is needed for write operations, user is needed for read operations
         memory_agent.step(
             input_messages=message_copy,
             chaining=user_message.get("chaining", False),
+            actor=actor,  # Client for write operations
+            user=user,  # User for read operations
         )
 
         return (

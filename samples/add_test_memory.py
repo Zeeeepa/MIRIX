@@ -302,16 +302,31 @@ def main():
     logger.info("%s", "="*80)
     
     # Create client
-    user_id = 'demo-user'
+    client_id = 'demo-client-app'  # Identifies the client application
+    user_id = 'demo-user'  # Identifies the end-user within the client app
     org_id = 'demo-org'
     
     logger.info("\nInitializing MirixClient...")
     client = MirixClient(
         api_key=None,
-        user_id=user_id,
+        client_id=client_id,
         org_id=org_id,
         debug=False,  # Reduce noise in output
     )
+    logger.info("✓ Client initialized: %s", client_id)
+    
+    # Create or get user (ensures user exists in backend database)
+    logger.info("Creating/getting user: %s", user_id)
+    try:
+        user_id = client.create_or_get_user(
+            user_id=user_id,
+            user_name="Demo User",
+            org_id=org_id
+        )
+        logger.info("✓ User ready: %s", user_id)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Failed to create/get user: %s", e)
+        sys.exit(1)
     
     # Initialize meta agent
     logger.info("Initializing meta agent...")
@@ -343,11 +358,11 @@ def main():
         filter_tags = {"expert_id": "expert-123"}
         test_semantic_memory(client, user_id, filter_tags)
 
-        #filter_tags = {"expert_id": "expert-234", "scope": "read"}
-        #test_resource_memory(client, user_id, filter_tags)  
+        filter_tags = {"expert_id": "expert-234", "scope": "read"}
+        test_resource_memory(client, user_id, filter_tags)  
 
-        #filter_tags = {"expert_id": "expert-234", "scope": "write"}
-        #test_knowledge_vault(client, user_id, filter_tags)
+        filter_tags = {"expert_id": "expert-234", "scope": "write"}
+        test_knowledge_vault(client, user_id, filter_tags)
     except KeyboardInterrupt:
         logger.info("\n\nTest interrupted by user")
         sys.exit(1)
