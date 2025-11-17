@@ -110,8 +110,8 @@ server_dependencies = [
     # Voice processing
     "SpeechRecognition>=3.10.0",
     "pydub>=0.25.0",
-    # Protobuf (for queue message serialization) - compatible with pynumaflow
-    "protobuf>=3.20,<6.0",
+    # Protobuf (for queue message serialization)
+    "protobuf>=6.31.1,<7.0.0",
 ]
 
 # Optional dependencies

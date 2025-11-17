@@ -6263,4 +6263,4 @@ voice = ["SpeechRecognition", "pydub"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "6afab09920125426635038582ef260c3bfc59a13d2ba8c77e081ba702a8d1699"
+content-hash = "d228d99883a6d1463525c5fcd35051626401cf9cb3b6ce81e7d0c73d698b520e"
