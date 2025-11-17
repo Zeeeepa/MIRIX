@@ -42,12 +42,11 @@ from mirix.llm_api.llm_api_tools import create
 from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.memory import summarize_messages
-from mirix.orm.enums import ToolType
 from mirix.schemas.agent import AgentState, AgentStepResponse, UpdateAgent
 from mirix.schemas.block import BlockUpdate
 from mirix.schemas.client import Client
 from mirix.schemas.embedding_config import EmbeddingConfig
-from mirix.schemas.enums import MessageRole
+from mirix.schemas.enums import MessageRole, ToolType
 from mirix.schemas.memory import ContextWindowOverview, Memory
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_message_content import (
