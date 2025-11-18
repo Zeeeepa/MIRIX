@@ -155,30 +155,56 @@ class Settings(BaseSettings):
     redis_db: int = Field(0, env="MIRIX_REDIS_DB")
     redis_password: Optional[str] = Field(None, env="MIRIX_REDIS_PASSWORD")
     redis_uri: Optional[str] = Field(None, env="MIRIX_REDIS_URI")  # Full URI override
-    
+
     # Redis connection pool settings (optimized for production)
-    redis_max_connections: int = Field(50, env="MIRIX_REDIS_MAX_CONNECTIONS")  # Per container
-    redis_socket_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_TIMEOUT")  # Read/write timeout (seconds)
-    redis_socket_connect_timeout: int = Field(5, env="MIRIX_REDIS_SOCKET_CONNECT_TIMEOUT")  # Connect timeout (seconds)
-    redis_socket_keepalive: bool = Field(True, env="MIRIX_REDIS_SOCKET_KEEPALIVE")  # Enable TCP keepalive
-    redis_retry_on_timeout: bool = Field(True, env="MIRIX_REDIS_RETRY_ON_TIMEOUT")  # Retry on timeout errors
-    
+    redis_max_connections: int = Field(
+        50, env="MIRIX_REDIS_MAX_CONNECTIONS"
+    )  # Per container
+    redis_socket_timeout: int = Field(
+        5, env="MIRIX_REDIS_SOCKET_TIMEOUT"
+    )  # Read/write timeout (seconds)
+    redis_socket_connect_timeout: int = Field(
+        5, env="MIRIX_REDIS_SOCKET_CONNECT_TIMEOUT"
+    )  # Connect timeout (seconds)
+    redis_socket_keepalive: bool = Field(
+        True, env="MIRIX_REDIS_SOCKET_KEEPALIVE"
+    )  # Enable TCP keepalive
+    redis_retry_on_timeout: bool = Field(
+        True, env="MIRIX_REDIS_RETRY_ON_TIMEOUT"
+    )  # Retry on timeout errors
+
     # Redis TTL settings (cache expiration times in seconds)
-    redis_ttl_default: int = Field(3600, env="MIRIX_REDIS_TTL_DEFAULT")  # 1 hour default TTL
-    redis_ttl_blocks: int = Field(7200, env="MIRIX_REDIS_TTL_BLOCKS")  # 2 hours for hot data (blocks)
-    redis_ttl_messages: int = Field(7200, env="MIRIX_REDIS_TTL_MESSAGES")  # 2 hours for messages
-    redis_ttl_organizations: int = Field(43200, env="MIRIX_REDIS_TTL_ORGANIZATIONS")  # 12 hours for organizations
-    redis_ttl_users: int = Field(43200, env="MIRIX_REDIS_TTL_USERS")  # 12 hours for users
-    redis_ttl_clients: int = Field(43200, env="MIRIX_REDIS_TTL_CLIENTS")  # 12 hours for clients
-    redis_ttl_agents: int = Field(43200, env="MIRIX_REDIS_TTL_AGENTS")  # 12 hours for agents
-    redis_ttl_tools: int = Field(43200, env="MIRIX_REDIS_TTL_TOOLS")  # 12 hours for tools
+    redis_ttl_default: int = Field(
+        3600, env="MIRIX_REDIS_TTL_DEFAULT"
+    )  # 1 hour default TTL
+    redis_ttl_blocks: int = Field(
+        7200, env="MIRIX_REDIS_TTL_BLOCKS"
+    )  # 2 hours for hot data (blocks)
+    redis_ttl_messages: int = Field(
+        7200, env="MIRIX_REDIS_TTL_MESSAGES"
+    )  # 2 hours for messages
+    redis_ttl_organizations: int = Field(
+        43200, env="MIRIX_REDIS_TTL_ORGANIZATIONS"
+    )  # 12 hours for organizations
+    redis_ttl_users: int = Field(
+        43200, env="MIRIX_REDIS_TTL_USERS"
+    )  # 12 hours for users
+    redis_ttl_clients: int = Field(
+        43200, env="MIRIX_REDIS_TTL_CLIENTS"
+    )  # 12 hours for clients
+    redis_ttl_agents: int = Field(
+        43200, env="MIRIX_REDIS_TTL_AGENTS"
+    )  # 12 hours for agents
+    redis_ttl_tools: int = Field(
+        43200, env="MIRIX_REDIS_TTL_TOOLS"
+    )  # 12 hours for tools
 
     @property
     def mirix_redis_uri(self) -> Optional[str]:
         """Construct Redis URI from components or return explicit URI."""
         if not self.redis_enabled:
             return None
-        
+
         if self.redis_uri:
             return self.redis_uri
         elif self.redis_host:
@@ -212,8 +238,12 @@ class Settings(BaseSettings):
 
     # logging configuration
     log_level: str = Field("INFO", env="MIRIX_LOG_LEVEL")
-    log_file: Optional[Path] = Field(None, env="MIRIX_LOG_FILE")  # If set, enables file logging
-    log_to_console: bool = Field(True, env="MIRIX_LOG_TO_CONSOLE")  # Console logging is default
+    log_file: Optional[Path] = Field(
+        None, env="MIRIX_LOG_FILE"
+    )  # If set, enables file logging
+    log_to_console: bool = Field(
+        True, env="MIRIX_LOG_TO_CONSOLE"
+    )  # Console logging is default
     log_max_bytes: int = Field(10 * 1024 * 1024, env="MIRIX_LOG_MAX_BYTES")  # 10 MB
     log_backup_count: int = Field(5, env="MIRIX_LOG_BACKUP_COUNT")
 

@@ -46,6 +46,16 @@ llm_config:
   # context_window: 128000
   # api_key: "your-custom-key-here"
 
+  # --- Option 6: Custom OpenAI-compatible with dynamic auth provider ---
+  # Use this for endpoints requiring dynamic, short-lived authentication tokens
+  # (e.g., claims-based tickets). The auth provider must be registered programmatically
+  # in your server code before use. See examples/custom_auth_example.py
+  # model: "custom-model-name"
+  # model_endpoint_type: "openai"
+  # model_endpoint: "https://your-custom-endpoint.com/v1"
+  # auth_provider: "my_claims_provider"  # Name of registered auth provider
+  # context_window: 128000
+
 # =============================================================================
 # Embedding Configuration (optional)
 # =============================================================================

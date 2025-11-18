@@ -23,9 +23,6 @@ from mirix.errors import (
     LLMUnprocessableEntityError,
 )
 from mirix.helpers.datetime_helpers import get_utc_time
-from mirix.llm_api.helpers import (
-    unpack_all_inner_thoughts_from_kwargs,
-)
 from mirix.llm_api.llm_client_base import LLMClientBase
 from mirix.log import get_logger
 from mirix.schemas.llm_config import LLMConfig
@@ -35,10 +32,9 @@ from mirix.schemas.openai.chat_completion_response import (
     ChatCompletionResponse,
     Choice,
     FunctionCall,
-    ToolCall,
-    UsageStatistics,
 )
 from mirix.schemas.openai.chat_completion_response import Message as ChoiceMessage
+from mirix.schemas.openai.chat_completion_response import ToolCall, UsageStatistics
 from mirix.services.provider_manager import ProviderManager
 from mirix.tracing import trace_method
 

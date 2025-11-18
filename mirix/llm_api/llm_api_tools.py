@@ -4,15 +4,14 @@ from typing import TYPE_CHECKING, List, Optional
 
 import requests
 
-from mirix.constants import (
-    CLI_WARNING_PREFIX,
-)
+from mirix.constants import CLI_WARNING_PREFIX
 from mirix.log import get_logger
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
     from mirix.interface import AgentChunkStreamingInterface
+
 from mirix.errors import MirixConfigurationError, RateLimitExceededError
 from mirix.llm_api.anthropic import (
     anthropic_bedrock_chat_completions_request,
@@ -48,6 +47,7 @@ LLM_API_PROVIDER_OPTIONS = [
     "local",
     "groq",
 ]
+
 
 def retry_with_exponential_backoff(
     func,
@@ -107,6 +107,7 @@ def retry_with_exponential_backoff(
                 raise e
 
     return wrapper
+
 
 @retry_with_exponential_backoff
 def create(
@@ -266,10 +267,11 @@ def create(
             chat_completion_request=chat_completion_request,
         )
 
-        if llm_config.put_inner_thoughts_in_kwargs:
-            response = unpack_all_inner_thoughts_from_kwargs(
-                response=response
-            )
+        # TODO: Implement unpack_all_inner_thoughts_from_kwargs if needed
+        # if llm_config.put_inner_thoughts_in_kwargs:
+        #     response = unpack_all_inner_thoughts_from_kwargs(
+        #         response=response
+        #     )
 
         return response
 
@@ -406,9 +408,11 @@ def create(
                 messages=[
                     cast_message_to_subtype(m.to_openai_dict()) for m in messages
                 ],
-                tools=[{"type": "function", "function": f} for f in functions]
-                if functions
-                else None,
+                tools=(
+                    [{"type": "function", "function": f} for f in functions]
+                    if functions
+                    else None
+                ),
                 tool_choice=tool_call,
                 # user=str(user_id),
                 # NOTE: max_tokens is required for Anthropic API
@@ -457,7 +461,7 @@ def create(
                 message="Groq key is missing from mirix config file",
                 missing_fields=["groq_api_key"],
             )
-    
+
         tools = (
             [{"type": "function", "function": f} for f in functions]
             if functions is not None
@@ -527,9 +531,11 @@ def create(
                 messages=[
                     cast_message_to_subtype(m.to_openai_dict()) for m in messages
                 ],
-                tools=[{"type": "function", "function": f} for f in functions]
-                if functions
-                else None,
+                tools=(
+                    [{"type": "function", "function": f} for f in functions]
+                    if functions
+                    else None
+                ),
                 tool_choice=tool_call,
                 # user=str(user_id),
                 # NOTE: max_tokens is required for Anthropic API
