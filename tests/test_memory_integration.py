@@ -89,8 +89,12 @@ def client(server_process):
     
     # Initialize meta agent (checks if exists, creates if needed)
     print("\n[SETUP] Initializing user, org, and meta agent...")
+    
+    # Construct absolute path to config file
+    config_path = project_root / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
+    
     result = client.initialize_meta_agent(
-        config_path="mirix/configs/examples/mirix_gemini.yaml",
+        config_path=str(config_path),
         update_agents=False  # Don't update if already exists, just use existing
     )
     

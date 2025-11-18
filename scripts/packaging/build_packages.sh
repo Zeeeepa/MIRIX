@@ -9,6 +9,17 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# Function to restore pyproject.toml on exit
+restore_pyproject() {
+    if [ -f "pyproject.toml.backup" ]; then
+        echo -e "${BLUE}Restoring pyproject.toml...${NC}"
+        mv pyproject.toml.backup pyproject.toml
+    fi
+}
+
+# Set trap to restore pyproject.toml on exit (success or failure)
+trap restore_pyproject EXIT
+
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${BLUE}  Mirix Package Build Script${NC}"
 echo -e "${BLUE}=================================================${NC}"
@@ -28,7 +39,21 @@ rm -rf dist/
 rm -rf *.egg-info
 rm -rf mirix_client.egg-info
 rm -rf mirix_server.egg-info
+rm -rf intuit_ecms_client.egg-info
+rm -rf intuit_ecms_server.egg-info
+rm -rf jl_ecms_client.egg-info
+rm -rf jl_ecms_server.egg-info
 echo -e "${GREEN}✓ Cleaned${NC}"
+echo ""
+
+# Temporarily rename pyproject.toml to prevent it from overriding setup scripts
+echo -e "${BLUE}[1.5/5] Temporarily moving pyproject.toml...${NC}"
+if [ -f "pyproject.toml" ]; then
+    mv pyproject.toml pyproject.toml.backup
+    echo -e "${GREEN}✓ Moved pyproject.toml${NC}"
+else
+    echo -e "${BLUE}  pyproject.toml already moved${NC}"
+fi
 echo ""
 
 # Install build dependencies
@@ -38,11 +63,11 @@ echo -e "${GREEN}✓ Build tools ready${NC}"
 echo ""
 
 # Build client package
-echo -e "${BLUE}[3/5] Building mirix-client package...${NC}"
+echo -e "${BLUE}[3/5] Building jl-ecms-client package...${NC}"
 python scripts/packaging/setup_client.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Client package built successfully${NC}"
-    CLIENT_VERSION=$(ls dist/mirix_client-*.whl | head -1 | grep -oP '\d+\.\d+\.\d+')
+    CLIENT_VERSION=$(ls dist/intuit_ecms_client-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${CLIENT_VERSION}${NC}"
 else
     echo -e "${RED}✗ Client package build failed${NC}"
@@ -51,11 +76,11 @@ fi
 echo ""
 
 # Build server package
-echo -e "${BLUE}[4/5] Building mirix-server package...${NC}"
+echo -e "${BLUE}[4/5] Building jl-ecms-server package...${NC}"
 python scripts/packaging/setup_server.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Server package built successfully${NC}"
-    SERVER_VERSION=$(ls dist/mirix_server-*.whl | head -1 | grep -oP '\d+\.\d+\.\d+')
+    SERVER_VERSION=$(ls dist/intuit_ecms_server-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${SERVER_VERSION}${NC}"
 else
     echo -e "${RED}✗ Server package build failed${NC}"
@@ -69,23 +94,30 @@ echo -e "${BLUE}=================================================${NC}"
 echo -e "Built packages in: ${GREEN}dist/${NC}"
 echo ""
 echo -e "Client Package:"
-ls -lh dist/mirix_client-* | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/intuit_ecms_client-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "Server Package:"
-ls -lh dist/mirix_server-* | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/intuit_ecms_server-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${GREEN}✓ All packages built successfully!${NC}"
 echo ""
 echo "To install locally:"
-echo -e "  ${BLUE}pip install dist/mirix_client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
-echo -e "  ${BLUE}pip install dist/mirix_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/intuit_ecms_client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/intuit_ecms_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
 echo ""
 echo "To publish to PyPI:"
-echo -e "  ${BLUE}twine upload dist/mirix-client-${CLIENT_VERSION}*${NC}"
-echo -e "  ${BLUE}twine upload dist/mirix-server-${SERVER_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl-ecms-client-${CLIENT_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl-ecms-server-${SERVER_VERSION}*${NC}"
 echo ""
 echo "To test packages:"
 echo -e "  ${BLUE}twine check dist/*${NC}"
 echo ""
+
+# Restore pyproject.toml
+if [ -f "pyproject.toml.backup" ]; then
+    mv pyproject.toml.backup pyproject.toml
+    echo -e "${GREEN}✓ Restored pyproject.toml${NC}"
+    echo ""
+fi
 

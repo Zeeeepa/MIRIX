@@ -31,6 +31,8 @@ def main():
     client = MirixClient(
         api_key=None, # TODO: add authentication later
         client_id=client_id,
+        client_name="Demo Client Application",
+        client_scope="Sales",
         org_id=org_id,
         debug=True,
     )

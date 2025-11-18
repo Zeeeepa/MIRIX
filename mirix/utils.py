@@ -17,12 +17,11 @@ import subprocess
 import sys
 import uuid
 import warnings
-from pathlib import Path
-import requests
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from logging import Logger
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -36,16 +35,15 @@ from typing import (
     get_type_hints,
 )
 from urllib.parse import urljoin, urlparse
-from mirix.schemas.file import FileMetadata
-
 
 import demjson3 as demjson
 import pytz
+import requests
 import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
 
 import mirix
-from mirix.log import get_logger
+from mirix.client.utils import get_utc_time, json_dumps  # Re-export from client
 from mirix.constants import (
     CLI_WARNING_PREFIX,
     CORE_MEMORY_HUMAN_CHAR_LIMIT,
@@ -55,8 +53,9 @@ from mirix.constants import (
     MIRIX_DIR,
     TOOL_CALL_ID_MAX_LEN,
 )
-from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
-from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
+from mirix.log import get_logger
+from mirix.schemas.file import FileMetadata
+from mirix.schemas.message import MessageCreate, MessageRole
 from mirix.schemas.mirix_message_content import (
     CloudFileContent,
     FileContent,
@@ -64,7 +63,8 @@ from mirix.schemas.mirix_message_content import (
     MessageContentType,
     TextContent,
 )
-from mirix.schemas.message import MessageCreate, MessageRole
+from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
+from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 
 if TYPE_CHECKING:
     from mirix.services.file_manager import FileManager
@@ -86,18 +86,23 @@ _default_verbose = True  # Default to True to show logs unless explicitly disabl
 if "MIRIX_VERBOSE" in os.environ:
     _default_verbose = os.environ["MIRIX_VERBOSE"].lower() in ("true", "1", "yes")
 
-verbose_context = contextvars.ContextVar('verbose', default=_default_verbose)
+verbose_context = contextvars.ContextVar("verbose", default=_default_verbose)
+
 
 def get_verbose() -> bool:
     """Get verbose setting for current context (thread-safe)"""
     return verbose_context.get()
 
+
 def set_verbose(value: bool) -> None:
     """Set verbose setting for current context (thread-safe)"""
     verbose_context.set(value)
 
+
 # Keep VERBOSE for backward compatibility (but use contextvars internally)
-VERBOSE = _default_verbose  # Legacy global variable (deprecated, use get_verbose() instead)
+VERBOSE = (
+    _default_verbose  # Legacy global variable (deprecated, use get_verbose() instead)
+)
 
 ADJECTIVE_BANK = [
     "beautiful",
@@ -984,10 +989,7 @@ def get_local_time(timezone=None):
     return time_str.strip()
 
 
-def get_utc_time() -> datetime:
-    """Get the current UTC time"""
-    # return datetime.now(pytz.utc)
-    return datetime.now(timezone.utc)
+# get_utc_time is imported from mirix.client.utils
 
 
 def format_datetime(dt):
@@ -1206,13 +1208,7 @@ def create_uuid_from_string(val: str):
     return uuid.UUID(hex=hex_string)
 
 
-def json_dumps(data, indent=2):
-    def safe_serializer(obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        raise TypeError(f"Type {type(obj)} not serializable")
-
-    return json.dumps(data, indent=indent, default=safe_serializer, ensure_ascii=False)
+# json_dumps is imported from mirix.client.utils
 
 
 def json_loads(data):
@@ -1761,7 +1757,9 @@ def _save_image_from_file_uri(
         )
 
     except Exception as e:
-        raise ValueError(f"Failed to copy image from file URI {file_uri}: {str(e)}") from e
+        raise ValueError(
+            f"Failed to copy image from file URI {file_uri}: {str(e)}"
+        ) from e
 
 
 def _save_image_from_google_cloud_uri(
@@ -1893,8 +1891,9 @@ def _create_file_metadata_from_url(
         )
 
     except Exception as e:
-        raise ValueError(f"Failed to create file metadata from URL {url}: {str(e)}") from e
-
+        raise ValueError(
+            f"Failed to create file metadata from URL {url}: {str(e)}"
+        ) from e
 
 
 def convert_message_to_mirix_message(
@@ -1907,9 +1906,7 @@ def convert_message_to_mirix_message(
 ) -> List[MessageCreate]:
     if isinstance(message, str):
         content = [TextContent(text=message)]
-        input_messages = [
-            MessageCreate(role=MessageRole(role), content=content)
-        ]
+        input_messages = [MessageCreate(role=MessageRole(role), content=content)]
     elif isinstance(message, list):
         resolved_file_manager = file_manager
         resolved_images_dir = None
@@ -2006,9 +2003,7 @@ def convert_message_to_mirix_message(
                 else:
                     # Handle as general file (e.g., PDF, DOC, etc.)
                     fm, resolved_org_id, _ = ensure_file_context()
-                    file_metadata = _save_file_from_path(
-                        file_path, fm, resolved_org_id
-                    )
+                    file_metadata = _save_file_from_path(file_path, fm, resolved_org_id)
                     return FileContent(
                         type=MessageContentType.file_uri, file_id=file_metadata.id
                     )
@@ -2050,9 +2045,7 @@ def convert_message_to_mirix_message(
                 raise ValueError(f"Unknown message type: {m['type']}")
 
         content = [convert_message(m) for m in message]
-        input_messages = [
-            MessageCreate(role=MessageRole(role), content=content)
-        ]
+        input_messages = [MessageCreate(role=MessageRole(role), content=content)]
 
     else:
         raise ValueError(f"Invalid message type: {type(message)}")

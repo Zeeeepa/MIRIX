@@ -13,6 +13,7 @@ frontend/dist
 frontend/backend
 dist/
 build/
+*.egg-info/
 .env.*
 .DS_Store
 npm-debug.log*

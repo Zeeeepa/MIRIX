@@ -1,11 +1,11 @@
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
 
 from pydantic import Field
 
+from mirix.client.utils import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
-from mirix.utils import create_random_username, get_utc_time
 
 
 class OrganizationBase(MirixBase):
@@ -22,9 +22,9 @@ class Organization(OrganizationBase):
         default_factory=_generate_org_id,
         description="The unique identifier of the organization.",
     )
-    name: str = Field(
-        create_random_username(),
-        description="The name of the organization.",
+    name: Optional[str] = Field(
+        None,
+        description="The name of the organization. Server will generate if not provided.",
         json_schema_extra={"default": "SincereYogurt"},
     )
     created_at: Optional[datetime] = Field(

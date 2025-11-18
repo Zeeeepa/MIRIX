@@ -1,5 +1,5 @@
-import re
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import List, Optional
@@ -762,7 +762,7 @@ def trigger_memory_update_with_instruction(
         Optional[str]: None is always returned as this function does not produce a response.
     """
 
-    from mirix import create_client
+    from mirix.local_client import create_client
 
     client = create_client()
     agents = client.list_agents()

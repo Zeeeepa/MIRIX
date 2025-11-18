@@ -2,9 +2,6 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from mirix.log import get_logger
-
-logger = get_logger(__name__)
 
 class EmbeddingConfig(BaseModel):
     """
@@ -17,6 +14,7 @@ class EmbeddingConfig(BaseModel):
         embedding_model (str): The model for the embedding.
         embedding_dim (int): The dimension of the embedding.
         embedding_chunk_size (int): The chunk size of the embedding.
+        auth_provider (str, optional): Name of registered auth provider for dynamic header injection.
         azure_endpoint (:obj:`str`, optional): The Azure endpoint for the model (Azure only).
         azure_version (str): The Azure version for the model (Azure only).
         azure_deployment (str): The Azure deployment for the model (Azure only).
@@ -54,6 +52,10 @@ class EmbeddingConfig(BaseModel):
     handle: Optional[str] = Field(
         None,
         description="The handle for this config, in the format provider/model-name.",
+    )
+    auth_provider: Optional[str] = Field(
+        None,
+        description="Name of registered auth provider for dynamic header injection (e.g., for claims-based tickets)",
     )
 
     # azure only

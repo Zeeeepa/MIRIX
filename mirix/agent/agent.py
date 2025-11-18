@@ -11,7 +11,6 @@ import numpy as np
 import pytz
 import requests
 
-from mirix.log import get_logger
 from mirix.constants import (
     CHAINING_FOR_MEMORY_UPDATE,
     CLEAR_HISTORY_AFTER_MEMORY_UPDATE,
@@ -41,14 +40,13 @@ from mirix.llm_api.helpers import (
 )
 from mirix.llm_api.llm_api_tools import create
 from mirix.llm_api.llm_client import LLMClient
+from mirix.log import get_logger
 from mirix.memory import summarize_messages
-from mirix.schemas.user import User
-from mirix.schemas.client import Client
-from mirix.orm.enums import ToolType
 from mirix.schemas.agent import AgentState, AgentStepResponse, UpdateAgent
 from mirix.schemas.block import BlockUpdate
+from mirix.schemas.client import Client
 from mirix.schemas.embedding_config import EmbeddingConfig
-from mirix.schemas.enums import MessageRole
+from mirix.schemas.enums import MessageRole, ToolType
 from mirix.schemas.memory import ContextWindowOverview, Memory
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_message_content import (
@@ -60,16 +58,15 @@ from mirix.schemas.mirix_message_content import (
 from mirix.schemas.openai.chat_completion_request import (
     Tool as ChatCompletionRequestTool,
 )
-from mirix.schemas.openai.chat_completion_response import (
-    ChatCompletionResponse,
-    UsageStatistics,
-)
+from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 from mirix.schemas.openai.chat_completion_response import (
     Message as ChatCompletionMessage,
 )
+from mirix.schemas.openai.chat_completion_response import UsageStatistics
 from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import TerminalToolRule
 from mirix.schemas.usage import MirixUsageStatistics
+from mirix.schemas.user import User
 from mirix.services.agent_manager import AgentManager
 from mirix.services.block_manager import BlockManager
 from mirix.services.episodic_memory_manager import EpisodicMemoryManager
@@ -142,18 +139,19 @@ class Agent(BaseAgent):
         use_cache: bool = True,  # Control Redis cache behavior for this request
         user: Optional[User] = None,  # End-user user
     ):
-        assert isinstance(agent_state.memory, Memory), (
-            f"Memory object is not of type Memory: {type(agent_state.memory)}"
-        )
+        assert isinstance(
+            agent_state.memory, Memory
+        ), f"Memory object is not of type Memory: {type(agent_state.memory)}"
         # Hold a copy of the state that was used to init the agent
         self.agent_state = agent_state
-        assert isinstance(self.agent_state.memory, Memory), (
-            f"Memory object is not of type Memory: {type(self.agent_state.memory)}"
-        )
+        assert isinstance(
+            self.agent_state.memory, Memory
+        ), f"Memory object is not of type Memory: {type(self.agent_state.memory)}"
 
         self.actor = actor
         # Store filter_tags as a COPY to prevent mutation across agent instances
         from copy import deepcopy
+
         # Keep None as None, don't convert to empty dict - they have different meanings
         self.filter_tags = deepcopy(filter_tags) if filter_tags is not None else None
         self.use_cache = use_cache  # Store use_cache for memory operations
@@ -164,15 +162,17 @@ class Agent(BaseAgent):
         self.logger.setLevel(logging.INFO)
 
         if user:
-            self.user_id = user.id 
+            self.user_id = user.id
         else:
             from mirix.services.user_manager import UserManager
+
             self.user_id = UserManager().DEFAULT_USER_ID
 
         if actor:
-            self.client_id = actor.id 
+            self.client_id = actor.id
         else:
             from mirix.services.client_manager import ClientManager
+
             self.client_id = ClientManager().DEFAULT_CLIENT_ID
 
         # initialize a tool rules solver
@@ -241,7 +241,7 @@ class Agent(BaseAgent):
         # Skip if actor not set yet (during __init__)
         if self.actor is None:
             return None
-        
+
         in_context_messages = self.agent_manager.get_in_context_messages(
             agent_state=self.agent_state, actor=self.actor
         )
@@ -450,12 +450,12 @@ class Agent(BaseAgent):
                 if function_name in ["check_episodic_memory", "check_semantic_memory"]:
                     function_args["timezone_str"] = self.user.timezone
                 function_args["self"] = self
-                
+
                 # Defensive: finish_memory_update takes no parameters (except self)
                 # Remove any unexpected parameters that LLM might hallucinate
                 if function_name == "finish_memory_update":
                     function_args = {"self": self}
-                
+
                 function_response = callable_func(**function_args)
                 if function_name in ["core_memory_append", "core_memory_rewrite"]:
                     self.update_memory_if_changed(agent_state_copy.memory)
@@ -969,9 +969,9 @@ class Agent(BaseAgent):
                         function_name == "send_message"
                         or function_name == "finish_memory_update"
                     ):
-                        assert tool_call_idx == len(response_message.tool_calls) - 1, (
-                            f"{function_name} must be the last tool call"
-                        )
+                        assert (
+                            tool_call_idx == len(response_message.tool_calls) - 1
+                        ), f"{function_name} must be the last tool call"
 
                     if tool_call_idx == len(response_message.tool_calls) - 1:
                         if function_name == "send_message":
@@ -1341,10 +1341,14 @@ class Agent(BaseAgent):
 
                         # persist the message to the database
                         persisted_message = self.message_manager.create_message(
-                            new_message, 
+                            new_message,
                             actor=self.actor,  # Client for write operations (audit trail)
                             client_id=self.client_id,  # From actor (Client)
-                            user_id=self.user_id if self.user_id else UserManager.DEFAULT_USER_ID,  # Fallback to default user
+                            user_id=(
+                                self.user_id
+                                if self.user_id
+                                else UserManager.DEFAULT_USER_ID
+                            ),  # Fallback to default user
                         )
 
                         # append the persisted message ID to the message list
@@ -1420,16 +1424,18 @@ class Agent(BaseAgent):
 
     def step(
         self,
-        input_messages: Union[Message, MessageCreate, List[Union[Message, MessageCreate]]],
+        input_messages: Union[
+            Message, MessageCreate, List[Union[Message, MessageCreate]]
+        ],
         chaining: bool = True,
         max_chaining_steps: Optional[int] = None,
         extra_messages: Optional[List[dict]] = None,
-        actor: Optional['Client'] = None,  # Client for write operations (audit trail)
-        user: Optional[User] = None,       # User for read operations (data scope)
+        actor: Optional["Client"] = None,  # Client for write operations (audit trail)
+        user: Optional[User] = None,  # User for read operations (data scope)
         **kwargs,
     ) -> MirixUsageStatistics:
         """Run Agent.step in a loop, handling chaining via continue_chaining requests and function failures
-        
+
         Args:
             actor: Client object for write operations (updating messages, agent state) - audit trail
             user: User object for read operations (loading blocks, memory filtering) - data scope
@@ -1438,73 +1444,83 @@ class Agent(BaseAgent):
         # Store actor for write operations
         if actor:
             self.actor = actor
-        
+
         # Store user and load user's memory blocks
         if user:
             self.user = user
-            
+
             # Load existing blocks for this user
             existing_blocks = self.block_manager.get_blocks(
                 user=self.user, agent_id=self.agent_state.id
             )
-            
+
             # Special handling for core_memory_agent: ensure required blocks exist
             # This automatically creates blocks on first use for each user
             from mirix.schemas.agent import AgentType
+
             if self.agent_state.agent_type == AgentType.core_memory_agent:
                 if not existing_blocks:
                     # No blocks exist for this user - auto-create from DEFAULT_USER_ID template
                     logger.debug(
                         "Core memory blocks missing for user '%s', auto-creating from template. Agent ID: %s",
-                        user.id, self.agent_state.id
+                        user.id,
+                        self.agent_state.id,
                     )
-                    
+
                     # Query template blocks from DEFAULT_USER_ID
                     # Get the default user from the database (has all required fields)
                     from mirix.services.user_manager import UserManager
+
                     user_manager = UserManager()
                     try:
-                        default_user = user_manager.get_user_by_id(UserManager.DEFAULT_USER_ID)
+                        default_user = user_manager.get_user_by_id(
+                            UserManager.DEFAULT_USER_ID
+                        )
                         # Override organization_id to match the current user's organization
                         # This ensures we query blocks from the correct organization
                         default_user.organization_id = user.organization_id
                     except Exception as e:
                         logger.error(
                             "Failed to get DEFAULT_USER (id: %s): %s. Cannot auto-create blocks.",
-                            UserManager.DEFAULT_USER_ID, e
+                            UserManager.DEFAULT_USER_ID,
+                            e,
                         )
                         default_user = None
-                    
+
                     if default_user:
                         template_blocks = self.block_manager.get_blocks(
                             user=default_user, agent_id=self.agent_state.id
                         )
-                        
+
                         if template_blocks:
                             # Create blocks for this user using template
                             from mirix.schemas.block import Block
+
                             for template_block in template_blocks:
                                 try:
                                     self.block_manager.create_or_update_block(
                                         block=Block(
                                             label=template_block.label,
                                             value=template_block.value,
-                                            limit=template_block.limit
+                                            limit=template_block.limit,
                                         ),
                                         actor=self.actor,
                                         user=self.user,
-                                        agent_id=self.agent_state.id
+                                        agent_id=self.agent_state.id,
                                     )
                                     logger.info(
                                         "✓ Auto-created '%s' block for user %s (template: %s)",
-                                        template_block.label, user.id, template_block.id
+                                        template_block.label,
+                                        user.id,
+                                        template_block.id,
                                     )
                                 except Exception as e:
                                     logger.error(
                                         "Failed to auto-create '%s' block: %s",
-                                        template_block.label, e
+                                        template_block.label,
+                                        e,
                                     )
-                            
+
                             # Reload blocks after creation
                             existing_blocks = self.block_manager.get_blocks(
                                 user=self.user, agent_id=self.agent_state.id
@@ -1512,31 +1528,42 @@ class Agent(BaseAgent):
                         else:
                             logger.warning(
                                 "No template blocks found for DEFAULT_USER_ID (agent_id: %s). Cannot auto-create blocks.",
-                                self.agent_state.id
+                                self.agent_state.id,
                             )
-            
+
             # Load blocks into memory
             self.agent_state.memory = Memory(
                 blocks=[
                     b
                     for block in existing_blocks
-                    if (b := self.block_manager.get_block_by_id(block.id, user=self.user)) is not None
+                    if (
+                        b := self.block_manager.get_block_by_id(
+                            block.id, user=self.user
+                        )
+                    )
+                    is not None
                 ]
             )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
-        first_input_message = input_messages[0] if isinstance(input_messages, list) else input_messages
+        first_input_message = (
+            input_messages[0] if isinstance(input_messages, list) else input_messages
+        )
 
         # Convert MessageCreate objects to Message objects
         if not isinstance(input_messages, list):
             input_messages = [input_messages]
         message_objects = [
-            m if isinstance(m, Message) else prepare_input_message_create(
-                m,
-                self.agent_state.id,
-                wrap_user_message=False,
-                wrap_system_message=True,
+            (
+                m
+                if isinstance(m, Message)
+                else prepare_input_message_create(
+                    m,
+                    self.agent_state.id,
+                    wrap_user_message=False,
+                    wrap_system_message=True,
+                )
             )
             for m in input_messages
         ]
@@ -1613,7 +1640,7 @@ class Agent(BaseAgent):
                 extra_messages=extra_message_objects,
                 initial_message_count=initial_message_count,
                 chaining=chaining,
-                llm_client=llm_client
+                llm_client=llm_client,
             )
 
             continue_chaining = step_response.continue_chaining
@@ -1717,7 +1744,7 @@ class Agent(BaseAgent):
             Tuple[str, dict]: The complete system prompt and the retrieved memories dict
         """
         from mirix.schemas.agent import AgentType
-        
+
         timezone_str = self.user.timezone
 
         if retrieved_memories is None:
@@ -1730,7 +1757,7 @@ class Agent(BaseAgent):
             retrieved_memories["key_words"] = key_words
 
         search_method = "bm25"
-    
+
         # Prepare embedding for semantic search
         if key_words != "" and search_method == "embedding":
             embedded_text = embedding_model(
@@ -1754,7 +1781,12 @@ class Agent(BaseAgent):
                 blocks=[
                     b
                     for block in self.block_manager.get_blocks(user=self.user)
-                    if (b := self.block_manager.get_block_by_id(block.id, user=self.user)) is not None
+                    if (
+                        b := self.block_manager.get_block_by_id(
+                            block.id, user=self.user
+                        )
+                    )
+                    is not None
                 ]
             )
             core_memory = current_persisted_memory.compile()
@@ -1819,6 +1851,7 @@ class Agent(BaseAgent):
                 for idx, event in enumerate(current_episodic_memory):
                     # Use agent_type instead of name to handle both standalone and meta-agent child agents
                     from mirix.schemas.agent import AgentType
+
                     if (
                         self.agent_state.agent_type == AgentType.episodic_memory_agent
                         or self.agent_state.agent_type == AgentType.reflexion_agent
@@ -1846,6 +1879,7 @@ class Agent(BaseAgent):
                 for idx, event in enumerate(most_relevant_episodic_memory):
                     # Use agent_type instead of name to handle both standalone and meta-agent child agents
                     from mirix.schemas.agent import AgentType
+
                     if (
                         self.agent_state.agent_type == AgentType.episodic_memory_agent
                         or self.agent_state.agent_type == AgentType.reflexion_agent
@@ -2011,9 +2045,11 @@ These keywords have been used to retrieve relevant memories from the database.
             current_time=current_time,
             keywords=keywords,
             core_memory=core_memory if core_memory else "Empty",
-            episodic_memory=episodic_memory["recent_episodic_memory"]
-            if episodic_memory
-            else "Empty",
+            episodic_memory=(
+                episodic_memory["recent_episodic_memory"]
+                if episodic_memory
+                else "Empty"
+            ),
         )
 
         if keywords is not None:
@@ -2372,7 +2408,6 @@ These keywords have been used to retrieve relevant memories from the database.
                     f"[Mirix.Agent.{self.agent_state.name}] WARNING: {CLI_WARNING_PREFIX}Attempting to run ChatCompletion without user as the last message in the queue"
                 )
 
-
             # Step 2: send the conversation and available functions to the LLM
             response = self._get_ai_reply(
                 message_sequence=input_message_sequence,
@@ -2432,16 +2467,21 @@ These keywords have been used to retrieve relevant memories from the database.
                 for msg in all_response_messages:
                     if msg.role == "tool" and msg.content:
                         try:
-                            content = msg.content[0].text if isinstance(msg.content, list) else msg.content
+                            content = (
+                                msg.content[0].text
+                                if isinstance(msg.content, list)
+                                else msg.content
+                            )
                             response_data = json.loads(content)
                             if response_data.get("status") == "Failed":
                                 failed_messages.append(f"{msg.name}: {content}")
                         except (json.JSONDecodeError, AttributeError, KeyError):
                             pass
-                
+
                 if failed_messages:
                     printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: One or more functions failed:\n" + "\n".join(failed_messages)
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: One or more functions failed:\n"
+                        + "\n".join(failed_messages)
                     )
                 else:
                     # Fallback if we can't parse the messages
@@ -2644,9 +2684,9 @@ These keywords have been used to retrieve relevant memories from the database.
         -> agent.step(messages=[Message(role='user', text=...)])
         """
         # Wrap with metadata, dumps to JSON
-        assert user_message_str and isinstance(user_message_str, str), (
-            f"user_message_str should be a non-empty string, got {type(user_message_str)}"
-        )
+        assert user_message_str and isinstance(
+            user_message_str, str
+        ), f"user_message_str should be a non-empty string, got {type(user_message_str)}"
         user_message_json_str = package_user_message(user_message_str)
 
         # Validate JSON via save/load
@@ -2911,9 +2951,9 @@ These keywords have been used to retrieve relevant memories from the database.
 def save_agent(agent: Agent):
     """Save agent to metadata store"""
     agent_state = agent.agent_state
-    assert isinstance(agent_state.memory, Memory), (
-        f"Memory is not a Memory object: {type(agent_state.memory)}"
-    )
+    assert isinstance(
+        agent_state.memory, Memory
+    ), f"Memory is not a Memory object: {type(agent_state.memory)}"
 
     # TODO: move this to agent manager
     # TODO: Completely strip out metadata
@@ -2956,7 +2996,9 @@ def validate_json(user_message_text: str) -> str:
         user_message_json_val = json_dumps(user_message_json)
         return user_message_json_val
     except Exception as e:
-        logger.debug("%scouldn't parse user input message as JSON: %s", CLI_WARNING_PREFIX, e)
+        logger.debug(
+            "%scouldn't parse user input message as JSON: %s", CLI_WARNING_PREFIX, e
+        )
         raise e
 
 

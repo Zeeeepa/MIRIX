@@ -267,6 +267,7 @@ class TestDirectProceduralMemory:
             ],
             actor=client,
             organization_id=user.organization_id,
+            user_id=user.id,
         )
         
         assert procedure is not None
@@ -381,6 +382,7 @@ class TestDirectKnowledgeVault:
             secret_value="test_api_key_abc123",
             caption="Test API key for development",
             organization_id=user.organization_id,
+            user_id=user.id,
         )
         
         assert knowledge is not None
@@ -391,6 +393,20 @@ class TestDirectKnowledgeVault:
     def test_search_knowledge(self, server, client, user, meta_agent):
         """Test searching knowledge vault."""
         knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
+        
+        # Ensure test data exists
+        server.knowledge_vault_manager.insert_knowledge(
+            actor=client,
+            agent_id=meta_agent.id,
+            agent_state=knowledge_vault_memory_agent,
+            entry_type="credential",
+            source="development_environment",
+            sensitivity="medium",
+            secret_value="test_api_key_abc123",
+            caption="Test API key for development",
+            organization_id=user.organization_id,
+            user_id=user.id,
+        )
         
         results = server.knowledge_vault_manager.list_knowledge(
             agent_state=knowledge_vault_memory_agent,
@@ -484,6 +500,25 @@ class TestSearchMethodComparison:
         """Test all search methods and fields on procedural memory."""
         procedural_agent = get_sub_agent(server, client, meta_agent, AgentType.procedural_memory_agent)
         
+        # Ensure test data exists
+        server.procedural_memory_manager.insert_procedure(
+            agent_state=procedural_agent,
+            agent_id=meta_agent.id,
+            entry_type="process",
+            summary="Deploy application to production",
+            steps=[
+                "Run all tests",
+                "Create release branch",
+                "Build production artifacts",
+                "Deploy to staging",
+                "Verify staging deployment",
+                "Deploy to production",
+            ],
+            actor=client,
+            organization_id=user.organization_id,
+            user_id=user.id,
+        )
+        
         # Test different fields: summary, steps
         test_cases = [
             ("deploy", "summary", "bm25"),
@@ -532,6 +567,20 @@ class TestSearchMethodComparison:
     def test_knowledge_vault_search_methods_and_fields(self, server, client, user, meta_agent):
         """Test all search methods and fields on knowledge vault."""
         knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
+        
+        # Ensure test data exists
+        server.knowledge_vault_manager.insert_knowledge(
+            actor=client,
+            agent_id=meta_agent.id,
+            agent_state=knowledge_vault_memory_agent,
+            entry_type="credential",
+            source="development_environment",
+            sensitivity="medium",
+            secret_value="test_api_key_abc123",
+            caption="Test API key for development",
+            organization_id=user.organization_id,
+            user_id=user.id,
+        )
         
         # Test different fields: secret_value, caption
         test_cases = [

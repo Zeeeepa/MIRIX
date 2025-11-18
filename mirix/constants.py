@@ -1,6 +1,71 @@
 import os
 from logging import CRITICAL, DEBUG, ERROR, INFO, NOTSET, WARN, WARNING
 
+# ============================================================================
+# Client Constants - Used by both client and server
+# ============================================================================
+
+# Default organization and user IDs (needed by schemas)
+DEFAULT_ORG_ID = "org-00000000-0000-4000-8000-000000000000"
+DEFAULT_USER_ID = "user-00000000-0000-4000-8000-000000000000"
+
+# Embedding constants
+MAX_EMBEDDING_DIM = 4096  # maximum supported embedding size - do NOT change or else DBs will need to be reset
+DEFAULT_EMBEDDING_CHUNK_SIZE = 300
+MIN_CONTEXT_WINDOW = 4096
+
+# Memory limits
+CORE_MEMORY_BLOCK_CHAR_LIMIT: int = 5000
+
+# Function/Tool constants
+FUNCTION_RETURN_CHAR_LIMIT = 60000  # ~300 words
+TOOL_CALL_ID_MAX_LEN = 29
+
+# Tool module names
+COMPOSIO_TOOL_TAG_NAME = "composio"
+MIRIX_CORE_TOOL_MODULE_NAME = "mirix.functions.function_sets.base"
+MIRIX_MEMORY_TOOL_MODULE_NAME = "mirix.functions.function_sets.memory_tools"
+MIRIX_EXTRA_TOOL_MODULE_NAME = "mirix.functions.function_sets.extras"
+
+# Message defaults
+DEFAULT_MESSAGE_TOOL = "send_message"
+DEFAULT_MESSAGE_TOOL_KWARG = "message"
+
+# LLM model token limits
+LLM_MAX_TOKENS = {
+    "DEFAULT": 8192,
+    ## OpenAI models: https://platform.openai.com/docs/models/overview
+    "chatgpt-4o-latest": 128000,
+    "gpt-4o-2024-08-06": 128000,
+    "gpt-4-turbo-preview": 128000,
+    "gpt-4o": 128000,
+    "gpt-3.5-turbo-instruct": 16385,
+    "gpt-4-0125-preview": 128000,
+    "gpt-3.5-turbo-0125": 16385,
+    "gpt-4-turbo-2024-04-09": 128000,
+    "gpt-4-turbo": 8192,
+    "gpt-4o-2024-05-13": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4o-mini-2024-07-18": 128000,
+    "gpt-4-1106-preview": 128000,
+    "gpt-4": 8192,
+    "gpt-4-32k": 32768,
+    "gpt-4-0613": 8192,
+    "gpt-4-32k-0613": 32768,
+    "gpt-4-0314": 8192,  # legacy
+    "gpt-4-32k-0314": 32768,  # legacy
+    "gpt-3.5-turbo-1106": 16385,
+    "gpt-3.5-turbo": 4096,
+    "gpt-3.5-turbo-16k": 16385,
+    "gpt-3.5-turbo-0613": 4096,  # legacy
+    "gpt-3.5-turbo-16k-0613": 16385,  # legacy
+    "gpt-3.5-turbo-0301": 4096,  # legacy
+}
+
+# ============================================================================
+# Server-Only Constants
+# ============================================================================
+
 MIRIX_DIR = os.path.join(os.path.expanduser("~"), ".mirix")
 MIRIX_DIR_TOOL_SANDBOX = os.path.join(MIRIX_DIR, "tool_sandbox_dir")
 
@@ -9,11 +74,6 @@ API_PREFIX = "/v1"
 OPENAI_API_PREFIX = "/openai"
 
 COMPOSIO_ENTITY_ENV_VAR_KEY = "COMPOSIO_ENTITY"
-COMPOSIO_TOOL_TAG_NAME = "composio"
-
-MIRIX_CORE_TOOL_MODULE_NAME = "mirix.functions.function_sets.base"
-MIRIX_MEMORY_TOOL_MODULE_NAME = "mirix.functions.function_sets.memory_tools"
-MIRIX_EXTRA_TOOL_MODULE_NAME = "mirix.functions.function_sets.extras"
 
 # String in the error message for when the context window is too large
 # Example full message:
@@ -22,16 +82,6 @@ OPENAI_CONTEXT_WINDOW_ERROR_SUBSTRING = "maximum context length"
 
 # System prompt templating
 IN_CONTEXT_MEMORY_KEYWORD = "CORE_MEMORY"
-
-# OpenAI error message: Invalid 'messages[1].tool_calls[0].id': string too long. Expected a string with maximum length 29, but got a string with length 36 instead.
-TOOL_CALL_ID_MAX_LEN = 29
-
-# minimum context window size
-MIN_CONTEXT_WINDOW = 4096
-
-# embeddings
-MAX_EMBEDDING_DIM = 4096  # maximum supported embeding size - do NOT change or else DBs will need to be reset
-DEFAULT_EMBEDDING_CHUNK_SIZE = 300
 
 MAX_CHAINING_STEPS = 10
 MAX_RETRIEVAL_LIMIT_IN_SYSTEM = 10
@@ -100,11 +150,6 @@ ALL_TOOLS = list(
 )
 
 # The name of the tool used to send message to the user
-# May not be relevant in cases where the agent has multiple ways to message to user (send_imessage, send_discord_mesasge, ...)
-# or in cases where the agent has no concept of messaging a user (e.g. a workflow agent)
-DEFAULT_MESSAGE_TOOL = "send_message"
-DEFAULT_MESSAGE_TOOL_KWARG = "message"
-
 # Structured output models
 STRUCTURED_OUTPUT_MODELS = {"gpt-4o", "gpt-4o-mini"}
 
@@ -138,48 +183,6 @@ ERROR_MESSAGE_PREFIX = "Error"
 
 NON_USER_MSG_PREFIX = "[This is an automated system message hidden from the user] "
 
-# Constants to do with summarization / conversation length window
-# The max amount of tokens supported by the underlying model (eg 8k for gpt-4 and Mistral 7B)
-LLM_MAX_TOKENS = {
-    "DEFAULT": 8192,
-    ## OpenAI models: https://platform.openai.com/docs/models/overview
-    # "o1-preview
-    "chatgpt-4o-latest": 128000,
-    # "o1-preview-2024-09-12
-    "gpt-4o-2024-08-06": 128000,
-    "gpt-4-turbo-preview": 128000,
-    "gpt-4o": 128000,
-    "gpt-3.5-turbo-instruct": 16385,
-    "gpt-4-0125-preview": 128000,
-    "gpt-3.5-turbo-0125": 16385,
-    # "babbage-002": 128000,
-    # "davinci-002": 128000,
-    "gpt-4-turbo-2024-04-09": 128000,
-    # "gpt-4o-realtime-preview-2024-10-01
-    "gpt-4-turbo": 8192,
-    "gpt-4o-2024-05-13": 128000,
-    # "o1-mini
-    # "o1-mini-2024-09-12
-    # "gpt-3.5-turbo-instruct-0914
-    "gpt-4o-mini": 128000,
-    # "gpt-4o-realtime-preview
-    "gpt-4o-mini-2024-07-18": 128000,
-    # gpt-4
-    "gpt-4-1106-preview": 128000,
-    "gpt-4": 8192,
-    "gpt-4-32k": 32768,
-    "gpt-4-0613": 8192,
-    "gpt-4-32k-0613": 32768,
-    "gpt-4-0314": 8192,  # legacy
-    "gpt-4-32k-0314": 32768,  # legacy
-    # gpt-3.5
-    "gpt-3.5-turbo-1106": 16385,
-    "gpt-3.5-turbo": 4096,
-    "gpt-3.5-turbo-16k": 16385,
-    "gpt-3.5-turbo-0613": 4096,  # legacy
-    "gpt-3.5-turbo-16k-0613": 16385,  # legacy
-    "gpt-3.5-turbo-0301": 4096,  # legacy
-}
 # The error message that Mirix will receive
 # MESSAGE_SUMMARY_WARNING_STR = f"Warning: the conversation history will soon reach its maximum length and be trimmed. Make sure to save any important information from the conversation to your memory before it is removed."
 # Much longer and more specific variant of the prompt
@@ -200,10 +203,6 @@ MAX_ERROR_MESSAGE_CHAR_LIMIT = 500
 # Default memory limits
 CORE_MEMORY_PERSONA_CHAR_LIMIT: int = 5000
 CORE_MEMORY_HUMAN_CHAR_LIMIT: int = 5000
-CORE_MEMORY_BLOCK_CHAR_LIMIT: int = 5000
-
-# Function return limits
-FUNCTION_RETURN_CHAR_LIMIT = 60000  # ~300 words
 
 MAX_PAUSE_HEARTBEATS = 360  # in min
 

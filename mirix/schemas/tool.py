@@ -15,7 +15,7 @@ from mirix.functions.functions import (
 )
 from mirix.functions.helpers import generate_langchain_tool_wrapper
 from mirix.functions.schema_generator import generate_schema_from_args_schema_v2
-from mirix.orm.enums import ToolType
+from mirix.schemas.enums import ToolType
 from mirix.schemas.mirix_base import MirixBase
 
 if TYPE_CHECKING:
@@ -97,17 +97,33 @@ class Tool(BaseTool):
                 )
         elif self.tool_type in {ToolType.MIRIX_CORE}:
             # If it's mirix core tool, we generate the json_schema on the fly here
-            self.json_schema = get_json_schema_from_module(
-                module_name=MIRIX_CORE_TOOL_MODULE_NAME, function_name=self.name
-            )
+            # But only if it's not already provided (e.g., from server)
+            if not self.json_schema:
+                if not self.name:
+                    raise ValueError(
+                        f"MIRIX_CORE tool with id={self.id} requires 'name' field to generate schema"
+                    )
+                self.json_schema = get_json_schema_from_module(
+                    module_name=MIRIX_CORE_TOOL_MODULE_NAME, function_name=self.name
+                )
         elif self.tool_type in {ToolType.MIRIX_MEMORY_CORE}:
-            self.json_schema = get_json_schema_from_module(
-                module_name=MIRIX_MEMORY_TOOL_MODULE_NAME, function_name=self.name
-            )
+            if not self.json_schema:
+                if not self.name:
+                    raise ValueError(
+                        f"MIRIX_MEMORY_CORE tool with id={self.id} requires 'name' field to generate schema"
+                    )
+                self.json_schema = get_json_schema_from_module(
+                    module_name=MIRIX_MEMORY_TOOL_MODULE_NAME, function_name=self.name
+                )
         elif self.tool_type in {ToolType.MIRIX_EXTRA}:
-            self.json_schema = get_json_schema_from_module(
-                module_name=MIRIX_EXTRA_TOOL_MODULE_NAME, function_name=self.name
-            )
+            if not self.json_schema:
+                if not self.name:
+                    raise ValueError(
+                        f"MIRIX_EXTRA tool with id={self.id} requires 'name' field to generate schema"
+                    )
+                self.json_schema = get_json_schema_from_module(
+                    module_name=MIRIX_EXTRA_TOOL_MODULE_NAME, function_name=self.name
+                )
         elif self.tool_type in {ToolType.MIRIX_MCP}:
             # MCP tools have their json_schema already provided by MCP tool registry
             # Skip validation since these are auto-generated tools
