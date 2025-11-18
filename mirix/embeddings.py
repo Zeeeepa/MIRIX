@@ -15,6 +15,7 @@ from mirix.utils import is_valid_url, printd
 
 logger = get_logger(__name__)
 
+
 def parse_and_chunk_text(text: str, chunk_size: int) -> List[str]:
     from llama_index.core import Document as LlamaIndexDocument
     from llama_index.core.node_parser import SentenceSplitter
@@ -24,10 +25,12 @@ def parse_and_chunk_text(text: str, chunk_size: int) -> List[str]:
     nodes = parser.get_nodes_from_documents(llama_index_docs)
     return [n.text for n in nodes]
 
+
 def truncate_text(text: str, max_length: int, encoding) -> str:
     # truncate the text based on max_length and encoding
     encoded_text = encoding.encode(text)[:max_length]
     return encoding.decode(encoded_text)
+
 
 def check_and_split_text(text: str, embedding_model: str) -> List[str]:
     """Split text into chunks of max_length tokens or less"""
@@ -62,6 +65,72 @@ def check_and_split_text(text: str, embedding_model: str) -> List[str]:
         text = truncate_text(text, max_length, encoding)
 
     return [text]
+
+
+class OpenAIEmbeddingWithCustomAuth:
+    """OpenAI embedding client with auth provider support using sync OpenAI SDK."""
+
+    def __init__(self, config: EmbeddingConfig, auth_provider: str):
+        """
+        Initialize OpenAI embedding client with auth provider support.
+
+        Args:
+            config: EmbeddingConfig with auth_provider field set
+            api_key: OpenAI API key
+        """
+        self.config = config
+        self.model = config.embedding_model
+        self.auth_provider = auth_provider
+
+    def get_text_embedding(self, text: str) -> List[float]:
+        """
+        Get embedding with dynamic auth headers from auth provider.
+
+        Args:
+            text: Text to embed
+
+        Returns:
+            List of floats representing the embedding vector
+
+        Raises:
+            ValueError: If auth provider is not found in registry
+        """
+        from openai import OpenAI
+
+        from mirix.llm_api.auth_provider import get_auth_provider
+
+        # Get auth headers from provider (sync)
+        auth_provider = get_auth_provider(self.auth_provider)
+        if not auth_provider:
+            raise ValueError(
+                f"Auth provider '{self.config.auth_provider}' not found in registry. "
+                "Make sure to register it before using."
+            )
+
+        try:
+            auth_headers = auth_provider.get_auth_headers()  # Sync call
+            logger.info(
+                f"OpenAI Embedding - Using auth provider '{self.config.auth_provider}' "
+                f"to inject {len(auth_headers)} header(s)"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to get auth headers from provider '{self.config.auth_provider}': {e}"
+            )
+            raise
+
+        # Create OpenAI client with auth headers
+        client = OpenAI(
+            api_key="DUMMY_API_KEY",  # This is not used, but the SDK will thow an error if it is not set
+            base_url=self.config.embedding_endpoint,
+            default_headers=auth_headers,
+        )
+
+        # Call embeddings API
+        response = client.embeddings.create(model=self.model, input=text)
+
+        return response.data[0].embedding
+
 
 class EmbeddingEndpoint:
     """Implementation for OpenAI compatible endpoint"""
@@ -134,6 +203,7 @@ class EmbeddingEndpoint:
     def get_text_embedding(self, text: str) -> List[float]:
         return self._call_api(text)
 
+
 class AzureOpenAIEmbedding:
     def __init__(self, api_endpoint: str, api_key: str, api_version: str, model: str):
         from openai import AzureOpenAI
@@ -150,6 +220,7 @@ class AzureOpenAIEmbedding:
             .embedding
         )
         return embeddings
+
 
 class OllamaEmbeddings:
     # Format:
@@ -180,6 +251,7 @@ class OllamaEmbeddings:
         response_json = response.json()
         return response_json["embedding"]
 
+
 def query_embedding(embedding_model, query_text: str):
     """Generate padded embedding for querying database"""
     query_vec = embedding_model.get_text_embedding(query_text)
@@ -188,6 +260,7 @@ def query_embedding(embedding_model, query_text: str):
         query_vec, (0, MAX_EMBEDDING_DIM - query_vec.shape[0]), mode="constant"
     ).tolist()
     return query_vec
+
 
 def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None):
     """Return LlamaIndex embedding model to use for embeddings"""
@@ -198,13 +271,23 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
     from mirix.settings import model_settings
 
     if endpoint_type == "openai":
-        from llama_index.embeddings.openai import OpenAIEmbedding
-
         from mirix.services.provider_manager import ProviderManager
 
         # Check for database-stored API key first, fall back to model_settings
         override_key = ProviderManager().get_openai_override_key()
         api_key = override_key if override_key else model_settings.openai_api_key
+
+        # Use direct OpenAI SDK if auth_provider is configured
+        if hasattr(config, "auth_provider") and config.auth_provider:
+            logger.info(
+                f"Using OpenAI embedding with auth provider: {config.auth_provider}"
+            )
+            return OpenAIEmbeddingWithCustomAuth(
+                config=config, auth_provider=config.auth_provider
+            )
+
+        # Otherwise use llama_index (backwards compatible)
+        from llama_index.embeddings.openai import OpenAIEmbedding
 
         additional_kwargs = {"user_id": user_id} if user_id else {}
         model = OpenAIEmbedding(
