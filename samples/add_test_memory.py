@@ -310,6 +310,8 @@ def main():
     client = MirixClient(
         api_key=None,
         client_id=client_id,
+        client_name="Demo Client Application",
+        client_scope="Sales",
         org_id=org_id,
         debug=False,  # Reduce noise in output
     )

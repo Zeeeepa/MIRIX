@@ -133,11 +133,11 @@ extras_require = {
 os.chdir(project_root)
 
 setup(
-    name="jl-ecms-server",
+    name="mirix-server",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
-    description="Intuit ECMS Server - Multi-Agent Personal Assistant with Advanced Memory System",
+    description="MIRIX Server - Multi-Agent Personal Assistant with Advanced Memory System",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/Mirix-AI/MIRIX",
