@@ -73,18 +73,27 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
         else self.agent_state.id
     )
     
-    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    # Get filter_tags, use_cache, client_id, user_id, and occurred_at from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
     client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
+    occurred_at_override = getattr(self, 'occurred_at', None)  # Optional timestamp override from API
 
     for item in items:
+        # Use occurred_at_override if provided, otherwise use LLM-extracted timestamp
+        timestamp = occurred_at_override if occurred_at_override else item["occurred_at"]
+        
+        # Convert string to datetime if needed
+        if isinstance(timestamp, str):
+            from datetime import datetime
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        
         self.episodic_memory_manager.insert_event(
             actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
-            timestamp=item["occurred_at"],
+            timestamp=timestamp,  # Use potentially overridden timestamp
             event_type=item["event_type"],
             event_actor=item["actor"],
             summary=item["summary"],
@@ -152,11 +161,12 @@ def episodic_memory_replace(
         else self.agent_state.id
     )
     
-    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    # Get filter_tags, use_cache, client_id, user_id, and occurred_at from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
     client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
+    occurred_at_override = getattr(self, 'occurred_at', None)  # Optional timestamp override from API
 
     for event_id in event_ids:
         # It will raise an error if the event_id is not found in the episodic memory.
@@ -168,11 +178,19 @@ def episodic_memory_replace(
         self.episodic_memory_manager.delete_event_by_id(event_id, actor=self.actor)
 
     for new_item in new_items:
+        # Use occurred_at_override if provided, otherwise use LLM-extracted timestamp
+        timestamp = occurred_at_override if occurred_at_override else new_item["occurred_at"]
+        
+        # Convert string to datetime if needed
+        if isinstance(timestamp, str):
+            from datetime import datetime
+            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        
         self.episodic_memory_manager.insert_event(
             actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
-            timestamp=new_item["occurred_at"],
+            timestamp=timestamp,  # Use potentially overridden timestamp
             event_type=new_item["event_type"],
             event_actor=new_item["actor"],
             summary=new_item["summary"],
@@ -881,7 +899,7 @@ def trigger_memory_update(
         if agent_state is None:
             raise ValueError(f"No agent found with type '{agent_type_str}'")
 
-        # Get filter_tags, use_cache, client_id, and user_id from parent agent instance
+        # Get filter_tags, use_cache, client_id, user_id, and occurred_at from parent agent instance
         # Deep copy filter_tags to ensure complete isolation between child agents
         parent_filter_tags = getattr(self, 'filter_tags', None)
         # Don't use 'or {}' because empty dict {} is valid and different from None
@@ -889,10 +907,11 @@ def trigger_memory_update(
         use_cache = getattr(self, 'use_cache', True)
         actor = getattr(self, 'actor', None)
         user = getattr(self, 'user', None)
+        occurred_at = getattr(self, 'occurred_at', None)  # Get occurred_at from parent agent
         
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}, client_id={actor.id if actor else None}, user_id={user.id if user else None}")
+        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}, client_id={actor.id if actor else None}, user_id={user.id if user else None}, occurred_at={occurred_at}")
         
         memory_agent = agent_class(
             agent_state=agent_state,
@@ -902,6 +921,10 @@ def trigger_memory_update(
             filter_tags=filter_tags,
             use_cache=use_cache,
         )
+        
+        # Set occurred_at on the child agent so it can use it during memory operations
+        if occurred_at is not None:
+            memory_agent.occurred_at = occurred_at
 
         # Work on a copy of the user message so parallel updates do not interfere
         if "message" not in user_message:

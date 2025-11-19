@@ -23,6 +23,7 @@ def put_messages(
         verbose: Optional[bool] = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        occurred_at: Optional[str] = None,
     ):
         """
         Create QueueMessage protobuf and send to queue.
@@ -37,6 +38,7 @@ def put_messages(
             verbose: Enable verbose logging
             filter_tags: Filter tags dictionary
             use_cache: Control Redis cache behavior
+            occurred_at: Optional ISO 8601 timestamp string for episodic memory
         """
         logger.debug("Creating queue message for agent_id=%s, actor=%s (client_id derived from actor)", agent_id, actor.id)
         
@@ -120,7 +122,12 @@ def put_messages(
         # Set use_cache
         queue_msg.use_cache = use_cache
         
+        # Set occurred_at if provided
+        if occurred_at is not None:
+            queue_msg.occurred_at = occurred_at
+        
         # Send to queue
-        logger.debug("Sending message to queue: agent_id=%s, input_messages_count=%s", agent_id, len(input_messages))
+        logger.debug("Sending message to queue: agent_id=%s, input_messages_count=%s, occurred_at=%s", 
+                    agent_id, len(input_messages), occurred_at)
         queue.save(queue_msg)
         logger.debug("Message successfully sent to queue")

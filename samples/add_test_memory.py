@@ -51,7 +51,8 @@ def test_core_memory(client: MirixClient, user_id: str, filter_tags: Optional[di
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Core memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -88,7 +89,8 @@ def test_episodic_memory(client: MirixClient, user_id: str, filter_tags: Optiona
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Episodic memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -125,7 +127,8 @@ def test_procedural_memory(client: MirixClient, user_id: str, filter_tags: Optio
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Procedural memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -162,7 +165,8 @@ def test_semantic_memory(client: MirixClient, user_id: str, filter_tags: Optiona
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Semantic memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -242,7 +246,8 @@ Total estimated cost: $150K
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Resource memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
@@ -286,7 +291,8 @@ def test_knowledge_vault(client: MirixClient, user_id: str, filter_tags: Optiona
                 }
             ],
             chaining=True,
-            filter_tags=filter_tags
+            filter_tags=filter_tags,
+            occurred_at="2025-11-16T10:30:00"
         )
         logger.info("✅ Knowledge vault memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except

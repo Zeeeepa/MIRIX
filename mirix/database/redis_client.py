@@ -970,7 +970,9 @@ class RedisMemoryClient:
         limit: int = 10,
         user_id: Optional[str] = None,
         return_fields: Optional[List[str]] = None,
-        filter_tags: Optional[Dict[str, Any]] = None
+        filter_tags: Optional[Dict[str, Any]] = None,
+        start_date: Optional[Any] = None,
+        end_date: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         """
         Perform full-text search using RediSearch.
@@ -983,6 +985,8 @@ class RedisMemoryClient:
             user_id: Filter by user_id (optional)
             return_fields: Specific fields to return (None = return all)
             filter_tags: Optional filter tags for additional filtering
+            start_date: Optional start datetime for temporal filtering
+            end_date: Optional end datetime for temporal filtering
         
         Returns:
             List of matching documents with BM25-like scores
@@ -994,11 +998,14 @@ class RedisMemoryClient:
                 search_fields=["details"],
                 limit=10,
                 user_id="user-123",
-                filter_tags={"expert_id": "expert-123"}
+                filter_tags={"expert_id": "expert-123"},
+                start_date=datetime(2025, 11, 19),
+                end_date=datetime(2025, 11, 19, 23, 59, 59)
             )
         """
         try:
             from redis.commands.search.query import Query
+            from datetime import datetime
             import re
             
             # Escape special characters in query for Redis Search
@@ -1017,6 +1024,14 @@ class RedisMemoryClient:
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
                 query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add temporal filtering (numeric range query on occurred_at_ts)
+            if start_date or end_date:
+                # Convert datetime to Unix timestamp
+                min_ts = int(start_date.timestamp()) if start_date else "-inf"
+                max_ts = int(end_date.timestamp()) if end_date else "+inf"
+                query_parts.append(f"@occurred_at_ts:[{min_ts} {max_ts}]")
+                logger.debug("🕐 Redis temporal filter: @occurred_at_ts:[%s %s]", min_ts, max_ts)
             
             # Add filter_tags filters
             if filter_tags:
@@ -1075,7 +1090,9 @@ class RedisMemoryClient:
         limit: int = 10,
         user_id: Optional[str] = None,
         return_fields: Optional[List[str]] = None,
-        filter_tags: Optional[Dict[str, Any]] = None
+        filter_tags: Optional[Dict[str, Any]] = None,
+        start_date: Optional[Any] = None,
+        end_date: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         """
         Perform vector similarity search using RediSearch KNN.
@@ -1088,6 +1105,8 @@ class RedisMemoryClient:
             user_id: Filter by user_id (optional)
             return_fields: Specific fields to return (None = return all)
             filter_tags: Optional filter tags for additional filtering
+            start_date: Optional start datetime for temporal filtering
+            end_date: Optional end datetime for temporal filtering
         
         Returns:
             List of similar documents sorted by cosine similarity
@@ -1104,6 +1123,7 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
+            from datetime import datetime
             import numpy as np
             
             # Convert embedding to bytes
@@ -1116,6 +1136,14 @@ class RedisMemoryClient:
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
                 query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add temporal filtering (numeric range query on occurred_at_ts)
+            if start_date or end_date:
+                # Convert datetime to Unix timestamp
+                min_ts = int(start_date.timestamp()) if start_date else "-inf"
+                max_ts = int(end_date.timestamp()) if end_date else "+inf"
+                query_parts.append(f"@occurred_at_ts:[{min_ts} {max_ts}]")
+                logger.debug("🕐 Redis temporal filter: @occurred_at_ts:[%s %s]", min_ts, max_ts)
             
             # Add filter_tags filters
             if filter_tags:
@@ -1184,7 +1212,9 @@ class RedisMemoryClient:
         user_id: Optional[str] = None,
         sort_by: str = "created_at_ts",
         return_fields: Optional[List[str]] = None,
-        filter_tags: Optional[Dict[str, Any]] = None
+        filter_tags: Optional[Dict[str, Any]] = None,
+        start_date: Optional[Any] = None,
+        end_date: Optional[Any] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve most recent documents from an index.
@@ -1196,6 +1226,8 @@ class RedisMemoryClient:
             sort_by: Field to sort by (default: "created_at_ts")
             return_fields: Specific fields to return (None = return all)
             filter_tags: Optional filter tags for additional filtering
+            start_date: Optional start datetime for temporal filtering
+            end_date: Optional end datetime for temporal filtering
         
         Returns:
             List of recent documents sorted by timestamp (descending)
@@ -1206,11 +1238,14 @@ class RedisMemoryClient:
                 limit=10,
                 user_id="user-123",
                 sort_by="occurred_at_ts",
-                filter_tags={"expert_id": "expert-123"}
+                filter_tags={"expert_id": "expert-123"},
+                start_date=datetime(2025, 11, 19),
+                end_date=datetime(2025, 11, 19, 23, 59, 59)
             )
         """
         try:
             from redis.commands.search.query import Query
+            from datetime import datetime
             
             # Build query parts
             query_parts = []
@@ -1219,6 +1254,14 @@ class RedisMemoryClient:
             if user_id:
                 escaped_user_id = user_id.replace("-", "\\-").replace(":", "\\:")
                 query_parts.append(f"@user_id:{{{escaped_user_id}}}")
+            
+            # Add temporal filtering (numeric range query on occurred_at_ts)
+            if start_date or end_date:
+                # Convert datetime to Unix timestamp
+                min_ts = int(start_date.timestamp()) if start_date else "-inf"
+                max_ts = int(end_date.timestamp()) if end_date else "+inf"
+                query_parts.append(f"@occurred_at_ts:[{min_ts} {max_ts}]")
+                logger.debug("🕐 Redis temporal filter: @occurred_at_ts:[%s %s]", min_ts, max_ts)
             
             # Add filter_tags filters
             if filter_tags:

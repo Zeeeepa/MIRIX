@@ -36,8 +36,49 @@ from mirix.schemas.sandbox_config import (
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.log import get_logger
+from datetime import datetime
+import re
+import json
 
 logger = get_logger(__name__)
+
+
+def _validate_occurred_at(occurred_at: Optional[str]) -> Optional[datetime]:
+    """
+    Validate occurred_at format and convert to datetime.
+    
+    Args:
+        occurred_at: ISO 8601 datetime string (e.g., "2025-11-18T10:30:00" or "2025-11-18T10:30:00+00:00")
+    
+    Returns:
+        datetime object if valid, None if input is None
+    
+    Raises:
+        ValueError: If format is invalid
+    """
+    if occurred_at is None:
+        return None
+    
+    if not isinstance(occurred_at, str):
+        raise ValueError(
+            f"occurred_at must be a string in ISO 8601 format, got {type(occurred_at).__name__}"
+        )
+    
+    # Validate ISO 8601 format
+    iso_pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$'
+    if not re.match(iso_pattern, occurred_at):
+        raise ValueError(
+            f"occurred_at must be in ISO 8601 format (e.g., '2025-11-18T10:30:00' or '2025-11-18T10:30:00+00:00'), got: {occurred_at}"
+        )
+    
+    try:
+        # Parse and validate the datetime
+        dt = datetime.fromisoformat(occurred_at.replace('Z', '+00:00'))
+        return dt
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid occurred_at datetime: {occurred_at}. Error: {str(e)}"
+        )
 
 
 class MirixClient(AbstractClient):
@@ -981,6 +1022,7 @@ class MirixClient(AbstractClient):
         verbose: bool = False,
         filter_tags: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,
+        occurred_at: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Add conversation turns to memory (asynchronous processing).
@@ -996,10 +1038,15 @@ class MirixClient(AbstractClient):
                          {"role": "user", "content": [{"type": "text", "text": "..."}]},
                          {"role": "assistant", "content": [{"type": "text", "text": "..."}]}
                      ]
+            chaining: Enable/disable chaining (default: True)
             verbose: If True, enable verbose output during memory processing
             filter_tags: Optional dict of tags for filtering and categorization.
                         Example: {"project_id": "proj-123", "session_id": "sess-456"}
             use_cache: Control Redis cache behavior (default: True)
+            occurred_at: Optional ISO 8601 timestamp string for episodic memory.
+                        If provided, episodic memories will use this timestamp instead of current time.
+                        Format: "2025-11-18T10:30:00" or "2025-11-18T10:30:00+00:00"
+                        Example: "2025-11-18T15:30:00"
         
         Returns:
             Dict containing:
@@ -1008,6 +1055,9 @@ class MirixClient(AbstractClient):
                 - status (str): "queued" - indicates async processing
                 - agent_id (str): Meta agent ID processing the messages
                 - message_count (int): Number of messages queued
+        
+        Raises:
+            ValueError: If occurred_at format is invalid
             
         Note:
             Processing happens asynchronously. The response indicates the message
@@ -1021,7 +1071,8 @@ class MirixClient(AbstractClient):
             ...         {"role": "assistant", "content": [{"type": "text", "text": "That's great!"}]}
             ...     ],
             ...     verbose=True,
-            ...     filter_tags={"session_id": "sess-789", "tags": ["personal"]}
+            ...     filter_tags={"session_id": "sess-789"},
+            ...     occurred_at="2025-11-18T15:30:00"
             ... )
             >>> logger.debug(response)
             {
@@ -1034,6 +1085,10 @@ class MirixClient(AbstractClient):
         """
         if not self._meta_agent:
             raise ValueError("Meta agent not initialized. Call initialize_meta_agent() first.")
+        
+        # Validate occurred_at format if provided
+        if occurred_at is not None:
+            _validate_occurred_at(occurred_at)  # Raises ValueError if invalid
         
         self._ensure_user_exists(user_id)
         
@@ -1052,6 +1107,9 @@ class MirixClient(AbstractClient):
         if not use_cache:
             request_data["use_cache"] = use_cache
         
+        if occurred_at is not None:
+            request_data["occurred_at"] = occurred_at
+        
         return self._request("POST", "/memory/add", json=request_data)
     
     def retrieve_with_conversation(
@@ -1062,12 +1120,15 @@ class MirixClient(AbstractClient):
         filter_tags: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,
         local_model_for_retrieval: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Retrieve relevant memories based on conversation context.
+        Retrieve relevant memories based on conversation context with optional temporal filtering.
         
-        This method analyzes the conversation and retrieves relevant memories
-        from all memory systems.
+        This method analyzes the conversation and retrieves relevant memories from all memory systems.
+        It can automatically extract temporal expressions from queries (e.g., "today", "yesterday")
+        or accept explicit date ranges for filtering episodic memories.
         
         Args:
             user_id: User ID for the conversation
@@ -1080,18 +1141,48 @@ class MirixClient(AbstractClient):
             filter_tags: Optional dict of tags for filtering results.
                         Only memories matching these tags will be returned.
             use_cache: Control Redis cache behavior (default: True)
+            local_model_for_retrieval: Optional local Ollama model for topic extraction
+            start_date: Optional start date/time for filtering episodic memories (ISO 8601 format).
+                       Only episodic memories with occurred_at >= start_date will be returned.
+                       Examples: "2025-11-19T00:00:00" or "2025-11-19T00:00:00+00:00"
+            end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
+                     Only episodic memories with occurred_at <= end_date will be returned.
+                     Examples: "2025-11-19T23:59:59" or "2025-11-19T23:59:59+00:00"
         
         Returns:
-            Dict containing retrieved memories organized by type
+            Dict containing:
+            - success: Boolean indicating success
+            - topics: Extracted topics from the conversation
+            - temporal_expression: Extracted temporal phrase (if any)
+            - date_range: Applied date range filter (if any)
+            - memories: Retrieved memories organized by type
             
-        Example:
+        Examples:
+            >>> # Automatic temporal parsing from query
             >>> memories = client.retrieve_with_conversation(
             ...     user_id='user_123',
             ...     messages=[
-            ...         {"role": "user", "content": [{"type": "text", "text": "Where did I go yesterday?"}]}
+            ...         {"role": "user", "content": [{"type": "text", "text": "What happened today?"}]}
+            ...     ]
+            ... )
+            
+            >>> # Explicit date range
+            >>> memories = client.retrieve_with_conversation(
+            ...     user_id='user_123',
+            ...     messages=[
+            ...         {"role": "user", "content": [{"type": "text", "text": "What meetings did I have?"}]}
             ...     ],
-            ...     limit=5,
-            ...     filter_tags={"session_id": "sess-789"}
+            ...     start_date="2025-11-19T00:00:00",
+            ...     end_date="2025-11-19T23:59:59"
+            ... )
+            
+            >>> # Combine with filter_tags
+            >>> memories = client.retrieve_with_conversation(
+            ...     user_id='user_123',
+            ...     messages=[
+            ...         {"role": "user", "content": [{"type": "text", "text": "Show me yesterday's work"}]}
+            ...     ],
+            ...     filter_tags={"category": "work"}
             ... )
         """
         if not self._meta_agent:
@@ -1112,6 +1203,12 @@ class MirixClient(AbstractClient):
         
         if not use_cache:
             request_data["use_cache"] = use_cache
+        
+        # Add temporal filtering parameters
+        if start_date is not None:
+            request_data["start_date"] = start_date
+        if end_date is not None:
+            request_data["end_date"] = end_date
         
         return self._request("POST", "/memory/retrieve/conversation", json=request_data)
     

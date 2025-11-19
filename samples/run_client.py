@@ -71,7 +71,7 @@ def main():
                     "role": "user",
                     "content": [{
                         "type": "text",
-                        "text": ""
+                        "text": "What did we discuss on MirixDB in last 4 days?"
                     }]
                 }
             ],
@@ -80,6 +80,16 @@ def main():
         )
 
         print("[OK] Retrieved memories successfully")
+        
+        # Debug: Show temporal filtering info
+        if memories.get("temporal_expression"):
+            print(f"  🕐 Temporal expression detected: '{memories.get('temporal_expression')}'")
+        if memories.get("date_range"):
+            date_range = memories.get("date_range")
+            print(f"  📅 Date range applied:")
+            print(f"     Start: {date_range.get('start')}")
+            print(f"     End: {date_range.get('end')}")
+        
         if memories.get("memories"):
             for memory_type, data in memories["memories"].items():
                 if data and data.get("total_count", 0) > 0:

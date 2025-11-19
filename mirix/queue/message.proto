@@ -31,6 +31,10 @@ message QueueMessage {
   
   // Optional use_cache flag for controlling Redis cache behavior
   optional bool use_cache = 8;
+  
+  // Optional occurred_at timestamp for episodic memory
+  // ISO 8601 format string (e.g., "2025-11-18T10:30:00+00:00")
+  optional string occurred_at = 9;
 }
 
 // User representation
