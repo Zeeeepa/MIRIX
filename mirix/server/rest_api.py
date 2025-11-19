@@ -8,6 +8,7 @@ import copy
 import json
 import traceback
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import requests
@@ -161,23 +162,27 @@ def get_client_and_org(
     return client_id, org_id
 
 
-def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
+def extract_topics_and_temporal_info(
+    messages: List[Dict[str, Any]], llm_config: LLMConfig
+) -> tuple[Optional[str], Optional[str]]:
     """
-    Extract topics from a list of messages using LLM.
+    Extract topics AND temporal expressions from a list of messages using LLM.
+    
+    This function analyzes messages to extract both semantic topics and temporal
+    expressions (like "today", "yesterday", "last week") for more accurate memory retrieval.
 
     Args:
         messages: List of message dictionaries (OpenAI format)
-        llm_config: LLM configuration to use for topic extraction
+        llm_config: LLM configuration to use for extraction
 
     Returns:
-        Extracted topics as a string (separated by ';') or None if extraction fails
+        Tuple of (topics, temporal_expression) where both can be None
+        - topics: String with topics separated by ';'
+        - temporal_expression: String with temporal phrase or None if not found
     """
     try:
-
         if isinstance(messages, list) and "role" in messages[0].keys():
-            # This means the input is in the format of [{"role": "user", "content": [{"type": "text", "text": "..."}]}, {"role": "assistant", "content": [{"type": "text", "text": "..."}]}]
-
-            # We need to convert the message to the format in "content"
+            # Convert from OpenAI format to internal format
             new_messages = []
             for msg in messages:
                 new_messages.append({'type': "text", "text": "[USER]" if msg["role"] == "user" else "[ASSISTANT]"})
@@ -185,14 +190,21 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
             messages = new_messages
 
         temporary_messages = convert_message_to_mirix_message(messages)
-        temporary_messages = [prepare_input_message_create(msg, agent_id="topic_extraction", wrap_user_message=False, wrap_system_message=True) for msg in temporary_messages]
+        temporary_messages = [
+            prepare_input_message_create(
+                msg, agent_id="topic_extraction", wrap_user_message=False, wrap_system_message=True
+            ) for msg in temporary_messages
+        ]
 
-        # Add instruction message for topic extraction
+        # Add instruction message for topic and temporal extraction
         temporary_messages.append(
             prepare_input_message_create(
                 MessageCreate(
                     role=MessageRole.user,
-                    content='The above are the inputs from the user, please look at these content and extract the topic (brief description of what the user is focusing on) from these content. If there are multiple focuses in these content, then extract them all and put them into one string separated by ";". Call the function `update_topic` to update the topic with the extracted topics.',
+                    content='The above are the inputs from the user. Please extract:\n'
+                            '1. Topic(s): Brief description of what the user is focusing on. If multiple topics, separate with ";"\n'
+                            '2. Temporal expression: Any time-related phrases like "today", "yesterday", "last week", "this month", etc.\n'
+                            'Call the function `update_topic_and_time` with both extracted values. If no temporal expression is found, leave it empty.',
                 ),
                 agent_id="topic_extraction",
                 wrap_user_message=False,
@@ -205,7 +217,7 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
             prepare_input_message_create(
                 MessageCreate(
                     role=MessageRole.system,
-                    content="You are a helpful assistant that extracts the topic from the user's input.",
+                    content="You are a helpful assistant that extracts topics and temporal information from the user's input.",
                 ),
                 agent_id="topic_extraction",
                 wrap_user_message=False,
@@ -213,38 +225,40 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
             ),
         ] + temporary_messages
 
-        # Define the function for topic extraction
+        # Define the function for topic and temporal extraction
         functions = [
             {
-                "name": "update_topic",
-                "description": "Update the topic of the conversation/content. The topic will be used for retrieving relevant information from the database",
+                "name": "update_topic_and_time",
+                "description": "Update the topic and temporal information of the conversation/content",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "topic": {
                             "type": "string",
-                            "description": 'The topic of the current conversation/content. If there are multiple topics then separate them with ";".',
+                            "description": 'The topic(s) of the conversation. If multiple topics, separate with ";".',
+                        },
+                        "temporal_expression": {
+                            "type": "string",
+                            "description": 'Any temporal/time-related expression found in the input (e.g., "today", "yesterday", "last week", "this month"). Leave empty if no temporal expression found.',
                         }
                     },
-                    "required": ["topic"],
+                    "required": ["topic"],  # temporal_expression is optional
                 },
             }
         ]
 
-        # Use LLMClient to extract topics
-        llm_client = LLMClient.create(
-            llm_config=llm_config,
-        )
+        # Use LLMClient to extract topics and temporal info
+        llm_client = LLMClient.create(llm_config=llm_config)
 
         if llm_client:
             response = llm_client.send_llm_request(
                 messages=temporary_messages,
                 tools=functions,
                 stream=False,
-                force_tool_call="update_topic",
+                force_tool_call="update_topic_and_time",
             )
             
-            # Extract topics from the response
+            # Extract topics and temporal expression from the response
             for choice in response.choices:
                 if (
                     hasattr(choice.message, "tool_calls")
@@ -256,16 +270,37 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
                             choice.message.tool_calls[0].function.arguments
                         )
                         topics = function_args.get("topic")
-                        logger.debug("Extracted topics: %s", topics)
-                        return topics
+                        temporal_expr = function_args.get("temporal_expression", "")
+                        # Clean up empty strings
+                        temporal_expr = temporal_expr.strip() if temporal_expr else None
+                        logger.debug("Extracted topics: %s, temporal: %s", topics, temporal_expr)
+                        return topics, temporal_expr
                     except (json.JSONDecodeError, KeyError) as parse_error:
-                        logger.warning("Failed to parse topic extraction response: %s", parse_error)
+                        logger.warning("Failed to parse extraction response: %s", parse_error)
                         continue
 
     except Exception as e:
-        logger.error("Error in extracting topics from messages: %s", e)
+        logger.error("Error in extracting topics and temporal info: %s", e)
 
-    return None
+    return None, None
+
+
+def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
+    """
+    Extract topics from a list of messages using LLM.
+    
+    This is a legacy function maintained for backward compatibility.
+    New code should use extract_topics_and_temporal_info() for enhanced functionality.
+
+    Args:
+        messages: List of message dictionaries (OpenAI format)
+        llm_config: LLM configuration to use for topic extraction
+
+    Returns:
+        Extracted topics as a string (separated by ';') or None if extraction fails
+    """
+    topics, _ = extract_topics_and_temporal_info(messages, llm_config)
+    return topics
 
 
 def _flatten_messages_to_plain_text(messages: List[Dict[str, Any]]) -> str:
@@ -1245,6 +1280,7 @@ class AddMemoryRequest(BaseModel):
     verbose: bool = False
     filter_tags: Optional[Dict[str, Any]] = None
     use_cache: bool = True  # Control Redis cache behavior
+    occurred_at: Optional[str] = None  # Optional ISO 8601 timestamp string for episodic memory
 
 
 @router.post("/memory/add")
@@ -1318,6 +1354,7 @@ async def add_memory(
         verbose=request.verbose,
         filter_tags=filter_tags,
         use_cache=request.use_cache,
+        occurred_at=request.occurred_at,  # Optional timestamp for episodic memory
     )
     
     logger.debug("Memory queued for processing: %s", meta_agent.id)
@@ -1340,6 +1377,9 @@ class RetrieveMemoryRequest(BaseModel):
     local_model_for_retrieval: Optional[str] = None  # Optional local Ollama model for topic extraction
     filter_tags: Optional[Dict[str, Any]] = None  # Optional filter tags for filtering results
     use_cache: bool = True  # Control Redis cache behavior
+    # NEW: Optional date range for temporal filtering (ISO 8601 format)
+    start_date: Optional[str] = None  # e.g., "2025-11-19T00:00:00" or "2025-11-19T00:00:00+00:00"
+    end_date: Optional[str] = None    # e.g., "2025-11-19T23:59:59" or "2025-11-19T23:59:59+00:00"
 
 def retrieve_memories_by_keywords(
     server: SyncServer,
@@ -1350,6 +1390,8 @@ def retrieve_memories_by_keywords(
     limit: int = 10,
     filter_tags: Optional[Dict[str, Any]] = None,
     use_cache: bool = True,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
 ) -> dict:
     """
     Helper function to retrieve memories based on keywords using BM25 search.
@@ -1363,11 +1405,21 @@ def retrieve_memories_by_keywords(
         limit: Maximum number of items to retrieve per memory type
         filter_tags: Tag-based filtering (user_id + filter_tags = complete filter)
         use_cache: Control Redis cache behavior
+        start_date: Optional start datetime for filtering episodic memories by occurred_at (inclusive)
+        end_date: Optional end datetime for filtering episodic memories by occurred_at (inclusive)
 
     Returns:
         Dictionary containing all memory types with their items
     """
     search_method = "bm25"
+    
+    # Log temporal filtering for monitoring
+    if start_date or end_date:
+        logger.info(
+            "Temporal filtering enabled for episodic memories: start=%s, end=%s",
+            start_date.isoformat() if start_date else None,
+            end_date.isoformat() if end_date else None
+        )
     
     # Get timezone from user record (if exists)
     try:
@@ -1377,11 +1429,11 @@ def retrieve_memories_by_keywords(
         timezone_str = "UTC"
     memories = {}
 
-    # Get episodic memories (recent + relevant)
+    # Get episodic memories (recent + relevant) with optional temporal filtering
     try:
         episodic_manager = server.episodic_memory_manager
 
-        # Get recent episodic memories
+        # Get recent episodic memories with temporal filter
         recent_episodic = episodic_manager.list_episodic_memory(
             agent_state=agent_state,  # Not accessed during BM25 search
             user=user,
@@ -1389,9 +1441,11 @@ def retrieve_memories_by_keywords(
             timezone_str=timezone_str,
             filter_tags=filter_tags,
             use_cache=use_cache,
+            start_date=start_date,  # NEW: Temporal filtering
+            end_date=end_date,      # NEW: Temporal filtering
         )
 
-        # Get relevant episodic memories based on keywords
+        # Get relevant episodic memories based on keywords with temporal filter
         relevant_episodic = []
         if key_words:
             relevant_episodic = episodic_manager.list_episodic_memory(
@@ -1402,6 +1456,9 @@ def retrieve_memories_by_keywords(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=filter_tags,  # Include filter_tags for consistency
+                start_date=start_date,    # NEW: Temporal filtering
+                end_date=end_date,        # NEW: Temporal filtering
             )
 
         memories["episodic"] = {
@@ -1620,6 +1677,8 @@ async def retrieve_memory_with_conversation(
                 break
 
     topics: Optional[str] = None
+    temporal_expr: Optional[str] = None
+    
     if has_content:
         # Prefer local model for topic extraction when explicitly requested
         if request.local_model_for_retrieval:
@@ -1627,6 +1686,7 @@ async def retrieve_memory_with_conversation(
                 messages=request.messages,
                 model_name=request.local_model_for_retrieval,
             )
+            # Note: Local model extraction doesn't support temporal extraction yet
             if topics is None:
                 logger.warning(
                     "Local topic extraction failed for model %s, falling back to default LLM",
@@ -1634,16 +1694,60 @@ async def retrieve_memory_with_conversation(
                 )
 
         if topics is None:
-            topics = extract_topics_from_messages(request.messages, llm_config)
+            # NEW: Extract both topics and temporal expression
+            topics, temporal_expr = extract_topics_and_temporal_info(request.messages, llm_config)
 
-        logger.debug("Extracted topics from conversation: %s", topics)
+        logger.debug("Extracted topics: %s, temporal: %s", topics, temporal_expr)
         key_words = topics if topics else ""
     else:
         # No content - skip LLM call and retrieve recent items
         logger.debug("No content in messages - retrieving recent items")
         key_words = ""
 
-    # Retrieve memories using the helper function
+    # NEW: Parse temporal expression to date range
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    
+    # Priority: explicit request parameters > LLM-extracted temporal expression
+    if request.start_date or request.end_date:
+        # Use explicit date range from request
+        try:
+            if request.start_date:
+                start_date = datetime.fromisoformat(request.start_date.replace('Z', '+00:00'))
+            if request.end_date:
+                end_date = datetime.fromisoformat(request.end_date.replace('Z', '+00:00'))
+            logger.debug("Using explicit date range: %s to %s", start_date, end_date)
+        except ValueError as e:
+            logger.warning("Invalid date format in request: %s", e)
+    elif temporal_expr:
+        # Parse LLM-extracted temporal expression
+        from mirix.temporal.temporal_parser import parse_temporal_expression
+        
+        # Get user's timezone for accurate "today" interpretation
+        try:
+            user = server.user_manager.get_user_by_id(request.user_id)
+            import pytz
+            user_tz = pytz.timezone(user.timezone)
+            reference_time = datetime.now(user_tz)
+        except Exception:
+            # Fallback to UTC if user timezone not available
+            reference_time = datetime.now()
+        
+        temporal_range = parse_temporal_expression(temporal_expr, reference_time)
+        if temporal_range:
+            start_date = temporal_range.start
+            end_date = temporal_range.end
+            # Strip timezone info to match database (which stores naive datetimes)
+            if start_date and start_date.tzinfo:
+                start_date = start_date.replace(tzinfo=None)
+            if end_date and end_date.tzinfo:
+                end_date = end_date.replace(tzinfo=None)
+            logger.info(
+                "Parsed temporal expression '%s' to range: %s to %s (timezone-naive for DB comparison)",
+                temporal_expr, start_date, end_date
+            )
+
+    # Retrieve memories with temporal filtering
     memories = retrieve_memories_by_keywords(
         server=server,
         client=client,
@@ -1653,11 +1757,18 @@ async def retrieve_memory_with_conversation(
         limit=request.limit,
         filter_tags=request.filter_tags,
         use_cache=request.use_cache,
+        start_date=start_date,  # NEW: Temporal filtering
+        end_date=end_date,      # NEW: Temporal filtering
     )
 
     return {
         "success": True,
         "topics": topics,
+        "temporal_expression": temporal_expr,  # NEW: Return extracted temporal info
+        "date_range": {  # NEW: Return applied date range
+            "start": start_date.isoformat() if start_date else None,
+            "end": end_date.isoformat() if end_date else None,
+        } if (start_date or end_date) else None,
         "memories": memories,
     }
 

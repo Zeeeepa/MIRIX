@@ -673,6 +673,7 @@ class SyncServer(Server):
         user: Optional[User] = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        occurred_at: Optional[str] = None,
     ) -> MirixUsageStatistics:
         """Send the input message through the agent"""
         logger.debug("Got input messages: %s", input_messages)
@@ -686,6 +687,10 @@ class SyncServer(Server):
                 raise KeyError(
                     f"Agent (user={actor.id}, agent={agent_id}) is not loaded"
                 )
+            
+            # Store occurred_at on agent instance for use during memory extraction
+            if occurred_at is not None:
+                mirix_agent.occurred_at = occurred_at
 
             # Determine whether or not to token stream based on the capability of the interface
             token_streaming = (
@@ -1012,8 +1017,24 @@ class SyncServer(Server):
         verbose: Optional[bool] = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        occurred_at: Optional[str] = None,
     ) -> MirixUsageStatistics:
-        """Send a list of messages to the agent."""
+        """Send a list of messages to the agent.
+        
+        Args:
+            actor: Client performing the action (for authorization/write operations)
+            agent_id: ID of the agent to send messages to
+            input_messages: List of messages to send
+            chaining: Whether to enable chaining (default: True)
+            user: Optional end-user for data scoping (default: None)
+            verbose: Enable verbose logging
+            filter_tags: Optional filter tags for memory operations
+            use_cache: Control Redis cache behavior (default: True)
+            occurred_at: Optional ISO 8601 timestamp for episodic memory (default: None)
+        
+        Returns:
+            MirixUsageStatistics containing usage information
+        """
 
         # Set verbose flag for THIS request context only (thread-safe)
         if verbose is not None:
@@ -1030,6 +1051,7 @@ class SyncServer(Server):
                 user=user,
                 filter_tags=filter_tags,
                 use_cache=use_cache,
+                occurred_at=occurred_at,
             )
         finally:
             # No cleanup needed - context automatically isolated per request

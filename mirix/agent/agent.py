@@ -156,6 +156,7 @@ class Agent(BaseAgent):
         self.filter_tags = deepcopy(filter_tags) if filter_tags is not None else None
         self.use_cache = use_cache  # Store use_cache for memory operations
         self.user = user  # Store user for end-user tracking
+        self.occurred_at = None  # Optional timestamp for episodic memory, set by server if provided
 
         # Initialize logger early in constructor
         self.logger = logging.getLogger(f"Mirix.Agent.{self.agent_state.name}")

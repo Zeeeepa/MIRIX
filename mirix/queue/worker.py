@@ -179,15 +179,19 @@ class QueueWorker:
             # Extract use_cache
             use_cache = message.use_cache if message.HasField('use_cache') else True
             
+            # Extract occurred_at
+            occurred_at = message.occurred_at if message.HasField('occurred_at') else None
+            
             # Log the processing
             logger.info(
-                "Processing message via server: agent_id=%s, client_id=%s (from actor), user_id=%s, input_messages_count=%s, use_cache=%s, filter_tags=%s",
+                "Processing message via server: agent_id=%s, client_id=%s (from actor), user_id=%s, input_messages_count=%s, use_cache=%s, filter_tags=%s, occurred_at=%s",
                 message.agent_id,
                 actor.id,
                 user_id,
                 len(input_messages),
                 use_cache,
-                filter_tags
+                filter_tags,
+                occurred_at
             )
             
             # Call server.send_messages() with actor (Client) + client_id + user_id
@@ -199,6 +203,7 @@ class QueueWorker:
                 user=user,      # End-user user
                 filter_tags=filter_tags,
                 use_cache=use_cache,
+                occurred_at=occurred_at,  # Optional timestamp for episodic memory
             )
             
             # Log successful processing

@@ -465,9 +465,11 @@ class EpisodicMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
-        List all episodic events with various search methods.
+        List all episodic events with various search methods and optional temporal filtering.
 
         Args:
             agent_state: The agent state containing embedding configuration
@@ -482,7 +484,10 @@ class EpisodicMemoryManager:
                 - 'fuzzy_match': Fuzzy string matching (legacy, kept for compatibility)
             limit: Maximum number of results to return
             timezone_str: Timezone string for timestamp conversion
+            filter_tags: Tag-based filtering (key-value pairs)
             use_cache: If True, try Redis cache first. If False, skip cache and query PostgreSQL directly.
+            start_date: Optional start datetime for filtering by occurred_at (inclusive)
+            end_date: Optional end datetime for filtering by occurred_at (inclusive)
 
         Returns:
             List of episodic events matching the search criteria
@@ -498,6 +503,10 @@ class EpisodicMemoryManager:
             Performance comparison:
             - PostgreSQL 'bm25': Native DB search, very fast, scales well
             - Legacy 'bm25' (SQLite): In-memory processing, slow for large datasets
+            
+            **Temporal filtering**: When start_date and/or end_date are provided, only events with
+            occurred_at within the specified range will be returned. This is particularly useful for
+            queries like "What happened today?" or "Show me last week's events".
         """
         
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
@@ -513,7 +522,9 @@ class EpisodicMemoryManager:
                         limit=limit or 50,
                         user_id=user.id,
                         sort_by="occurred_at_ts",  # Sort by occurred_at for episodic
-                        filter_tags=filter_tags
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
                     )
                     if results:
                         logger.debug("✅ Redis cache HIT: returned %d recent episodic events", len(results))
@@ -539,7 +550,9 @@ class EpisodicMemoryManager:
                         vector_field=vector_field,
                         limit=limit or 50,
                         user_id=user.id,
-                        filter_tags=filter_tags
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
                     )
                     if results:
                         logger.debug("✅ Redis vector search HIT: found %d episodic events", len(results))
@@ -558,7 +571,9 @@ class EpisodicMemoryManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
-                        filter_tags=filter_tags
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
                     )
                     if results:
                         logger.debug("✅ Redis text search HIT: found %d episodic events", len(results))
@@ -592,6 +607,12 @@ class EpisodicMemoryManager:
                     for key, value in filter_tags.items():
                         query_stmt = query_stmt.where(EpisodicEvent.filter_tags[key].as_string() == str(value))
                 
+                # Apply temporal filtering if provided
+                if start_date is not None:
+                    query_stmt = query_stmt.where(EpisodicEvent.occurred_at >= start_date)
+                if end_date is not None:
+                    query_stmt = query_stmt.where(EpisodicEvent.occurred_at <= end_date)
+                
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
@@ -620,6 +641,12 @@ class EpisodicMemoryManager:
                 if filter_tags:
                     for key, value in filter_tags.items():
                         base_query = base_query.where(EpisodicEvent.filter_tags[key].as_string() == str(value))
+                
+                # Apply temporal filtering if provided
+                if start_date is not None:
+                    base_query = base_query.where(EpisodicEvent.occurred_at >= start_date)
+                if end_date is not None:
+                    base_query = base_query.where(EpisodicEvent.occurred_at <= end_date)
 
                 if search_method == "embedding":
                     embed_query = True
@@ -648,7 +675,8 @@ class EpisodicMemoryManager:
                     if settings.mirix_pg_uri_no_default:
                         # Use PostgreSQL's native full-text search with ts_rank for BM25-like functionality
                         return self._postgresql_fulltext_search(
-                            session, base_query, query, search_field, limit, user
+                            session, base_query, query, search_field, limit, user,
+                            start_date=start_date, end_date=end_date
                         )
                     else:
                         # Fallback to in-memory BM25 for SQLite (legacy method)
@@ -659,6 +687,12 @@ class EpisodicMemoryManager:
                             )
                         )
                         all_events = result.scalars().all()
+                        
+                        # Apply temporal filtering in memory for SQLite
+                        if start_date is not None:
+                            all_events = [e for e in all_events if e.occurred_at and e.occurred_at >= start_date]
+                        if end_date is not None:
+                            all_events = [e for e in all_events if e.occurred_at and e.occurred_at <= end_date]
 
                         if not all_events:
                             return []
@@ -756,7 +790,8 @@ class EpisodicMemoryManager:
                 return [event.to_pydantic() for event in episodic_memory]
 
     def _postgresql_fulltext_search(
-        self, session, base_query, query_text, search_field, limit, user
+        self, session, base_query, query_text, search_field, limit, user,
+        start_date=None, end_date=None
     ):
         """
         Efficient PostgreSQL-native full-text search using ts_rank for BM25-like functionality.
@@ -769,6 +804,8 @@ class EpisodicMemoryManager:
             search_field: Field to search in ('summary', 'details', 'actor', 'event_type', etc.)
             limit: Maximum number of results to return
             user: User who owns the memories
+            start_date: Optional start datetime for temporal filtering
+            end_date: Optional end datetime for temporal filtering
 
         Returns:
             List of EpisodicEvent objects ranked by relevance
@@ -846,6 +883,27 @@ class EpisodicMemoryManager:
                 setweight(to_tsvector('english', coalesce(event_type, '')), 'D'),
                 to_tsquery('english', :tsquery), 32)"""
 
+        # Build WHERE clause with temporal filtering
+        where_clauses = [
+            f"{tsvector_sql} @@ to_tsquery('english', :tsquery)",
+            "user_id = :user_id"
+        ]
+        query_params = {
+            "tsquery": tsquery_string_and,
+            "user_id": user.id,
+            "limit_val": limit or 50,
+        }
+        
+        # Add temporal filtering if provided
+        if start_date is not None:
+            where_clauses.append("occurred_at >= :start_date")
+            query_params["start_date"] = start_date
+        if end_date is not None:
+            where_clauses.append("occurred_at <= :end_date")
+            query_params["end_date"] = end_date
+        
+        where_clause = " AND ".join(where_clauses)
+        
         # Try AND query first for more precise results
         try:
             and_query_sql = text(f"""
@@ -855,21 +913,13 @@ class EpisodicMemoryManager:
                     embedding_config, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM episodic_memory 
-                WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
-                    AND user_id = :user_id
+                WHERE {where_clause}
                 ORDER BY rank_score DESC, created_at DESC
                 LIMIT :limit_val
             """)
 
             results = list(
-                session.execute(
-                    and_query_sql,
-                    {
-                        "tsquery": tsquery_string_and,
-                        "user_id": user.id,
-                        "limit_val": limit or 50,
-                    },
-                )
+                session.execute(and_query_sql, query_params)
             )
 
             # If AND query returns sufficient results, use them
@@ -904,6 +954,10 @@ class EpisodicMemoryManager:
 
         # If AND query fails or returns too few results, try OR query
         try:
+            # Update query params for OR query
+            or_query_params = query_params.copy()
+            or_query_params["tsquery"] = tsquery_string_or
+            
             or_query_sql = text(f"""
                 SELECT 
                     id, created_at, occurred_at, actor, event_type,
@@ -911,20 +965,12 @@ class EpisodicMemoryManager:
                     embedding_config, organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
                 FROM episodic_memory 
-                WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
-                    AND user_id = :user_id
+                WHERE {where_clause}
                 ORDER BY rank_score DESC, created_at DESC
                 LIMIT :limit_val
             """)
 
-            results = session.execute(
-                or_query_sql,
-                {
-                    "tsquery": tsquery_string_or,
-                "user_id": user.id,
-                    "limit_val": limit or 50,
-                },
-            )
+            results = session.execute(or_query_sql, or_query_params)
 
             episodic_memory = []
             for row in results:
