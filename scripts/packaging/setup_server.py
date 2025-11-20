@@ -133,7 +133,7 @@ extras_require = {
 os.chdir(project_root)
 
 setup(
-    name="mirix-server",
+    name="jl-ecms-server",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",

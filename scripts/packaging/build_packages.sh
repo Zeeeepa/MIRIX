@@ -67,7 +67,7 @@ echo -e "${BLUE}[3/5] Building jl-ecms-client package...${NC}"
 python scripts/packaging/setup_client.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Client package built successfully${NC}"
-    CLIENT_VERSION=$(ls dist/intuit_ecms_client-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
+    CLIENT_VERSION=$(ls dist/jl_ecms_client-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${CLIENT_VERSION}${NC}"
 else
     echo -e "${RED}✗ Client package build failed${NC}"
@@ -80,7 +80,7 @@ echo -e "${BLUE}[4/5] Building jl-ecms-server package...${NC}"
 python scripts/packaging/setup_server.py sdist bdist_wheel
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Server package built successfully${NC}"
-    SERVER_VERSION=$(ls dist/intuit_ecms_server-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
+    SERVER_VERSION=$(ls dist/jl_ecms_server-*.whl 2>/dev/null | head -1 | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')
     echo -e "   Version: ${GREEN}${SERVER_VERSION}${NC}"
 else
     echo -e "${RED}✗ Server package build failed${NC}"
@@ -94,21 +94,21 @@ echo -e "${BLUE}=================================================${NC}"
 echo -e "Built packages in: ${GREEN}dist/${NC}"
 echo ""
 echo -e "Client Package:"
-ls -lh dist/intuit_ecms_client-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/jl_ecms_client-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "Server Package:"
-ls -lh dist/intuit_ecms_server-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
+ls -lh dist/jl_ecms_server-* 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
 echo ""
 echo -e "${BLUE}=================================================${NC}"
 echo -e "${GREEN}✓ All packages built successfully!${NC}"
 echo ""
 echo "To install locally:"
-echo -e "  ${BLUE}pip install dist/intuit_ecms_client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
-echo -e "  ${BLUE}pip install dist/intuit_ecms_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/jl_ecms_client-${CLIENT_VERSION}-py3-none-any.whl${NC}"
+echo -e "  ${BLUE}pip install dist/jl_ecms_server-${SERVER_VERSION}-py3-none-any.whl${NC}"
 echo ""
 echo "To publish to PyPI:"
-echo -e "  ${BLUE}twine upload dist/jl-ecms-client-${CLIENT_VERSION}*${NC}"
-echo -e "  ${BLUE}twine upload dist/jl-ecms-server-${SERVER_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl_ecms_client-${CLIENT_VERSION}*${NC}"
+echo -e "  ${BLUE}twine upload dist/jl_ecms_server-${SERVER_VERSION}*${NC}"
 echo ""
 echo "To test packages:"
 echo -e "  ${BLUE}twine check dist/*${NC}"
