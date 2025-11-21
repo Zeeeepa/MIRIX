@@ -159,13 +159,37 @@ class QueueWorker:
                 user_manager = UserManager()
                 try:
                     user = user_manager.get_user_by_id(user_id)
-                except Exception as e:
-                    logger.warning(
-                        "Failed to load user with id=%s, falling back to default user: %s",
+                except Exception:
+                    # User doesn't exist - auto-create it using the client's organization
+                    logger.info(
+                        "User with id=%s not found, auto-creating with organization_id=%s",
                         user_id,
-                        e
+                        actor.organization_id
                     )
-                    user = user_manager.get_default_user()
+                    
+                    from mirix.schemas.user import User as PydanticUser
+                    
+                    try:
+                        # Create user with provided user_id and client's organization
+                        user = user_manager.create_user(
+                            pydantic_user=PydanticUser(
+                                id=user_id,
+                                name=user_id,  # Use user_id as default name
+                                organization_id=actor.organization_id,
+                                timezone=user_manager.DEFAULT_TIME_ZONE,
+                                status="active",
+                                is_deleted=False
+                            )
+                        )
+                        logger.info("✓ Auto-created user: %s in organization: %s", user_id, actor.organization_id)
+                    except Exception as create_error:
+                        # If auto-creation fails, fall back to default user
+                        logger.error(
+                            "Failed to auto-create user with id=%s: %s. Falling back to default user.",
+                            user_id,
+                            create_error
+                        )
+                        user = user_manager.get_default_user()
             else:
                 # If no user_id provided, use default user
                 user_manager = UserManager()

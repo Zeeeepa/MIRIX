@@ -1650,6 +1650,17 @@ async def retrieve_memory_with_conversation(
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
+    # Add client scope to filter_tags (create if not provided)
+    if request.filter_tags is not None:
+        # Create a copy to avoid modifying the original request
+        filter_tags = dict(request.filter_tags)
+    else:
+        # Create new filter_tags if not provided
+        filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    filter_tags["scope"] = client.scope
+
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
@@ -1755,7 +1766,7 @@ async def retrieve_memory_with_conversation(
         agent_state=all_agents[0],
         key_words=key_words,
         limit=request.limit,
-        filter_tags=request.filter_tags,
+        filter_tags=filter_tags,
         use_cache=request.use_cache,
         start_date=start_date,  # NEW: Temporal filtering
         end_date=end_date,      # NEW: Temporal filtering
@@ -1809,6 +1820,15 @@ async def retrieve_memory_with_topic(
                 "topic": topic,
                 "memories": {},
             }
+
+
+    # Add client scope to filter_tags (create if not provided)
+    if parsed_filter_tags is None:
+        # Create new filter_tags if not provided
+        parsed_filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    parsed_filter_tags["scope"] = client.scope
 
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
