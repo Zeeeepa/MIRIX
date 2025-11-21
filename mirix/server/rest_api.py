@@ -15,7 +15,7 @@ import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mirix.helpers.message_helpers import prepare_input_message_create
 from mirix.llm_api.llm_client import LLMClient
@@ -581,6 +581,12 @@ class UpdateAgentRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class UpdateSystemPromptRequest(BaseModel):
+    """Request model for updating an agent's system prompt."""
+    
+    system_prompt: str = Field(..., description="The new system prompt")
+
+
 @router.patch("/agents/{agent_id}", response_model=AgentState)
 async def update_agent(
     agent_id: str,
@@ -595,6 +601,159 @@ async def update_agent(
 
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
+
+
+@router.patch("/agents/by-name/{agent_name}/system", response_model=AgentState)
+async def update_agent_system_prompt_by_name(
+    agent_name: str,
+    request: UpdateSystemPromptRequest,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Update an agent's system prompt by agent name.
+    
+    This endpoint accepts an agent name (e.g., "episodic", "semantic", "core", 
+    "meta_memory_agent") and resolves it to the agent_id for the authenticated client.
+    
+    The full agent name pattern is typically:
+    - "meta_memory_agent" (the parent meta agent)
+    - "meta_memory_agent_episodic_memory_agent" → short name: "episodic"
+    - "meta_memory_agent_semantic_memory_agent" → short name: "semantic"
+    - "meta_memory_agent_core_memory_agent" → short name: "core"
+    - "meta_memory_agent_procedural_memory_agent" → short name: "procedural"
+    - "meta_memory_agent_resource_memory_agent" → short name: "resource"
+    - "meta_memory_agent_knowledge_vault_memory_agent" → short name: "knowledge_vault"
+    - "meta_memory_agent_reflexion_agent" → short name: "reflexion"
+    
+    Args:
+        agent_name: Short name or full name of the agent
+        request: UpdateSystemPromptRequest with the new system prompt
+        
+    Returns:
+        AgentState: The updated agent state
+        
+    Example:
+        PATCH /agents/by-name/episodic/system
+        {
+            "system_prompt": "You are an episodic memory agent for sales..."
+        }
+    """
+    server = get_server()
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    # List all top-level agents for this client
+    top_level_agents = server.agent_manager.list_agents(actor=client, limit=1000)
+    
+    # Also get sub-agents (children of meta agent)
+    all_agents = list(top_level_agents)
+    for agent in top_level_agents:
+        if agent.name == "meta_memory_agent":
+            # Get sub-agents
+            sub_agents = server.agent_manager.list_agents(actor=client, parent_id=agent.id, limit=1000)
+            all_agents.extend(sub_agents)
+            break
+    
+    # Try to find the agent by name
+    # First try exact match with full name
+    matching_agent = None
+    for agent in all_agents:
+        if agent.name == agent_name:
+            matching_agent = agent
+            break
+    
+    # If not found, try short name match (e.g., "episodic" → "meta_memory_agent_episodic_memory_agent")
+    if not matching_agent:
+        for agent in all_agents:
+            # Extract short name from full name
+            # e.g., "meta_memory_agent_episodic_memory_agent" → "episodic"
+            if agent.name and "meta_memory_agent_" in agent.name:
+                short_name = agent.name.replace("meta_memory_agent_", "").replace("_memory_agent", "").replace("_agent", "")
+                if short_name == agent_name:
+                    matching_agent = agent
+                    break
+    
+    # If still not found, raise error with helpful message
+    if not matching_agent:
+        # Build helpful error message with available agents
+        available_agents = []
+        for agent in all_agents:
+            full_name = agent.name
+            if "meta_memory_agent_" in full_name and full_name != "meta_memory_agent":
+                short_name = full_name.replace("meta_memory_agent_", "").replace("_memory_agent", "").replace("_agent", "")
+                available_agents.append(f"'{short_name}' (full: {full_name})")
+            else:
+                available_agents.append(f"'{full_name}'")
+        
+        available_list = ", ".join(available_agents[:5])  # Show first 5
+        if len(available_agents) > 5:
+            available_list += f", and {len(available_agents) - 5} more"
+        
+        error_detail = f"Agent with name '{agent_name}' not found for client {client_id}. "
+        if available_agents:
+            error_detail += f"Available agents: {available_list}"
+        else:
+            error_detail += "No agents found for this client. Please initialize agents first."
+        
+        raise HTTPException(
+            status_code=404,
+            detail=error_detail
+        )
+    
+    # Call the update_agent_system_prompt endpoint logic
+    updated_agent = server.agent_manager.update_system_prompt(
+        agent_id=matching_agent.id,
+        system_prompt=request.system_prompt,
+        actor=client
+    )
+    
+    return updated_agent
+
+
+@router.patch("/agents/{agent_id}/system", response_model=AgentState)
+async def update_agent_system_prompt(
+    agent_id: str,
+    request: UpdateSystemPromptRequest,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Update an agent's system prompt by agent ID.
+    
+    This endpoint updates the agent's system prompt and triggers a rebuild
+    of the system message in the agent's message history.
+    
+    The update process:
+    1. Updates the agent.system field in PostgreSQL
+    2. Updates the agent.system field in Redis cache
+    3. Creates a new system message
+    4. Updates message_ids[0] to reference the new system message
+    
+    Args:
+        agent_id: ID of the agent to update (e.g., "agent-123")
+        request: UpdateSystemPromptRequest with the new system prompt
+        
+    Returns:
+        AgentState: The updated agent state
+        
+    Example:
+        PATCH /agents/agent-123/system
+        {
+            "system_prompt": "You are a helpful sales assistant."
+        }
+    """
+    server = get_server()
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    updated_agent = server.agent_manager.update_system_prompt(
+        agent_id=agent_id,
+        system_prompt=request.system_prompt,
+        actor=client
+    )
+    
+    return updated_agent
 
 # ============================================================================
 # Memory Endpoints
@@ -1257,6 +1416,12 @@ async def initialize_meta_agent(
         # Only update the meta agent if update_agents is True
         if request.update_agents:
             from mirix.schemas.agent import UpdateMetaAgent
+
+            # DEBUG: Log what we're passing to update_meta_agent
+            logger.debug("[INIT META AGENT] create_params for UpdateMetaAgent: %s", create_params)
+            logger.debug("[INIT META AGENT] 'agents' in create_params: %s", 'agents' in create_params)
+            if 'agents' in create_params:
+                logger.debug("[INIT META AGENT] agents list: %s", create_params['agents'])
 
             # Update the existing meta agent
             meta_agent = server.agent_manager.update_meta_agent(

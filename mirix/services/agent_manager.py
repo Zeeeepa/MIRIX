@@ -818,14 +818,23 @@ class AgentManager:
     def update_agent(
         self, agent_id: str, agent_update: UpdateAgent, actor: PydanticClient
     ) -> PydanticAgentState:
+        # Get current state BEFORE update to detect changes
+        old_agent_state = None
+        if agent_update.system:
+            old_agent_state = self.get_agent_by_id(agent_id=agent_id, actor=actor)
+        
+        # Update agent (including system field in database)
         agent_state = self._update_agent(
             agent_id=agent_id, agent_update=agent_update, actor=actor
         )
 
-        # Rebuild the system prompt if it's different
-        if agent_update.system and agent_update.system != agent_state.system:
+        # Rebuild the system prompt if it changed
+        if agent_update.system and old_agent_state and agent_update.system != old_agent_state.system:
             agent_state = self.rebuild_system_prompt(
-                agent_id=agent_state.id, actor=actor, force=True, update_timestamp=False
+                agent_id=agent_state.id,
+                system_prompt=agent_update.system,  # Pass the new system prompt
+                actor=actor,
+                force=True
             )
 
         return agent_state

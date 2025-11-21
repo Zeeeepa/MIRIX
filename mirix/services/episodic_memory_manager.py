@@ -903,7 +903,7 @@ class EpisodicMemoryManager:
             query_params["end_date"] = end_date
         
         where_clause = " AND ".join(where_clauses)
-        
+
         # Try AND query first for more precise results
         try:
             and_query_sql = text(f"""

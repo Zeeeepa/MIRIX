@@ -546,6 +546,88 @@ class MirixClient(AbstractClient):
         )
         return AgentState(**data)
 
+    def update_system_prompt(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> AgentState:
+        """
+        Update an agent's system prompt by agent name.
+        
+        This method updates the agent's system prompt and triggers a rebuild
+        of the system message in the agent's message history.
+        
+        The method accepts short agent names like "episodic", "semantic", "core",
+        or full names like "meta_memory_agent_episodic_memory_agent".
+        
+        Under the hood, this:
+        1. Resolves the agent name to agent_id for the authenticated client
+        2. Updates the agent.system field in PostgreSQL
+        3. Updates the agent.system field in Redis cache
+        4. Creates a new system message
+        5. Updates message_ids[0] to reference the new system message
+        
+        Args:
+            agent_name: Name of the agent to update. Can be:
+                - Short name: "episodic", "semantic", "core", "procedural", 
+                  "resource", "knowledge_vault", "reflexion", "meta_memory_agent"
+                - Full name: "meta_memory_agent_episodic_memory_agent", etc.
+            system_prompt: The new system prompt text
+            headers: Optional HTTP headers
+            
+        Returns:
+            AgentState: The updated agent state
+            
+        Raises:
+            Exception: If agent with the given name is not found
+            
+        Example:
+            >>> client = MirixClient(client_id="my-app")
+            >>> 
+            >>> # Update episodic memory agent's system prompt
+            >>> updated_agent = client.update_system_prompt(
+            ...     agent_name="episodic",
+            ...     system_prompt='''You are an episodic memory agent specialized in 
+            ...     sales conversations. Focus on extracting key customer interactions,
+            ...     pain points, and buying signals.'''
+            ... )
+            >>> 
+            >>> print(f"Updated agent: {updated_agent.name}")
+            >>> print(f"New system prompt: {updated_agent.system[:100]}...")
+            
+            >>> # Update semantic memory agent
+            >>> updated_agent = client.update_system_prompt(
+            ...     agent_name="semantic",
+            ...     system_prompt="You are a semantic memory agent..."
+            ... )
+            
+            >>> # Can also use full name
+            >>> updated_agent = client.update_system_prompt(
+            ...     agent_name="meta_memory_agent_core_memory_agent",
+            ...     system_prompt="You are a core memory agent..."
+            ... )
+        
+        Note:
+            Common agent names:
+            - "episodic" or "meta_memory_agent_episodic_memory_agent"
+            - "semantic" or "meta_memory_agent_semantic_memory_agent"
+            - "core" or "meta_memory_agent_core_memory_agent"
+            - "procedural" or "meta_memory_agent_procedural_memory_agent"
+            - "resource" or "meta_memory_agent_resource_memory_agent"
+            - "knowledge_vault" or "meta_memory_agent_knowledge_vault_memory_agent"
+            - "reflexion" or "meta_memory_agent_reflexion_agent"
+            - "meta_memory_agent" (the parent meta agent)
+        """
+        request_data = {"system_prompt": system_prompt}
+        data = self._request(
+            "PATCH", 
+            f"/agents/by-name/{agent_name}/system", 
+            json=request_data, 
+            headers=headers
+        )
+        return AgentState(**data)
+
     def get_agent(
         self, agent_id: str, headers: Optional[Dict[str, str]] = None
     ) -> AgentState:
@@ -1154,7 +1236,6 @@ class MirixClient(AbstractClient):
 
         # Prepare request data
         request_data = {
-            # "user_id": user_id,
             "org_id": self.org_id,
             "config": config,
             "update_agents": update_agents,
