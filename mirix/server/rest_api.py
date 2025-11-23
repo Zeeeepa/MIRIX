@@ -1213,6 +1213,73 @@ async def create_or_get_user(
     return user
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str):
+    """
+    Soft delete a user by ID.
+    
+    This marks the user and all associated records as deleted by setting is_deleted=True.
+    The records remain in the database but are filtered out from queries.
+    
+    Associated records that are soft deleted:
+    - Episodic memories for this user
+    - Semantic memories for this user
+    - Procedural memories for this user
+    - Resource memories for this user
+    - Knowledge vault items for this user
+    - Messages for this user
+    - Blocks for this user
+    """
+    server = get_server()
+    
+    try:
+        server.user_manager.delete_user_by_id(user_id)
+        return {"message": f"User {user_id} soft deleted successfully"}
+    except Exception as e:
+        error_msg = str(e)
+        # Provide a better error message if user not found or already deleted
+        if "not found" in error_msg.lower() or "no result" in error_msg.lower():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"User {user_id} not found or already deleted"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@router.delete("/users/{user_id}/memories")
+async def delete_user_memories(user_id: str):
+    """
+    Hard delete all memories, messages, and blocks for a user.
+    
+    This permanently removes data records while preserving the user record.
+    Use this for data cleanup/purging without affecting the user account itself.
+    
+    Records that are PERMANENTLY DELETED:
+    - Episodic memories for this user
+    - Semantic memories for this user
+    - Procedural memories for this user
+    - Resource memories for this user
+    - Knowledge vault items for this user
+    - Messages for this user
+    - Blocks for this user
+    
+    Records that are PRESERVED:
+    - User record
+    
+    Warning: This operation is irreversible. Deleted data cannot be recovered.
+    """
+    server = get_server()
+    
+    try:
+        server.user_manager.delete_memories_by_user_id(user_id)
+        return {
+            "message": f"All memories for user {user_id} hard deleted successfully",
+            "preserved": ["user"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ============================================================================
 # Client API Endpoints
 # ============================================================================
@@ -1344,13 +1411,67 @@ async def update_client(
 @router.delete("/clients/{client_id}")
 async def delete_client(client_id: str):
     """
-    Delete a client by ID.
+    Soft delete a client by ID.
+    
+    This marks the client and all associated records (agents, tools, blocks) as deleted
+    by setting is_deleted=True. The records remain in the database but are filtered
+    out from queries.
+    
+    Associated records that are soft deleted:
+    - Agents created by this client
+    - Tools created by this client
+    - Blocks created by this client
+    
+    Memory records (episodic, semantic, etc.) remain but are filtered by client.is_deleted.
     """
     server = get_server()
     
     try:
         server.client_manager.delete_client_by_id(client_id)
-        return {"message": f"Client {client_id} deleted successfully"}
+        return {"message": f"Client {client_id} soft deleted successfully"}
+    except Exception as e:
+        error_msg = str(e)
+        # Provide a better error message if client not found or already deleted
+        if "not found" in error_msg.lower() or "no result" in error_msg.lower():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Client {client_id} not found or already deleted"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@router.delete("/clients/{client_id}/memories")
+async def delete_client_memories(client_id: str):
+    """
+    Hard delete all memories, messages, and blocks for a client.
+    
+    This permanently removes data records while preserving the client configuration.
+    Use this for data cleanup/purging without affecting the client, agents, or tools.
+    
+    Records that are PERMANENTLY DELETED:
+    - Episodic memories for this client
+    - Semantic memories for this client
+    - Procedural memories for this client
+    - Resource memories for this client
+    - Knowledge vault items for this client
+    - Messages for this client
+    - Blocks created by this client
+    
+    Records that are PRESERVED:
+    - Client record
+    - Agents created by this client
+    - Tools created by this client
+    
+    Warning: This operation is irreversible. Deleted data cannot be recovered.
+    """
+    server = get_server()
+    
+    try:
+        server.client_manager.delete_memories_by_client_id(client_id)
+        return {
+            "message": f"All memories for client {client_id} hard deleted successfully",
+            "preserved": ["client", "agents", "tools"]
+        }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 

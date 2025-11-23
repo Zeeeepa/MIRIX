@@ -230,6 +230,102 @@ class BlockManager:
             blocks.append(block)
         return blocks
 
+    def soft_delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk soft delete all blocks for a user (updates Redis cache).
+        
+        Args:
+            user_id: ID of the user whose blocks to soft delete
+            
+        Returns:
+            Number of records soft deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Query all non-deleted records for this user
+            blocks = session.query(BlockModel).filter(
+                BlockModel.user_id == user_id,
+                BlockModel.is_deleted == False
+            ).all()
+            
+            count = len(blocks)
+            if count == 0:
+                return 0
+            
+            # Extract IDs BEFORE committing (to avoid detached instance errors)
+            block_ids = [block.id for block in blocks]
+            
+            # Soft delete from database (set is_deleted = True directly, don't call block.delete())
+            for block in blocks:
+                block.is_deleted = True
+                block.set_updated_at()
+            
+            session.commit()
+        
+        # Invalidate agent caches and update Redis (outside session)
+        for block_id in block_ids:
+            self._invalidate_agent_caches_for_block(block_id)
+        
+        redis_client = get_redis_client()
+        if redis_client:
+            for block_id in block_ids:
+                redis_key = f"{redis_client.BLOCK_PREFIX}{block_id}"
+                try:
+                    redis_client.client.hset(redis_key, "is_deleted", "true")
+                except Exception:
+                    # If update fails, remove from cache
+                    redis_client.delete(redis_key)
+        
+        return count
+
+    def delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk hard delete all blocks for a user (removes from Redis cache).
+        Optimized with single DB query and batch Redis deletion.
+        
+        Args:
+            user_id: ID of the user whose blocks to delete
+            
+        Returns:
+            Number of records deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Get IDs for Redis cleanup (only fetch IDs, not full objects)
+            block_ids = [row[0] for row in session.query(BlockModel.id).filter(
+                BlockModel.user_id == user_id
+            ).all()]
+            
+            count = len(block_ids)
+            if count == 0:
+                return 0
+            
+            # Invalidate agent caches that reference these blocks (before deletion)
+            for block_id in block_ids:
+                self._invalidate_agent_caches_for_block(block_id)
+            
+            # Bulk delete in single query
+            session.query(BlockModel).filter(
+                BlockModel.user_id == user_id
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+        
+        # Batch delete from Redis cache (outside of session context)
+        redis_client = get_redis_client()
+        if redis_client and block_ids:
+            redis_keys = [f"{redis_client.BLOCK_PREFIX}{block_id}" for block_id in block_ids]
+            
+            # Delete in batches to avoid command size limits
+            BATCH_SIZE = 1000
+            for i in range(0, len(redis_keys), BATCH_SIZE):
+                batch = redis_keys[i:i + BATCH_SIZE]
+                redis_client.client.delete(*batch)
+        
+        return count
+
     @enforce_types
     def add_default_blocks(self, actor: PydanticClient, user: Optional[PydanticUser] = None):
         """

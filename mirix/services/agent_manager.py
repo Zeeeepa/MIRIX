@@ -1772,6 +1772,11 @@ class AgentManager:
         messages = self.message_manager.get_messages_by_ids(
             message_ids=message_ids, actor=actor
         )
+        # Handle empty message list (e.g., after deletion)
+        if not messages:
+            return []
+        
+        # Keep first message (system message) and filter rest by user_id
         messages = [messages[0]] + [
             message for message in messages[1:] if message.user_id == actor.id
         ]
@@ -1781,7 +1786,13 @@ class AgentManager:
     def get_system_message(
         self, agent_id: str, actor: PydanticClient
     ) -> PydanticMessage:
-        message_ids = self.get_agent_by_id(agent_id=agent_id, actor=actor).message_ids
+        agent_state = self.get_agent_by_id(agent_id=agent_id, actor=actor)
+        message_ids = agent_state.message_ids
+        
+        # Handle empty message_ids (e.g., after deletion)
+        if not message_ids:
+            return None
+        
         return self.message_manager.get_message_by_id(
             message_id=message_ids[0], actor=actor
         )

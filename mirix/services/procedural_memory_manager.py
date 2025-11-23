@@ -955,3 +955,182 @@ class ProceduralMemoryManager:
                 raise NoResultFound(
                     f"Procedural memory item with id {procedure_id} not found."
                 )
+
+    @enforce_types
+    def delete_by_client_id(self, actor: PydanticClient) -> int:
+        """
+        Bulk delete all procedural memory records for a client (removes from Redis cache).
+        Optimized with single DB query and batch Redis deletion.
+        
+        Args:
+            actor: Client whose memories to delete (uses actor.id as client_id)
+            
+        Returns:
+            Number of records deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Get IDs for Redis cleanup (only fetch IDs, not full objects)
+            item_ids = [row[0] for row in session.query(ProceduralMemoryItem.id).filter(
+                ProceduralMemoryItem.client_id == actor.id
+            ).all()]
+            
+            count = len(item_ids)
+            if count == 0:
+                return 0
+            
+            # Bulk delete in single query
+            session.query(ProceduralMemoryItem).filter(
+                ProceduralMemoryItem.client_id == actor.id
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+        
+        # Batch delete from Redis cache (outside of session context)
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.PROCEDURAL_PREFIX}{item_id}" for item_id in item_ids]
+            
+            # Delete in batches to avoid command size limits
+            BATCH_SIZE = 1000
+            for i in range(0, len(redis_keys), BATCH_SIZE):
+                batch = redis_keys[i:i + BATCH_SIZE]
+                redis_client.client.delete(*batch)
+        
+        return count
+
+    def soft_delete_by_client_id(self, actor: PydanticClient) -> int:
+        """
+        Bulk soft delete all procedural memory records for a client (updates Redis cache).
+        
+        Args:
+            actor: Client whose memories to soft delete (uses actor.id as client_id)
+            
+        Returns:
+            Number of records soft deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Query all non-deleted records for this client (use actor.id)
+            items = session.query(ProceduralMemoryItem).filter(
+                ProceduralMemoryItem.client_id == actor.id,
+                ProceduralMemoryItem.is_deleted == False
+            ).all()
+            
+            count = len(items)
+            if count == 0:
+                return 0
+            
+            # Extract IDs BEFORE committing (to avoid detached instance errors)
+            item_ids = [item.id for item in items]
+            
+            # Soft delete from database (set is_deleted = True directly, don't call item.delete())
+            for item in items:
+                item.is_deleted = True
+                item.set_updated_at()
+            
+            session.commit()
+        
+        # Update Redis cache with is_deleted=true (outside session)
+        redis_client = get_redis_client()
+        if redis_client:
+            for item_id in item_ids:
+                redis_key = f"{redis_client.PROCEDURAL_PREFIX}{item_id}"
+                try:
+                    redis_client.client.hset(redis_key, "is_deleted", "true")
+                except Exception:
+                    # If update fails, remove from cache
+                    redis_client.delete(redis_key)
+        
+        return count
+
+    def soft_delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk soft delete all procedural memory records for a user (updates Redis cache).
+        
+        Args:
+            user_id: ID of the user whose memories to soft delete
+            
+        Returns:
+            Number of records soft deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Query all non-deleted records for this user
+            items = session.query(ProceduralMemoryItem).filter(
+                ProceduralMemoryItem.user_id == user_id,
+                ProceduralMemoryItem.is_deleted == False
+            ).all()
+            
+            count = len(items)
+            if count == 0:
+                return 0
+            
+            # Extract IDs BEFORE committing (to avoid detached instance errors)
+            item_ids = [item.id for item in items]
+            
+            # Soft delete from database (set is_deleted = True directly, don't call item.delete())
+            for item in items:
+                item.is_deleted = True
+                item.set_updated_at()
+            
+            session.commit()
+        
+        # Update Redis cache with is_deleted=true (outside session)
+        redis_client = get_redis_client()
+        if redis_client:
+            for item_id in item_ids:
+                redis_key = f"{redis_client.PROCEDURAL_PREFIX}{item_id}"
+                try:
+                    redis_client.client.hset(redis_key, "is_deleted", "true")
+                except Exception:
+                    # If update fails, remove from cache
+                    redis_client.delete(redis_key)
+        
+        return count
+
+    def delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk hard delete all procedural memory records for a user (removes from Redis cache).
+        Optimized with single DB query and batch Redis deletion.
+        
+        Args:
+            user_id: ID of the user whose memories to delete
+            
+        Returns:
+            Number of records deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Get IDs for Redis cleanup (only fetch IDs, not full objects)
+            item_ids = [row[0] for row in session.query(ProceduralMemoryItem.id).filter(
+                ProceduralMemoryItem.user_id == user_id
+            ).all()]
+            
+            count = len(item_ids)
+            if count == 0:
+                return 0
+            
+            # Bulk delete in single query
+            session.query(ProceduralMemoryItem).filter(
+                ProceduralMemoryItem.user_id == user_id
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+        
+        # Batch delete from Redis cache (outside of session context)
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.PROCEDURAL_PREFIX}{item_id}" for item_id in item_ids]
+            
+            # Delete in batches to avoid command size limits
+            BATCH_SIZE = 1000
+            for i in range(0, len(redis_keys), BATCH_SIZE):
+                batch = redis_keys[i:i + BATCH_SIZE]
+                redis_client.client.delete(*batch)
+        
+        return count
