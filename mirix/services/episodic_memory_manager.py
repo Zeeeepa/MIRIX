@@ -336,6 +336,202 @@ class EpisodicMemoryManager:
                 )
 
     @enforce_types
+    def delete_by_client_id(self, actor: PydanticClient) -> int:
+        """
+        Bulk delete all episodic memory records for a client (removes from Redis cache).
+        Optimized with single DB query and batch Redis deletion.
+        
+        Args:
+            actor: Client whose memories to delete (uses actor.id as client_id)
+            
+        Returns:
+            Number of records deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Get IDs for Redis cleanup (only fetch IDs, not full objects)
+            item_ids = [row[0] for row in session.query(EpisodicEvent.id).filter(
+                EpisodicEvent.client_id == actor.id
+            ).all()]
+            
+            count = len(item_ids)
+            if count == 0:
+                return 0
+            
+            # Bulk delete in single query
+            session.query(EpisodicEvent).filter(
+                EpisodicEvent.client_id == actor.id
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+        
+        # Batch delete from Redis cache (outside of session context)
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.EPISODIC_PREFIX}{item_id}" for item_id in item_ids]
+            
+            # Delete in batches to avoid command size limits
+            BATCH_SIZE = 1000
+            for i in range(0, len(redis_keys), BATCH_SIZE):
+                batch = redis_keys[i:i + BATCH_SIZE]
+                redis_client.client.delete(*batch)
+        
+        return count
+
+    def soft_delete_by_client_id(self, actor: PydanticClient) -> int:
+        """
+        Bulk soft delete all episodic memory records for a client (updates Redis cache).
+        
+        Args:
+            actor: Client whose memories to soft delete (uses actor.id as client_id)
+            
+        Returns:
+            Number of records soft deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Query all non-deleted records for this client (use actor.id)
+            items = session.query(EpisodicEvent).filter(
+                EpisodicEvent.client_id == actor.id,
+                EpisodicEvent.is_deleted == False
+            ).all()
+            
+            count = len(items)
+            if count == 0:
+                return 0
+            
+            # Extract IDs BEFORE committing (to avoid detached instance errors)
+            item_ids = [item.id for item in items]
+            
+            # Soft delete from database (set is_deleted = True directly, don't call item.delete())
+            for item in items:
+                item.is_deleted = True
+                item.set_updated_at()
+            
+            session.commit()
+        
+        # Update Redis cache with is_deleted=true (outside session)
+        redis_client = get_redis_client()
+        if redis_client:
+            for item_id in item_ids:
+                redis_key = f"{redis_client.EPISODIC_PREFIX}{item_id}"
+                try:
+                    redis_client.client.hset(redis_key, "is_deleted", "true")
+                except Exception:
+                    # If update fails, remove from cache
+                    redis_client.delete(redis_key)
+        
+        return count
+
+    def soft_delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk soft delete all episodic memory records for a user (updates Redis cache).
+        
+        Args:
+            user_id: ID of the user whose memories to soft delete
+            
+        Returns:
+            Number of records soft deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        from datetime import datetime
+        import datetime as dt
+        
+        with self.session_maker() as session:
+            # Extract IDs BEFORE bulk update (for Redis cleanup)
+            item_ids = [row[0] for row in session.query(EpisodicEvent.id).filter(
+                EpisodicEvent.user_id == user_id,
+                EpisodicEvent.is_deleted == False
+            ).all()]
+            
+            count = len(item_ids)
+            if count == 0:
+                return 0
+            
+            # Batch soft delete in database using single SQL UPDATE
+            session.query(EpisodicEvent).filter(
+                EpisodicEvent.user_id == user_id,
+                EpisodicEvent.is_deleted == False
+            ).update(
+                {
+                    "is_deleted": True,
+                    "updated_at": datetime.now(dt.UTC)
+                },
+                synchronize_session=False
+            )
+            
+            session.commit()
+        
+        # Batch update Redis cache using pipeline (outside session)
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            try:
+                # Use Redis pipeline for batch operations
+                pipe = redis_client.client.pipeline()
+                for item_id in item_ids:
+                    redis_key = f"{redis_client.EPISODIC_PREFIX}{item_id}"
+                    pipe.hset(redis_key, "is_deleted", "true")
+                pipe.execute()
+            except Exception as e:
+                # If pipeline fails, fall back to individual deletions
+                from mirix.log import get_logger
+                logger = get_logger(__name__)
+                logger.warning("Redis pipeline failed for soft_delete_by_user_id, removing keys: %s", e)
+                for item_id in item_ids:
+                    redis_key = f"{redis_client.EPISODIC_PREFIX}{item_id}"
+                    try:
+                        redis_client.delete(redis_key)
+                    except Exception:
+                        pass
+        
+        return count
+
+    def delete_by_user_id(self, user_id: str) -> int:
+        """
+        Bulk hard delete all episodic memory records for a user (removes from Redis cache).
+        Optimized with single DB query and batch Redis deletion.
+        
+        Args:
+            user_id: ID of the user whose memories to delete
+            
+        Returns:
+            Number of records deleted
+        """
+        from mirix.database.redis_client import get_redis_client
+        
+        with self.session_maker() as session:
+            # Get IDs for Redis cleanup (only fetch IDs, not full objects)
+            item_ids = [row[0] for row in session.query(EpisodicEvent.id).filter(
+                EpisodicEvent.user_id == user_id
+            ).all()]
+            
+            count = len(item_ids)
+            if count == 0:
+                return 0
+            
+            # Bulk delete in single query
+            session.query(EpisodicEvent).filter(
+                EpisodicEvent.user_id == user_id
+            ).delete(synchronize_session=False)
+            
+            session.commit()
+        
+        # Batch delete from Redis cache (outside of session context)
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.EPISODIC_PREFIX}{item_id}" for item_id in item_ids]
+            
+            # Delete in batches to avoid command size limits
+            BATCH_SIZE = 1000
+            for i in range(0, len(redis_keys), BATCH_SIZE):
+                batch = redis_keys[i:i + BATCH_SIZE]
+                redis_client.client.delete(*batch)
+        
+        return count
+
+    @enforce_types
     def insert_event(
         self,
         actor: PydanticClient,
@@ -903,7 +1099,7 @@ class EpisodicMemoryManager:
             query_params["end_date"] = end_date
         
         where_clause = " AND ".join(where_clauses)
-        
+
         # Try AND query first for more precise results
         try:
             and_query_sql = text(f"""

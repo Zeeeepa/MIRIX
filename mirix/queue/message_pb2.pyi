@@ -1,18 +1,15 @@
-import datetime
-
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class QueueMessage(_message.Message):
-    __slots__ = ()
+    __slots__ = ("actor", "agent_id", "input_messages", "chaining", "user_id", "verbose", "filter_tags", "use_cache", "occurred_at")
     ACTOR_FIELD_NUMBER: _ClassVar[int]
     AGENT_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_MESSAGES_FIELD_NUMBER: _ClassVar[int]
@@ -31,10 +28,10 @@ class QueueMessage(_message.Message):
     filter_tags: _struct_pb2.Struct
     use_cache: bool
     occurred_at: str
-    def __init__(self, actor: _Optional[_Union[User, _Mapping]] = ..., agent_id: _Optional[str] = ..., input_messages: _Optional[_Iterable[_Union[MessageCreate, _Mapping]]] = ..., chaining: _Optional[bool] = ..., user_id: _Optional[str] = ..., verbose: _Optional[bool] = ..., filter_tags: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., use_cache: _Optional[bool] = ..., occurred_at: _Optional[str] = ...) -> None: ...
+    def __init__(self, actor: _Optional[_Union[User, _Mapping]] = ..., agent_id: _Optional[str] = ..., input_messages: _Optional[_Iterable[_Union[MessageCreate, _Mapping]]] = ..., chaining: bool = ..., user_id: _Optional[str] = ..., verbose: bool = ..., filter_tags: _Optional[_Union[_struct_pb2.Struct, _Mapping]] = ..., use_cache: bool = ..., occurred_at: _Optional[str] = ...) -> None: ...
 
 class User(_message.Message):
-    __slots__ = ()
+    __slots__ = ("id", "organization_id", "name", "status", "timezone", "created_at", "updated_at", "is_deleted")
     ID_FIELD_NUMBER: _ClassVar[int]
     ORGANIZATION_ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
@@ -51,10 +48,10 @@ class User(_message.Message):
     created_at: _timestamp_pb2.Timestamp
     updated_at: _timestamp_pb2.Timestamp
     is_deleted: bool
-    def __init__(self, id: _Optional[str] = ..., organization_id: _Optional[str] = ..., name: _Optional[str] = ..., status: _Optional[str] = ..., timezone: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., is_deleted: _Optional[bool] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., organization_id: _Optional[str] = ..., name: _Optional[str] = ..., status: _Optional[str] = ..., timezone: _Optional[str] = ..., created_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., is_deleted: bool = ...) -> None: ...
 
 class MessageCreate(_message.Message):
-    __slots__ = ()
+    __slots__ = ("role", "text_content", "structured_content", "name", "otid", "sender_id", "group_id")
     class Role(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
         __slots__ = ()
         ROLE_UNSPECIFIED: _ClassVar[MessageCreate.Role]
@@ -80,13 +77,13 @@ class MessageCreate(_message.Message):
     def __init__(self, role: _Optional[_Union[MessageCreate.Role, str]] = ..., text_content: _Optional[str] = ..., structured_content: _Optional[_Union[MessageContentList, _Mapping]] = ..., name: _Optional[str] = ..., otid: _Optional[str] = ..., sender_id: _Optional[str] = ..., group_id: _Optional[str] = ...) -> None: ...
 
 class MessageContentList(_message.Message):
-    __slots__ = ()
+    __slots__ = ("parts",)
     PARTS_FIELD_NUMBER: _ClassVar[int]
     parts: _containers.RepeatedCompositeFieldContainer[MessageContentPart]
     def __init__(self, parts: _Optional[_Iterable[_Union[MessageContentPart, _Mapping]]] = ...) -> None: ...
 
 class MessageContentPart(_message.Message):
-    __slots__ = ()
+    __slots__ = ("text", "image", "file", "cloud_file")
     TEXT_FIELD_NUMBER: _ClassVar[int]
     IMAGE_FIELD_NUMBER: _ClassVar[int]
     FILE_FIELD_NUMBER: _ClassVar[int]
@@ -98,13 +95,13 @@ class MessageContentPart(_message.Message):
     def __init__(self, text: _Optional[_Union[TextContent, _Mapping]] = ..., image: _Optional[_Union[ImageContent, _Mapping]] = ..., file: _Optional[_Union[FileContent, _Mapping]] = ..., cloud_file: _Optional[_Union[CloudFileContent, _Mapping]] = ...) -> None: ...
 
 class TextContent(_message.Message):
-    __slots__ = ()
+    __slots__ = ("text",)
     TEXT_FIELD_NUMBER: _ClassVar[int]
     text: str
     def __init__(self, text: _Optional[str] = ...) -> None: ...
 
 class ImageContent(_message.Message):
-    __slots__ = ()
+    __slots__ = ("image_id", "detail")
     IMAGE_ID_FIELD_NUMBER: _ClassVar[int]
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     image_id: str
@@ -112,13 +109,13 @@ class ImageContent(_message.Message):
     def __init__(self, image_id: _Optional[str] = ..., detail: _Optional[str] = ...) -> None: ...
 
 class FileContent(_message.Message):
-    __slots__ = ()
+    __slots__ = ("file_id",)
     FILE_ID_FIELD_NUMBER: _ClassVar[int]
     file_id: str
     def __init__(self, file_id: _Optional[str] = ...) -> None: ...
 
 class CloudFileContent(_message.Message):
-    __slots__ = ()
+    __slots__ = ("cloud_file_uri",)
     CLOUD_FILE_URI_FIELD_NUMBER: _ClassVar[int]
     cloud_file_uri: str
     def __init__(self, cloud_file_uri: _Optional[str] = ...) -> None: ...

@@ -15,7 +15,7 @@ import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mirix.helpers.message_helpers import prepare_input_message_create
 from mirix.llm_api.llm_client import LLMClient
@@ -581,6 +581,12 @@ class UpdateAgentRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class UpdateSystemPromptRequest(BaseModel):
+    """Request model for updating an agent's system prompt."""
+    
+    system_prompt: str = Field(..., description="The new system prompt")
+
+
 @router.patch("/agents/{agent_id}", response_model=AgentState)
 async def update_agent(
     agent_id: str,
@@ -595,6 +601,159 @@ async def update_agent(
 
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
+
+
+@router.patch("/agents/by-name/{agent_name}/system", response_model=AgentState)
+async def update_agent_system_prompt_by_name(
+    agent_name: str,
+    request: UpdateSystemPromptRequest,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Update an agent's system prompt by agent name.
+    
+    This endpoint accepts an agent name (e.g., "episodic", "semantic", "core", 
+    "meta_memory_agent") and resolves it to the agent_id for the authenticated client.
+    
+    The full agent name pattern is typically:
+    - "meta_memory_agent" (the parent meta agent)
+    - "meta_memory_agent_episodic_memory_agent" → short name: "episodic"
+    - "meta_memory_agent_semantic_memory_agent" → short name: "semantic"
+    - "meta_memory_agent_core_memory_agent" → short name: "core"
+    - "meta_memory_agent_procedural_memory_agent" → short name: "procedural"
+    - "meta_memory_agent_resource_memory_agent" → short name: "resource"
+    - "meta_memory_agent_knowledge_vault_memory_agent" → short name: "knowledge_vault"
+    - "meta_memory_agent_reflexion_agent" → short name: "reflexion"
+    
+    Args:
+        agent_name: Short name or full name of the agent
+        request: UpdateSystemPromptRequest with the new system prompt
+        
+    Returns:
+        AgentState: The updated agent state
+        
+    Example:
+        PATCH /agents/by-name/episodic/system
+        {
+            "system_prompt": "You are an episodic memory agent for sales..."
+        }
+    """
+    server = get_server()
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    # List all top-level agents for this client
+    top_level_agents = server.agent_manager.list_agents(actor=client, limit=1000)
+    
+    # Also get sub-agents (children of meta agent)
+    all_agents = list(top_level_agents)
+    for agent in top_level_agents:
+        if agent.name == "meta_memory_agent":
+            # Get sub-agents
+            sub_agents = server.agent_manager.list_agents(actor=client, parent_id=agent.id, limit=1000)
+            all_agents.extend(sub_agents)
+            break
+    
+    # Try to find the agent by name
+    # First try exact match with full name
+    matching_agent = None
+    for agent in all_agents:
+        if agent.name == agent_name:
+            matching_agent = agent
+            break
+    
+    # If not found, try short name match (e.g., "episodic" → "meta_memory_agent_episodic_memory_agent")
+    if not matching_agent:
+        for agent in all_agents:
+            # Extract short name from full name
+            # e.g., "meta_memory_agent_episodic_memory_agent" → "episodic"
+            if agent.name and "meta_memory_agent_" in agent.name:
+                short_name = agent.name.replace("meta_memory_agent_", "").replace("_memory_agent", "").replace("_agent", "")
+                if short_name == agent_name:
+                    matching_agent = agent
+                    break
+    
+    # If still not found, raise error with helpful message
+    if not matching_agent:
+        # Build helpful error message with available agents
+        available_agents = []
+        for agent in all_agents:
+            full_name = agent.name
+            if "meta_memory_agent_" in full_name and full_name != "meta_memory_agent":
+                short_name = full_name.replace("meta_memory_agent_", "").replace("_memory_agent", "").replace("_agent", "")
+                available_agents.append(f"'{short_name}' (full: {full_name})")
+            else:
+                available_agents.append(f"'{full_name}'")
+        
+        available_list = ", ".join(available_agents[:5])  # Show first 5
+        if len(available_agents) > 5:
+            available_list += f", and {len(available_agents) - 5} more"
+        
+        error_detail = f"Agent with name '{agent_name}' not found for client {client_id}. "
+        if available_agents:
+            error_detail += f"Available agents: {available_list}"
+        else:
+            error_detail += "No agents found for this client. Please initialize agents first."
+        
+        raise HTTPException(
+            status_code=404,
+            detail=error_detail
+        )
+    
+    # Call the update_agent_system_prompt endpoint logic
+    updated_agent = server.agent_manager.update_system_prompt(
+        agent_id=matching_agent.id,
+        system_prompt=request.system_prompt,
+        actor=client
+    )
+    
+    return updated_agent
+
+
+@router.patch("/agents/{agent_id}/system", response_model=AgentState)
+async def update_agent_system_prompt(
+    agent_id: str,
+    request: UpdateSystemPromptRequest,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Update an agent's system prompt by agent ID.
+    
+    This endpoint updates the agent's system prompt and triggers a rebuild
+    of the system message in the agent's message history.
+    
+    The update process:
+    1. Updates the agent.system field in PostgreSQL
+    2. Updates the agent.system field in Redis cache
+    3. Creates a new system message
+    4. Updates message_ids[0] to reference the new system message
+    
+    Args:
+        agent_id: ID of the agent to update (e.g., "agent-123")
+        request: UpdateSystemPromptRequest with the new system prompt
+        
+    Returns:
+        AgentState: The updated agent state
+        
+    Example:
+        PATCH /agents/agent-123/system
+        {
+            "system_prompt": "You are a helpful sales assistant."
+        }
+    """
+    server = get_server()
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+    
+    updated_agent = server.agent_manager.update_system_prompt(
+        agent_id=agent_id,
+        system_prompt=request.system_prompt,
+        actor=client
+    )
+    
+    return updated_agent
 
 # ============================================================================
 # Memory Endpoints
@@ -1054,6 +1213,73 @@ async def create_or_get_user(
     return user
 
 
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str):
+    """
+    Soft delete a user by ID.
+    
+    This marks the user and all associated records as deleted by setting is_deleted=True.
+    The records remain in the database but are filtered out from queries.
+    
+    Associated records that are soft deleted:
+    - Episodic memories for this user
+    - Semantic memories for this user
+    - Procedural memories for this user
+    - Resource memories for this user
+    - Knowledge vault items for this user
+    - Messages for this user
+    - Blocks for this user
+    """
+    server = get_server()
+    
+    try:
+        server.user_manager.delete_user_by_id(user_id)
+        return {"message": f"User {user_id} soft deleted successfully"}
+    except Exception as e:
+        error_msg = str(e)
+        # Provide a better error message if user not found or already deleted
+        if "not found" in error_msg.lower() or "no result" in error_msg.lower():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"User {user_id} not found or already deleted"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@router.delete("/users/{user_id}/memories")
+async def delete_user_memories(user_id: str):
+    """
+    Hard delete all memories, messages, and blocks for a user.
+    
+    This permanently removes data records while preserving the user record.
+    Use this for data cleanup/purging without affecting the user account itself.
+    
+    Records that are PERMANENTLY DELETED:
+    - Episodic memories for this user
+    - Semantic memories for this user
+    - Procedural memories for this user
+    - Resource memories for this user
+    - Knowledge vault items for this user
+    - Messages for this user
+    - Blocks for this user
+    
+    Records that are PRESERVED:
+    - User record
+    
+    Warning: This operation is irreversible. Deleted data cannot be recovered.
+    """
+    server = get_server()
+    
+    try:
+        server.user_manager.delete_memories_by_user_id(user_id)
+        return {
+            "message": f"All memories for user {user_id} hard deleted successfully",
+            "preserved": ["user"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ============================================================================
 # Client API Endpoints
 # ============================================================================
@@ -1185,13 +1411,67 @@ async def update_client(
 @router.delete("/clients/{client_id}")
 async def delete_client(client_id: str):
     """
-    Delete a client by ID.
+    Soft delete a client by ID.
+    
+    This marks the client and all associated records (agents, tools, blocks) as deleted
+    by setting is_deleted=True. The records remain in the database but are filtered
+    out from queries.
+    
+    Associated records that are soft deleted:
+    - Agents created by this client
+    - Tools created by this client
+    - Blocks created by this client
+    
+    Memory records (episodic, semantic, etc.) remain but are filtered by client.is_deleted.
     """
     server = get_server()
     
     try:
         server.client_manager.delete_client_by_id(client_id)
-        return {"message": f"Client {client_id} deleted successfully"}
+        return {"message": f"Client {client_id} soft deleted successfully"}
+    except Exception as e:
+        error_msg = str(e)
+        # Provide a better error message if client not found or already deleted
+        if "not found" in error_msg.lower() or "no result" in error_msg.lower():
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Client {client_id} not found or already deleted"
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@router.delete("/clients/{client_id}/memories")
+async def delete_client_memories(client_id: str):
+    """
+    Hard delete all memories, messages, and blocks for a client.
+    
+    This permanently removes data records while preserving the client configuration.
+    Use this for data cleanup/purging without affecting the client, agents, or tools.
+    
+    Records that are PERMANENTLY DELETED:
+    - Episodic memories for this client
+    - Semantic memories for this client
+    - Procedural memories for this client
+    - Resource memories for this client
+    - Knowledge vault items for this client
+    - Messages for this client
+    - Blocks created by this client
+    
+    Records that are PRESERVED:
+    - Client record
+    - Agents created by this client
+    - Tools created by this client
+    
+    Warning: This operation is irreversible. Deleted data cannot be recovered.
+    """
+    server = get_server()
+    
+    try:
+        server.client_manager.delete_memories_by_client_id(client_id)
+        return {
+            "message": f"All memories for client {client_id} hard deleted successfully",
+            "preserved": ["client", "agents", "tools"]
+        }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1257,6 +1537,12 @@ async def initialize_meta_agent(
         # Only update the meta agent if update_agents is True
         if request.update_agents:
             from mirix.schemas.agent import UpdateMetaAgent
+
+            # DEBUG: Log what we're passing to update_meta_agent
+            logger.debug("[INIT META AGENT] create_params for UpdateMetaAgent: %s", create_params)
+            logger.debug("[INIT META AGENT] 'agents' in create_params: %s", 'agents' in create_params)
+            if 'agents' in create_params:
+                logger.debug("[INIT META AGENT] agents list: %s", create_params['agents'])
 
             # Update the existing meta agent
             meta_agent = server.agent_manager.update_meta_agent(
@@ -1650,6 +1936,17 @@ async def retrieve_memory_with_conversation(
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
+    # Add client scope to filter_tags (create if not provided)
+    if request.filter_tags is not None:
+        # Create a copy to avoid modifying the original request
+        filter_tags = dict(request.filter_tags)
+    else:
+        # Create new filter_tags if not provided
+        filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    filter_tags["scope"] = client.scope
+
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
@@ -1755,7 +2052,7 @@ async def retrieve_memory_with_conversation(
         agent_state=all_agents[0],
         key_words=key_words,
         limit=request.limit,
-        filter_tags=request.filter_tags,
+        filter_tags=filter_tags,
         use_cache=request.use_cache,
         start_date=start_date,  # NEW: Temporal filtering
         end_date=end_date,      # NEW: Temporal filtering
@@ -1809,6 +2106,15 @@ async def retrieve_memory_with_topic(
                 "topic": topic,
                 "memories": {},
             }
+
+
+    # Add client scope to filter_tags (create if not provided)
+    if parsed_filter_tags is None:
+        # Create new filter_tags if not provided
+        parsed_filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    parsed_filter_tags["scope"] = client.scope
 
     # Get all agents for this user
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)

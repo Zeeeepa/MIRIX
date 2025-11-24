@@ -110,30 +110,229 @@ class UserManager:
 
     @enforce_types
     def delete_user_by_id(self, user_id: str):
-        """Delete a user and their associated records (removes from Redis cache)."""
+        """
+        Soft delete a user and cascade soft delete to all associated records using memory managers.
+        
+        Cleanup workflow:
+        1. Soft delete all memory records using memory managers:
+           - Episodic memories
+           - Semantic memories
+           - Procedural memories
+           - Resource memories
+           - Knowledge vault items
+           - Messages
+           - Blocks
+        
+        2. Database (PostgreSQL):
+           - Set user.is_deleted = True
+        
+        3. Redis Cache:
+           - Update user hash with is_deleted=true
+           - Memory cache entries updated by managers with is_deleted=true
+        
+        Args:
+            user_id: ID of the user to soft delete
+        """
+        from mirix.database.redis_client import get_redis_client
+        from mirix.log import get_logger
+
+        logger = get_logger(__name__)
+        logger.info("Soft deleting user %s and all associated records using memory managers...", user_id)
+
+        # Import memory managers
+        from mirix.services.episodic_memory_manager import EpisodicMemoryManager
+        from mirix.services.semantic_memory_manager import SemanticMemoryManager
+        from mirix.services.procedural_memory_manager import ProceduralMemoryManager
+        from mirix.services.resource_memory_manager import ResourceMemoryManager
+        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.message_manager import MessageManager
+        from mirix.services.block_manager import BlockManager
+
+        # 1. Soft delete all memory records using memory managers
+        episodic_manager = EpisodicMemoryManager()
+        semantic_manager = SemanticMemoryManager()
+        procedural_manager = ProceduralMemoryManager()
+        resource_manager = ResourceMemoryManager()
+        knowledge_manager = KnowledgeVaultManager()
+        message_manager = MessageManager()
+        block_manager = BlockManager()
+
+        episodic_count = episodic_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d episodic memories for user %s", episodic_count, user_id)
+
+        semantic_count = semantic_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d semantic memories for user %s", semantic_count, user_id)
+
+        procedural_count = procedural_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d procedural memories for user %s", procedural_count, user_id)
+
+        resource_count = resource_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d resource memories for user %s", resource_count, user_id)
+
+        knowledge_count = knowledge_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d knowledge vault items for user %s", knowledge_count, user_id)
+
+        message_count = message_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d messages for user %s", message_count, user_id)
+
+        block_count = block_manager.soft_delete_by_user_id(user_id=user_id)
+        logger.debug("Soft deleted %d blocks for user %s", block_count, user_id)
+
+        # 2. Soft delete user
         with self.session_maker() as session:
-            # Delete from user table
+            # Find user
             user = UserModel.read(db_session=session, identifier=user_id)
-            
-            # Remove from Redis cache before hard delete
+            if not user:
+                logger.warning("User %s not found", user_id)
+                return
+
+            # Soft delete user (set is_deleted = True directly, don't call user.delete())
+            user.is_deleted = True
+            user.set_updated_at()
+            session.commit()
+            logger.info("Soft deleted user %s from database", user_id)
+
+            # 3. Update Redis cache to reflect soft delete
             try:
-                from mirix.database.redis_client import get_redis_client
-                from mirix.log import get_logger
-                
-                logger = get_logger(__name__)
                 redis_client = get_redis_client()
                 if redis_client:
-                    redis_key = f"{redis_client.USER_PREFIX}{user_id}"
-                    redis_client.delete(redis_key)
-                    logger.debug("Removed user %s from Redis cache", user_id)
-            except Exception as e:
-                from mirix.log import get_logger
-                logger = get_logger(__name__)
-                logger.warning("Failed to remove user %s from Redis cache: %s", user_id, e)
-            
-            user.hard_delete(session)
+                    # Update user hash with is_deleted=true
+                    user_key = f"{redis_client.USER_PREFIX}{user_id}"
+                    try:
+                        redis_client.client.hset(user_key, "is_deleted", "true")
+                        logger.debug("Updated user %s in Redis (is_deleted=true)", user_id)
+                    except Exception as e:
+                        logger.warning("Failed to update user in Redis, removing instead: %s", e)
+                        redis_client.delete(user_key)
 
-            session.commit()
+                    logger.info(
+                        "✅ User %s and all associated records soft deleted: "
+                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks",
+                        user_id, episodic_count, semantic_count, procedural_count,
+                        resource_count, knowledge_count, message_count, block_count
+                    )
+            except Exception as e:
+                logger.warning("Failed to update Redis cache for user %s: %s", user_id, e)
+
+    def delete_memories_by_user_id(self, user_id: str):
+        """
+        Hard delete memories, messages, and blocks for a user using memory managers' bulk delete.
+        
+        This permanently removes data records while preserving the user record.
+        Uses optimized bulk delete methods in each manager for efficient deletion.
+        
+        Cleanup workflow:
+        1. Call each memory manager's delete_by_user_id() method
+           - EpisodicMemoryManager.delete_by_user_id()
+           - SemanticMemoryManager.delete_by_user_id()
+           - ProceduralMemoryManager.delete_by_user_id()
+           - ResourceMemoryManager.delete_by_user_id()
+           - KnowledgeVaultManager.delete_by_user_id()
+           - MessageManager.delete_by_user_id()
+           - BlockManager.delete_by_user_id()
+        2. Each manager handles:
+           - Bulk database deletion
+           - Redis cache cleanup
+           - Business logic
+        3. PRESERVE: user record
+        
+        Args:
+            user_id: ID of the user whose memories to delete
+        """
+        from mirix.log import get_logger
+
+        logger = get_logger(__name__)
+        logger.info("Bulk deleting memories for user %s using memory managers (preserving user record)...", user_id)
+
+        # Import managers
+        from mirix.services.episodic_memory_manager import EpisodicMemoryManager
+        from mirix.services.semantic_memory_manager import SemanticMemoryManager
+        from mirix.services.procedural_memory_manager import ProceduralMemoryManager
+        from mirix.services.resource_memory_manager import ResourceMemoryManager
+        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.message_manager import MessageManager
+        from mirix.services.block_manager import BlockManager
+
+        # Initialize managers
+        episodic_manager = EpisodicMemoryManager()
+        semantic_manager = SemanticMemoryManager()
+        procedural_manager = ProceduralMemoryManager()
+        resource_manager = ResourceMemoryManager()
+        knowledge_manager = KnowledgeVaultManager()
+        message_manager = MessageManager()
+        block_manager = BlockManager()
+
+        # Use managers' bulk delete methods
+        try:
+            # Bulk delete memories using manager methods
+            episodic_count = episodic_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d episodic memories", episodic_count)
+
+            semantic_count = semantic_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d semantic memories", semantic_count)
+
+            procedural_count = procedural_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d procedural memories", procedural_count)
+
+            resource_count = resource_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d resource memories", resource_count)
+
+            knowledge_count = knowledge_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d knowledge vault items", knowledge_count)
+
+            message_count = message_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d messages", message_count)
+
+            block_count = block_manager.delete_by_user_id(user_id=user_id)
+            logger.debug("Bulk deleted %d blocks", block_count)
+
+            # Clear message_ids from ALL agents in PostgreSQL (messages are user-scoped, agents are client-scoped)
+            # IMPORTANT: Keep the first message (system message) as agents need it to function
+            # We need to clear message_ids from all agents that might have cached this user's messages
+            with self.session_maker() as session:
+                from mirix.orm.agent import Agent as AgentModel
+                # Update ALL agents to keep only system messages
+                # (We can't know which agents have which user's messages, so clean all)
+                agents = session.query(AgentModel).all()
+                
+                for agent in agents:
+                    if agent.message_ids and len(agent.message_ids) > 1:  # Has conversation messages
+                        agent.message_ids = [agent.message_ids[0]]  # Keep system message only
+                
+                session.commit()
+                logger.debug("Cleared conversation message_ids from %d agents in PostgreSQL (kept system messages)", len(agents))
+            
+            # Invalidate agent caches that might reference deleted messages for this user
+            from mirix.database.redis_client import get_redis_client
+            redis_client = get_redis_client()
+            if redis_client:
+                # Use SCAN to find all agent keys and delete them
+                cursor = 0
+                invalidated_count = 0
+                while True:
+                    cursor, keys = redis_client.client.scan(
+                        cursor=cursor,
+                        match=f"{redis_client.AGENT_PREFIX}*",
+                        count=100
+                    )
+                    if keys:
+                        redis_client.client.delete(*keys)
+                        invalidated_count += len(keys)
+                    if cursor == 0:
+                        break
+                if invalidated_count > 0:
+                    logger.debug("✅ Invalidated %d agent caches due to user deletion", invalidated_count)
+
+            logger.info(
+                "✅ Bulk deleted all memories for user %s: "
+                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks "
+                "(user record preserved)",
+                user_id, episodic_count, semantic_count, procedural_count,
+                resource_count, knowledge_count, message_count, block_count
+            )
+        except Exception as e:
+            logger.error("Failed to bulk delete memories for user %s: %s", user_id, e)
+            raise
 
     @enforce_types
     def get_user_by_id(self, user_id: str) -> PydanticUser:

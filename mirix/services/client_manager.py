@@ -135,29 +135,311 @@ class ClientManager:
 
     @enforce_types
     def delete_client_by_id(self, client_id: str):
-        """Hard delete a client and their associated records (removes from Redis cache)."""
+        """
+        Soft delete a client and cascade soft delete to all associated records.
+        
+        Cleanup workflow:
+        1. Soft delete all memory records using memory managers:
+           - Episodic memories
+           - Semantic memories
+           - Procedural memories
+           - Resource memories
+           - Knowledge vault items
+           - Messages
+        
+        2. Database (PostgreSQL):
+           - Set client.is_deleted = True
+           - Set agents.is_deleted = True for agents created by this client
+           - Set tools.is_deleted = True for tools created by this client
+           - Set blocks.is_deleted = True for blocks created by this client
+        
+        3. Redis Cache:
+           - Update client hash with is_deleted=true
+           - Update agent hashes with is_deleted=true
+           - Update memory cache entries with is_deleted=true
+        
+        Args:
+            client_id: ID of the client to soft delete
+        """
+        from mirix.database.redis_client import get_redis_client
+        from mirix.log import get_logger
+
+        logger = get_logger(__name__)
+        logger.info("Soft deleting client %s and all associated records...", client_id)
+
+        # Get client for actor parameter
+        client = self.get_client_by_id(client_id)
+        
+        # Import memory managers
+        from mirix.services.episodic_memory_manager import EpisodicMemoryManager
+        from mirix.services.semantic_memory_manager import SemanticMemoryManager
+        from mirix.services.procedural_memory_manager import ProceduralMemoryManager
+        from mirix.services.resource_memory_manager import ResourceMemoryManager
+        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.message_manager import MessageManager
+
+        # 1. Soft delete all memory records using memory managers
+        episodic_manager = EpisodicMemoryManager()
+        semantic_manager = SemanticMemoryManager()
+        procedural_manager = ProceduralMemoryManager()
+        resource_manager = ResourceMemoryManager()
+        knowledge_manager = KnowledgeVaultManager()
+        message_manager = MessageManager()
+
+        episodic_count = episodic_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d episodic memories", episodic_count)
+
+        semantic_count = semantic_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d semantic memories", semantic_count)
+
+        procedural_count = procedural_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d procedural memories", procedural_count)
+
+        resource_count = resource_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d resource memories", resource_count)
+
+        knowledge_count = knowledge_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d knowledge vault items", knowledge_count)
+
+        message_count = message_manager.soft_delete_by_client_id(actor=client)
+        logger.debug("Soft deleted %d messages", message_count)
+
+        # 2. Soft delete client metadata records
         with self.session_maker() as session:
-            # Delete from client table
-            client = ClientModel.read(db_session=session, identifier=client_id)
+            # Find client
+            client_orm = ClientModel.read(db_session=session, identifier=client_id)
+            if not client_orm:
+                logger.warning("Client %s not found", client_id)
+                return
 
-            # Remove from Redis cache before hard delete
+            # Find all agents created by this client
+            from mirix.orm.agent import Agent as AgentModel
+            from mirix.orm.tool import Tool as ToolModel
+            from mirix.orm.block import Block as BlockModel
+            
+            agents_created_by_client = session.query(AgentModel).filter(
+                AgentModel._created_by_id == client_id,
+                AgentModel.is_deleted == False
+            ).all()
+            agent_ids = [agent.id for agent in agents_created_by_client]
+            logger.debug("Found %d agents created by client %s", len(agent_ids), client_id)
+
+            # Soft delete agents (set is_deleted = True directly, don't call agent.delete())
+            for agent in agents_created_by_client:
+                agent.is_deleted = True
+                agent.set_updated_at()
+            logger.debug("Soft deleted %d agents", len(agent_ids))
+
+            # Soft delete tools created by this client
+            tools = session.query(ToolModel).filter(
+                ToolModel._created_by_id == client_id,
+                ToolModel.is_deleted == False
+            ).all()
+            for tool in tools:
+                tool.is_deleted = True
+                tool.set_updated_at()
+            logger.debug("Soft deleted %d tools", len(tools))
+
+            # Soft delete blocks created by this client
+            blocks = session.query(BlockModel).filter(
+                BlockModel._created_by_id == client_id,
+                BlockModel.is_deleted == False
+            ).all()
+            for block in blocks:
+                block.is_deleted = True
+                block.set_updated_at()
+            logger.debug("Soft deleted %d blocks", len(blocks))
+
+            # Soft delete client (set is_deleted = True directly, don't call client_orm.delete())
+            client_orm.is_deleted = True
+            client_orm.set_updated_at()
+            session.commit()
+            logger.info("Soft deleted client %s from database", client_id)
+
+            # 3. Update Redis cache to reflect soft delete
             try:
-                from mirix.database.redis_client import get_redis_client
-                from mirix.log import get_logger
-
-                logger = get_logger(__name__)
                 redis_client = get_redis_client()
                 if redis_client:
-                    redis_key = f"{redis_client.CLIENT_PREFIX}{client_id}"
-                    redis_client.delete(redis_key)
-                    logger.debug("Removed client %s from Redis cache", client_id)
-            except Exception as e:
-                from mirix.log import get_logger
-                logger = get_logger(__name__)
-                logger.warning("Failed to remove client %s from Redis cache: %s", client_id, e)
+                    # Update client hash with is_deleted=true
+                    client_key = f"{redis_client.CLIENT_PREFIX}{client_id}"
+                    try:
+                        # Update the is_deleted field in Redis
+                        redis_client.client.hset(client_key, "is_deleted", "true")
+                        logger.debug("Updated client %s in Redis (is_deleted=true)", client_id)
+                    except Exception as e:
+                        logger.warning("Failed to update client in Redis, removing instead: %s", e)
+                        redis_client.delete(client_key)
 
-            client.hard_delete(session)
-            session.commit()
+                    # Update agent hashes with is_deleted=true
+                    for agent_id in agent_ids:
+                        agent_key = f"{redis_client.AGENT_PREFIX}{agent_id}"
+                        try:
+                            redis_client.client.hset(agent_key, "is_deleted", "true")
+                        except Exception:
+                            # If update fails, remove from cache
+                            redis_client.delete(agent_key)
+                    logger.debug("Updated %d agents in Redis cache (is_deleted=true)", len(agent_ids))
+
+                    logger.info(
+                        "✅ Client %s and all associated records soft deleted: "
+                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages",
+                        client_id, episodic_count, semantic_count, procedural_count,
+                        resource_count, knowledge_count, message_count
+                    )
+            except Exception as e:
+                logger.warning("Failed to update Redis cache for client %s: %s", client_id, e)
+
+    def delete_memories_by_client_id(self, client_id: str):
+        """
+        Hard delete memories, messages, and blocks for a client using memory managers' bulk delete.
+        
+        This permanently removes data records while preserving the client, agents, and tools.
+        Uses optimized bulk delete methods in each manager for efficient deletion.
+        
+        Cleanup workflow:
+        1. Call each memory manager's delete_by_client_id() method
+           - EpisodicMemoryManager.delete_by_client_id()
+           - SemanticMemoryManager.delete_by_client_id()
+           - ProceduralMemoryManager.delete_by_client_id()
+           - ResourceMemoryManager.delete_by_client_id()
+           - KnowledgeVaultManager.delete_by_client_id()
+           - MessageManager.delete_by_client_id()
+        2. Delete blocks (via _created_by_id)
+        3. Each manager handles:
+           - Bulk database deletion
+           - Redis cache cleanup
+           - Business logic
+        4. PRESERVE: client record, agents, tools
+        
+        Args:
+            client_id: ID of the client whose memories to delete
+        """
+        from mirix.log import get_logger
+
+        logger = get_logger(__name__)
+        logger.info("Bulk deleting memories for client %s using memory managers (preserving client, agents, tools)...", client_id)
+
+        # Import managers
+        from mirix.services.episodic_memory_manager import EpisodicMemoryManager
+        from mirix.services.semantic_memory_manager import SemanticMemoryManager
+        from mirix.services.procedural_memory_manager import ProceduralMemoryManager
+        from mirix.services.resource_memory_manager import ResourceMemoryManager
+        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.message_manager import MessageManager
+
+        # Initialize managers
+        episodic_manager = EpisodicMemoryManager()
+        semantic_manager = SemanticMemoryManager()
+        procedural_manager = ProceduralMemoryManager()
+        resource_manager = ResourceMemoryManager()
+        knowledge_manager = KnowledgeVaultManager()
+        message_manager = MessageManager()
+
+        # Get client as actor for manager methods
+        client = self.get_client_by_id(client_id)
+        if not client:
+            logger.warning("Client %s not found", client_id)
+            return
+
+        # Use managers' bulk delete methods (much more efficient)
+        try:
+            # Bulk delete memories using manager methods (actor.id is used as client_id)
+            episodic_count = episodic_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d episodic memories", episodic_count)
+
+            semantic_count = semantic_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d semantic memories", semantic_count)
+
+            procedural_count = procedural_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d procedural memories", procedural_count)
+
+            resource_count = resource_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d resource memories", resource_count)
+
+            knowledge_count = knowledge_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d knowledge vault items", knowledge_count)
+
+            message_count = message_manager.delete_by_client_id(actor=client)
+            logger.debug("Bulk deleted %d messages", message_count)
+
+            # Delete blocks created by this client (using bulk operations)
+            block_count = 0
+            block_ids = []
+            with self.session_maker() as session:
+                from mirix.orm.block import Block as BlockModel
+                
+                # Get block IDs first (for Redis cleanup and agent cache invalidation)
+                block_ids = [row[0] for row in session.query(BlockModel.id).filter(
+                    BlockModel._created_by_id == client_id
+                ).all()]
+                
+                block_count = len(block_ids)
+                if block_count > 0:
+                    # Invalidate agent caches for all blocks (before deletion)
+                    from mirix.services.block_manager import BlockManager
+                    block_manager = BlockManager()
+                    for block_id in block_ids:
+                        block_manager._invalidate_agent_caches_for_block(block_id)
+                    
+                    # Bulk delete in single query
+                    session.query(BlockModel).filter(
+                        BlockModel._created_by_id == client_id
+                    ).delete(synchronize_session=False)
+                    
+                    session.commit()
+            
+            # Remove blocks from Redis cache (outside session context)
+            if block_ids:
+                from mirix.database.redis_client import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_keys = [f"{redis_client.BLOCK_PREFIX}{block_id}" for block_id in block_ids]
+                    # Delete in batches
+                    BATCH_SIZE = 1000
+                    for i in range(0, len(redis_keys), BATCH_SIZE):
+                        batch = redis_keys[i:i + BATCH_SIZE]
+                        redis_client.client.delete(*batch)
+            
+            logger.debug("Bulk deleted %d blocks", block_count)
+
+            # Clear message_ids from agents in PostgreSQL (they reference deleted messages)
+            # IMPORTANT: Keep the first message (system message) as agents need it to function
+            with self.session_maker() as session:
+                from mirix.orm.agent import Agent as AgentModel
+                # Update all agents for this client to keep only the system message
+                agents = session.query(AgentModel).filter(
+                    AgentModel._created_by_id == client_id
+                ).all()
+                
+                agent_ids = [agent.id for agent in agents]
+                for agent in agents:
+                    # Keep only the first message_id (system message), clear the rest
+                    if agent.message_ids and len(agent.message_ids) > 0:
+                        agent.message_ids = [agent.message_ids[0]]  # Keep system message only
+                
+                session.commit()
+                logger.debug("Cleared conversation message_ids from %d agents in PostgreSQL (kept system messages)", len(agent_ids))
+            
+            # Invalidate ALL agent caches for this client (force reload from PostgreSQL with cleared message_ids)
+            from mirix.database.redis_client import get_redis_client
+            redis_client = get_redis_client()
+            if redis_client and agent_ids:
+                logger.debug("Invalidating %d agent caches for client %s", len(agent_ids), client_id)
+                for agent_id in agent_ids:
+                    agent_key = f"{redis_client.AGENT_PREFIX}{agent_id}"
+                    redis_client.delete(agent_key)
+                logger.debug("✅ Invalidated %d agent caches", len(agent_ids))
+
+            logger.info(
+                "✅ Bulk deleted all memories for client %s: "
+                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks "
+                "(client, agents, tools preserved)",
+                client_id, episodic_count, semantic_count, procedural_count,
+                resource_count, knowledge_count, message_count, block_count
+            )
+        except Exception as e:
+            logger.error("Failed to bulk delete memories for client %s: %s", client_id, e)
+            raise
 
     @enforce_types
     def get_client_by_id(self, client_id: str) -> PydanticClient:
