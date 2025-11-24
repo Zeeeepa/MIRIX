@@ -58,7 +58,7 @@ client_dependencies = [
 os.chdir(project_root)
 
 setup(
-    name="jl-ecms-client",
+    name="mirix-client",
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
