@@ -86,10 +86,10 @@ def _validate_occurred_at(occurred_at: Optional[str]) -> Optional[datetime]:
 class MirixClient(AbstractClient):
     """
     Client that communicates with a remote Mirix server via REST API.
-
+    
     This client runs on the user's local machine and makes HTTP requests
     to a Mirix server hosted in the cloud.
-
+    
     Example:
         >>> client = MirixClient(
         ...     base_url="https://api.mirix.ai",
@@ -121,7 +121,7 @@ class MirixClient(AbstractClient):
     ):
         """
         Initialize MirixClient.
-
+        
         This client represents a CLIENT APPLICATION (tenant), not an end-user.
         End-user IDs are passed per-request in the add() method.
 
@@ -139,7 +139,7 @@ class MirixClient(AbstractClient):
             headers: Optional headers to include in the initialization requests
         """
         super().__init__(debug=debug)
-
+        
         # Get base URL from parameter or environment variable
         self.base_url = (
             base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8000")
@@ -150,26 +150,26 @@ class MirixClient(AbstractClient):
             import uuid
 
             client_id = f"client-{uuid.uuid4().hex[:8]}"
-
+        
         if not org_id:
             import uuid
 
             org_id = f"org-{uuid.uuid4().hex[:8]}"
-
+        
         self.client_id = client_id
         self.client_name = client_name or client_id
-        self.client_scope = client_scope
+        self.client_scope = client_scope            
         self.org_id = org_id
         self.org_name = org_name or org_id
         self.timeout = timeout
         self._known_users: Set[str] = set()
-
+        
         # Track initialized meta agent for this project
         self._meta_agent: Optional[AgentState] = None
-
+        
         # Create session with retry logic
         self.session = requests.Session()
-
+        
         # Configure retries
         retry_strategy = Retry(
             total=max_retries,
@@ -188,14 +188,14 @@ class MirixClient(AbstractClient):
         adapter = HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
-
+        
         # Set headers
         if self.client_id:
             self.session.headers.update({"X-Client-ID": self.client_id})
-
+        
         if self.org_id:
             self.session.headers.update({"X-Org-ID": self.org_id})
-
+                
         self.session.headers.update({"Content-Type": "application/json"})
 
         # Create organization and client if they don't exist
@@ -205,7 +205,7 @@ class MirixClient(AbstractClient):
         """
         Ensure that the organization and client exist on the server.
         Creates them if they don't exist.
-
+        
         Note: This method does NOT create users. Users are created per-request
         based on the user_id parameter in add() and other methods.
 
@@ -226,7 +226,7 @@ class MirixClient(AbstractClient):
                     self.org_id,
                     self.org_name,
                 )
-
+            
             # Create or get client
             client_response = self._request(
                 "POST",
@@ -266,33 +266,33 @@ class MirixClient(AbstractClient):
     ) -> str:
         """
         Create a user if it doesn't exist, or get existing user.
-
+        
         This method ensures a user exists in the backend database before performing
         operations that require a user_id. If the user already exists, it returns
         the existing user_id. If not, it creates a new user.
-
+        
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
             org_id: Optional organization ID. Defaults to client's org_id if not provided.
-
+            
         Returns:
             str: The user_id (either existing or newly created)
-
+            
         Example:
             >>> client = MirixClient(client_id="my-app", org_id="my-org")
-            >>>
+            >>> 
             >>> # Create user with specific ID
             >>> user_id = client.create_or_get_user(
             ...     user_id="demo-user",
             ...     user_name="Demo User"
             ... )
             >>> print(f"User ready: {user_id}")
-            >>>
+            >>> 
             >>> # Create user with auto-generated ID
             >>> user_id = client.create_or_get_user(user_name="Alice")
             >>> print(f"User created with ID: {user_id}")
-            >>>
+            >>> 
             >>> # Now use the user_id for memory operations
             >>> result = client.add(
             ...     user_id=user_id,
@@ -302,19 +302,19 @@ class MirixClient(AbstractClient):
         # Use client's org_id if not specified
         if not org_id:
             org_id = self.org_id
-
+        
         # Prepare request data
         request_data = {
             "user_id": user_id,
             "name": user_name,
             "org_id": org_id,
         }
-
+        
         # Make API request
         response = self._request(
             "POST", "/users/create_or_get", json=request_data, headers=headers
         )
-
+        
         # Extract and return user_id from response
         if isinstance(response, dict) and "id" in response:
             created_user_id = response["id"]
@@ -371,27 +371,27 @@ class MirixClient(AbstractClient):
     ) -> Any:
         """
         Make an HTTP request to the API.
-
+        
         Args:
             method: HTTP method (GET, POST, etc.)
             endpoint: API endpoint (e.g., "/agents")
             json: JSON body for the request
             params: Query parameters
             headers: Optional headers to merge with session headers
-
+            
         Returns:
             Response data (parsed JSON)
-
+            
         Raises:
             requests.HTTPError: If the request fails
         """
         url = f"{self.base_url}{endpoint}"
-
+        
         if self.debug:
             logger.debug("[MirixClient] %s %s", method, url)
             if json:
                 logger.debug("[MirixClient] Request body: %s", json)
-
+        
         response = self.session.request(
             method=method,
             url=url,
@@ -400,7 +400,7 @@ class MirixClient(AbstractClient):
             timeout=self.timeout,
             headers=headers,
         )
-
+        
         try:
             response.raise_for_status()
         except requests.HTTPError as e:
@@ -410,7 +410,7 @@ class MirixClient(AbstractClient):
             except:
                 error_detail = str(e)
             raise requests.HTTPError(f"API request failed: {error_detail}") from e
-
+        
         # Return parsed JSON if there's content
         if response.content:
             return response.json()
@@ -439,7 +439,7 @@ class MirixClient(AbstractClient):
             params["cursor"] = cursor
         if parent_id:
             params["parent_id"] = parent_id
-
+        
         data = self._request("GET", "/agents", params=params, headers=headers)
         return [AgentState(**agent) for agent in data]
 
@@ -454,7 +454,7 @@ class MirixClient(AbstractClient):
             raise ValueError("Either agent_id or agent_name must be provided")
         if agent_id and agent_name:
             raise ValueError("Only one of agent_id or agent_name can be provided")
-
+        
         existing = self.list_agents(headers=headers)
         if agent_id:
             return str(agent_id) in [str(agent.id) for agent in existing]
@@ -506,7 +506,7 @@ class MirixClient(AbstractClient):
             ],
             "tags": tags,
         }
-
+        
         data = self._request("POST", "/agents", json=request_data, headers=headers)
         return AgentState(**data)
 
@@ -540,7 +540,7 @@ class MirixClient(AbstractClient):
             "memory": memory.model_dump() if memory else None,
             "tags": tags,
         }
-
+        
         data = self._request(
             "PATCH", f"/agents/{agent_id}", json=request_data, headers=headers
         )
@@ -733,7 +733,7 @@ class MirixClient(AbstractClient):
         headers: Optional[Dict[str, str]] = None,
     ) -> MirixResponse:
         """Send a message to an agent.
-
+        
         Args:
             message: The message text to send
             role: The role of the message sender (user/system)
@@ -745,10 +745,10 @@ class MirixClient(AbstractClient):
             filter_tags: Optional filter tags for categorization and filtering.
                 Example: {"project_id": "proj-alpha", "session_id": "sess-123"}
             use_cache: Control Redis cache behavior (default: True)
-
+        
         Returns:
             MirixResponse: The response from the agent
-
+        
         Example:
             >>> response = client.send_message(
             ...     message="What's the status?",
@@ -759,7 +759,7 @@ class MirixClient(AbstractClient):
         """
         if stream or stream_steps or stream_tokens:
             raise NotImplementedError("Streaming not yet implemented in REST API")
-
+        
         request_data = {
             "message": message,
             "role": role,
@@ -767,15 +767,15 @@ class MirixClient(AbstractClient):
             "stream_steps": stream_steps,
             "stream_tokens": stream_tokens,
         }
-
+        
         # Include filter_tags if provided
         if filter_tags is not None:
             request_data["filter_tags"] = filter_tags
-
+        
         # Include use_cache if not default
         if not use_cache:
             request_data["use_cache"] = use_cache
-
+        
         data = self._request(
             "POST", f"/agents/{agent_id}/messages", json=request_data, headers=headers
         )
@@ -799,14 +799,14 @@ class MirixClient(AbstractClient):
         headers: Optional[Dict[str, str]] = None,
     ) -> List[Message]:
         """Get messages from an agent.
-
+        
         Args:
             agent_id: The ID of the agent
             before: Get messages before this cursor
             after: Get messages after this cursor
             limit: Maximum number of messages to retrieve
             use_cache: Control Redis cache behavior (default: True)
-
+        
         Returns:
             List of messages
         """
@@ -815,7 +815,7 @@ class MirixClient(AbstractClient):
             params["cursor"] = before
         if not use_cache:
             params["use_cache"] = "false"
-
+        
         data = self._request(
             "GET", f"/agents/{agent_id}/messages", params=params, headers=headers
         )
@@ -835,7 +835,7 @@ class MirixClient(AbstractClient):
         params = {"limit": limit}
         if cursor:
             params["cursor"] = cursor
-
+        
         data = self._request("GET", "/tools", params=params, headers=headers)
         return [Tool(**tool) for tool in data]
 
@@ -914,7 +914,7 @@ class MirixClient(AbstractClient):
         params = {}
         if label:
             params["label"] = label
-
+        
         data = self._request("GET", "/blocks", params=params, headers=headers)
         return [Block(**block) for block in data]
 
@@ -938,7 +938,7 @@ class MirixClient(AbstractClient):
             "value": value,
             "limit": limit,
         }
-
+        
         block = Block(**block_data)
         data = self._request(
             "POST", "/blocks", json=block.model_dump(), headers=headers
@@ -1070,7 +1070,7 @@ class MirixClient(AbstractClient):
         params = {"limit": limit}
         if cursor:
             params["cursor"] = cursor
-
+        
         data = self._request("GET", "/organizations", params=params, headers=headers)
         return [Organization(**org) for org in data]
 
@@ -1142,32 +1142,32 @@ class MirixClient(AbstractClient):
 
     def _load_system_prompts(self, config: Dict[str, Any]) -> Dict[str, str]:
         """Load all system prompts from the system_prompts_folder.
-
+        
         Args:
             config: Configuration dictionary that may contain 'system_prompts_folder'
-
+            
         Returns:
             Dict mapping agent names to their prompt text
         """
         import logging
         import os
-
+        
         logger = logging.getLogger(__name__)
         prompts = {}
-
+        
         system_prompts_folder = config.get("system_prompts_folder")
         if not system_prompts_folder:
             return prompts
-
+        
         if not os.path.exists(system_prompts_folder):
             return prompts
-
+        
         # Load all .txt files from the system prompts folder
         for filename in os.listdir(system_prompts_folder):
             if filename.endswith(".txt"):
                 agent_name = filename[:-4]  # Strip .txt suffix
                 prompt_file = os.path.join(system_prompts_folder, filename)
-
+                
                 try:
                     with open(prompt_file, "r", encoding="utf-8") as f:
                         prompts[agent_name] = f.read()
@@ -1178,7 +1178,7 @@ class MirixClient(AbstractClient):
                     )
 
         return prompts
-
+    
     def initialize_meta_agent(
         self,
         config: Optional[Dict[str, Any]] = None,
@@ -1188,17 +1188,17 @@ class MirixClient(AbstractClient):
     ) -> AgentState:
         """
         Initialize a meta agent with the given configuration.
-
+        
         This creates a meta memory agent that manages multiple specialized memory agents
         (episodic, semantic, procedural, etc.) for the current project.
-
+        
         Args:
             config: Configuration dictionary with llm_config, embedding_config, etc.
             config_path: Path to YAML config file (alternative to config dict)
-
+            
         Returns:
             AgentState: The initialized meta agent
-
+            
         Example:
             >>> client = MirixClient(org_id="org-123")
             >>> config = {
@@ -1208,21 +1208,21 @@ class MirixClient(AbstractClient):
             >>> meta_agent = client.initialize_meta_agent(config=config)
         """
         # self._ensure_user_exists(user_id)
-
+        
         # Load config from file if provided
         if config_path:
             from pathlib import Path
 
             import yaml
-
+            
             config_file = Path(config_path)
             if config_file.exists():
                 with open(config_file, "r") as f:
                     config = yaml.safe_load(f)
-
+        
         if not config:
             raise ValueError("Either config or config_path must be provided")
-
+        
         # Load system prompts from folder if specified and not already provided
         if (
             config.get("meta_agent_config")
@@ -1240,14 +1240,14 @@ class MirixClient(AbstractClient):
             "config": config,
             "update_agents": update_agents,
         }
-
+        
         # Make API request to initialize meta agent
         data = self._request(
             "POST", "/agents/meta/initialize", json=request_data, headers=headers
         )
         self._meta_agent = AgentState(**data)
         return self._meta_agent
-
+    
     def add(
         self,
         user_id: str,
@@ -1261,10 +1261,10 @@ class MirixClient(AbstractClient):
     ) -> Dict[str, Any]:
         """
         Add conversation turns to memory (asynchronous processing).
-
+        
         This method queues conversation turns for background processing by queue workers.
         The messages are stored in the appropriate memory systems asynchronously.
-
+        
         Args:
             user_id: User ID for the conversation
             messages: List of message dicts with role and content.
@@ -1284,7 +1284,7 @@ class MirixClient(AbstractClient):
                         Example: "2025-11-18T15:30:00"
             headers: Optional headers dict to include in the request. Useful for passing
                     per-request authentication tokens. Example: {"Authorization": "Bearer token123"}
-
+        
         Returns:
             Dict containing:
                 - success (bool): True if message was queued successfully
@@ -1292,14 +1292,14 @@ class MirixClient(AbstractClient):
                 - status (str): "queued" - indicates async processing
                 - agent_id (str): Meta agent ID processing the messages
                 - message_count (int): Number of messages queued
-
+            
         Raises:
             ValueError: If occurred_at format is invalid
 
         Note:
             Processing happens asynchronously. The response indicates the message
             was successfully queued, not that processing is complete.
-
+            
         Example:
             >>> response = client.add(
             ...     user_id='user_123',
@@ -1328,9 +1328,9 @@ class MirixClient(AbstractClient):
         # Validate occurred_at format if provided
         if occurred_at is not None:
             _validate_occurred_at(occurred_at)  # Raises ValueError if invalid
-
+        
         self._ensure_user_exists(user_id, headers=headers)
-
+        
         request_data = {
             "user_id": user_id,
             "org_id": self.org_id,
@@ -1339,18 +1339,18 @@ class MirixClient(AbstractClient):
             "chaining": chaining,
             "verbose": verbose,
         }
-
+        
         if filter_tags is not None:
             request_data["filter_tags"] = filter_tags
-
+        
         if not use_cache:
             request_data["use_cache"] = use_cache
-
+        
         if occurred_at is not None:
             request_data["occurred_at"] = occurred_at
 
         return self._request("POST", "/memory/add", json=request_data, headers=headers)
-
+    
     def retrieve_with_conversation(
         self,
         user_id: str,
@@ -1365,11 +1365,11 @@ class MirixClient(AbstractClient):
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on conversation context with optional temporal filtering.
-
+        
         This method analyzes the conversation and retrieves relevant memories from all memory systems.
         It can automatically extract temporal expressions from queries (e.g., "today", "yesterday")
         or accept explicit date ranges for filtering episodic memories.
-
+        
         Args:
             user_id: User ID for the conversation
             messages: List of message dicts with role and content.
@@ -1388,7 +1388,7 @@ class MirixClient(AbstractClient):
             end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
                      Only episodic memories with occurred_at <= end_date will be returned.
                      Examples: "2025-11-19T23:59:59" or "2025-11-19T23:59:59+00:00"
-
+        
         Returns:
             Dict containing:
             - success: Boolean indicating success
@@ -1396,7 +1396,7 @@ class MirixClient(AbstractClient):
             - temporal_expression: Extracted temporal phrase (if any)
             - date_range: Applied date range filter (if any)
             - memories: Retrieved memories organized by type
-
+            
         Examples:
             >>> # Automatic temporal parsing from query
             >>> memories = client.retrieve_with_conversation(
@@ -1429,9 +1429,9 @@ class MirixClient(AbstractClient):
             raise ValueError(
                 "Meta agent not initialized. Call initialize_meta_agent() first."
             )
-
+        
         self._ensure_user_exists(user_id)
-
+        
         request_data = {
             "user_id": user_id,
             "org_id": self.org_id,
@@ -1439,13 +1439,13 @@ class MirixClient(AbstractClient):
             "limit": limit,
             "local_model_for_retrieval": local_model_for_retrieval,
         }
-
+        
         if filter_tags is not None:
             request_data["filter_tags"] = filter_tags
-
+        
         if not use_cache:
             request_data["use_cache"] = use_cache
-
+        
         # Add temporal filtering parameters
         if start_date is not None:
             request_data["start_date"] = start_date
@@ -1455,7 +1455,7 @@ class MirixClient(AbstractClient):
         return self._request(
             "POST", "/memory/retrieve/conversation", json=request_data, headers=headers
         )
-
+    
     def retrieve_with_topic(
         self,
         user_id: str,
@@ -1467,9 +1467,9 @@ class MirixClient(AbstractClient):
     ) -> Dict[str, Any]:
         """
         Retrieve relevant memories based on a topic.
-
+        
         This method searches for memories related to a specific topic or keyword.
-
+        
         Args:
             user_id: User ID for the conversation
             topic: Topic or keyword to search for
@@ -1477,10 +1477,10 @@ class MirixClient(AbstractClient):
             filter_tags: Optional dict of tags for filtering results.
                         Only memories matching these tags will be returned.
             use_cache: Control Redis cache behavior (default: True)
-
+        
         Returns:
             Dict containing retrieved memories organized by type
-
+            
         Example:
             >>> memories = client.retrieve_with_topic(
             ...     user_id='user_123',
@@ -1493,9 +1493,9 @@ class MirixClient(AbstractClient):
             raise ValueError(
                 "Meta agent not initialized. Call initialize_meta_agent() first."
             )
-
+        
         self._ensure_user_exists(user_id, headers=headers)
-
+        
         params = {
             "user_id": user_id,
             "topic": topic,
@@ -1506,11 +1506,11 @@ class MirixClient(AbstractClient):
         # Encode filter_tags as JSON string for query parameter
         if filter_tags is not None:
             params["filter_tags"] = json.dumps(filter_tags)
-
+        
         return self._request(
             "GET", "/memory/retrieve/topic", params=params, headers=headers
         )
-
+    
     def search(
         self,
         user_id: str,
@@ -1525,14 +1525,14 @@ class MirixClient(AbstractClient):
         """
         Search for memories using various search methods.
         Similar to the search_in_memory tool function.
-
+        
         This method performs a search across specified memory types and returns
         a flat list of results.
-
+        
         Args:
             user_id: User ID for the conversation
             query: Search query
-            memory_type: Type of memory to search. Options: "episodic", "resource",
+            memory_type: Type of memory to search. Options: "episodic", "resource", 
                         "procedural", "knowledge_vault", "semantic", "all" (default: "all")
             search_field: Field to search in. Options vary by memory type:
                          - episodic: "summary", "details"
@@ -1544,7 +1544,7 @@ class MirixClient(AbstractClient):
             search_method: Search method. Options: "bm25" (default), "embedding"
             limit: Maximum number of results per memory type (default: 10)
             org_id: Optional organization scope override (defaults to client's org)
-
+        
         Returns:
             Dict containing:
                 - success: bool
@@ -1554,7 +1554,7 @@ class MirixClient(AbstractClient):
                 - search_method: str (the search method used)
                 - results: List[Dict] (flat list of results from all memory types)
                 - count: int (total number of results)
-
+            
         Example:
             >>> # Search all memory types
             >>> results = client.search(
@@ -1563,7 +1563,7 @@ class MirixClient(AbstractClient):
             ...     limit=5
             ... )
             logger.debug("Found %s results", results['count'])
-            >>>
+            >>> 
             >>> # Search only episodic memories in details field
             >>> episodic_results = client.search(
             ...     user_id='user_123',
@@ -1577,9 +1577,9 @@ class MirixClient(AbstractClient):
             raise ValueError(
                 "Meta agent not initialized. Call initialize_meta_agent() first."
             )
-
+        
         self._ensure_user_exists(user_id, headers=headers)
-
+        
         params = {
             "user_id": user_id,
             "org_id": org_id or self.org_id,
@@ -1589,7 +1589,7 @@ class MirixClient(AbstractClient):
             "search_method": search_method,
             "limit": limit,
         }
-
+        
         return self._request("GET", "/memory/search", params=params, headers=headers)
 
     # ========================================================================

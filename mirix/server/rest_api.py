@@ -546,10 +546,19 @@ async def get_agent(
     x_org_id: Optional[str] = Header(None),
 ):
     """Get an agent by ID."""
+    from mirix.orm.errors import NoResultFound
+    
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
-    return server.agent_manager.get_agent_by_id(agent_id, actor=client)
+    
+    try:
+        return server.agent_manager.get_agent_by_id(agent_id, actor=client)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Agent {agent_id} not found or not accessible"
+        )
 
 
 @router.delete("/agents/{agent_id}")
@@ -1526,10 +1535,11 @@ async def initialize_meta_agent(
         if "system_prompts" in meta_config:
             create_params["system_prompts"] = meta_config["system_prompts"]
 
-    # Check if meta agent already exists for this project
+    # Check if meta agent already exists for this client
+    # list_agents now automatically filters by client (organization_id + _created_by_id)
     existing_meta_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
-    assert len(existing_meta_agents) <= 1, "Only one meta agent can be created for a project"
+    assert len(existing_meta_agents) <= 1, "Only one meta agent can be created per client"
 
     if len(existing_meta_agents) == 1:
         meta_agent = existing_meta_agents[0]
@@ -1607,12 +1617,23 @@ async def add_memory(
 
     if isinstance(message, list) and "role" in message[0].keys():
         # This means the input is in the format of [{"role": "user", "content": [{"type": "text", "text": "..."}]}, {"role": "assistant", "content": [{"type": "text", "text": "..."}]}]
+        # OR the simpler format: [{"role": "user", "content": "Hello world"}]
 
         # We need to convert the message to the format in "content"
         new_message = []
         for msg in message:
             new_message.append({'type': "text", "text": "[USER]" if msg["role"] == "user" else "[ASSISTANT]"})
-            new_message.extend(msg["content"])
+            
+            # Handle both string and list content
+            content = msg["content"]
+            if isinstance(content, str):
+                # Content is a string - convert to proper format
+                new_message.append({'type': "text", "text": content})
+            elif isinstance(content, list):
+                # Content is already a list - extend as before
+                new_message.extend(content)
+            else:
+                raise ValueError(f"Invalid content type: {type(content)}")
         message = new_message
 
     input_messages = convert_message_to_mirix_message(message)
@@ -1947,7 +1968,7 @@ async def retrieve_memory_with_conversation(
     # Add or update the "scope" key with the client's scope
     filter_tags["scope"] = client.scope
 
-    # Get all agents for this user
+    # Get all agents for this client (automatically filtered by client via apply_access_predicate)
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:
@@ -2116,7 +2137,7 @@ async def retrieve_memory_with_topic(
     # Add or update the "scope" key with the client's scope
     parsed_filter_tags["scope"] = client.scope
 
-    # Get all agents for this user
+    # Get all agents for this client (automatically filtered by client via apply_access_predicate)
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:
@@ -2180,7 +2201,7 @@ async def search_memory(
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
-    # Get all agents for this client
+    # Get all agents for this client (automatically filtered by client via apply_access_predicate)
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
 
     if not all_agents:

@@ -603,6 +603,11 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         user: Optional["User"] = None,
     ) -> "Select":
         """applies a WHERE clause restricting results to the given actor and access level
+        
+        For the agents table, this method automatically applies client-level isolation by filtering
+        on both organization_id and _created_by_id (client_id). This ensures each client has their
+        own independent agent hierarchy (meta agent and sub-agents).
+        
         Args:
             query: The initial sqlalchemy select statement
             actor: The user acting on the query. **Note**: this is called 'actor' to identify the
@@ -620,6 +625,21 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
             org_id = getattr(actor, "organization_id", None)
             if not org_id:
                 raise ValueError(f"object {actor} has no organization accessor")
+            
+            # SPECIAL HANDLING FOR AGENTS TABLE: Add client-level isolation
+            # Each client gets their own independent agent hierarchy
+            if cls.__tablename__ == 'agents':
+                client_id = getattr(actor, "id", None)
+                if not client_id:
+                    raise ValueError(f"object {actor} has no client id accessor")
+                # Filter by BOTH organization_id AND _created_by_id (client_id)
+                return query.where(
+                    cls.organization_id == org_id,
+                    cls._created_by_id == client_id,  # Client-level isolation
+                    ~cls.is_deleted
+                )
+            
+            # For all other tables: organization-level filtering only
             return query.where(cls.organization_id == org_id, ~cls.is_deleted)
         elif access_type == AccessType.USER:
             if not user:
