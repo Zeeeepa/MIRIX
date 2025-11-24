@@ -1224,19 +1224,20 @@ class AgentManager:
         self, parent_ids: List[str], session: Session, actor: PydanticClient
     ) -> dict:
         """
-        Fallback method to get children from PostgreSQL.
+        Fallback method to get children from PostgreSQL with client-level filtering.
 
         Args:
             parent_ids: List of parent agent IDs
             session: Database session
-            actor: User performing the operation
+            actor: Client performing the operation (for client-level isolation)
 
         Returns:
             Dictionary mapping parent_id -> list of child agents
         """
+        # Query all agents for this client (triggers client-level filtering via apply_access_predicate)
         children = AgentModel.list(
             db_session=session,
-            organization_id=actor.organization_id if actor else None,
+            actor=actor,  # Triggers client-level filtering (organization_id + _created_by_id)
         )
 
         # Filter children by parent_id and group them
@@ -1248,7 +1249,7 @@ class AgentManager:
                 children_by_parent[child.parent_id].append(child.to_pydantic())
 
         logger.debug(
-            "Retrieved children for %s parent agents from PostgreSQL",
+            "Retrieved children for %s parent agents from PostgreSQL (client-filtered)",
             len(children_by_parent),
         )
         return children_by_parent
@@ -1403,12 +1404,13 @@ class AgentManager:
 
         with self.session_maker() as session:
             # Get agents filtered by parent_id (None for top-level agents, or specific parent_id)
+            # Actor triggers apply_access_predicate which filters by both organization_id and _created_by_id (client isolation)
             agents = AgentModel.list(
                 db_session=session,
+                actor=actor,  # Triggers client-level filtering via apply_access_predicate
                 match_all_tags=match_all_tags,
                 cursor=cursor,
                 limit=limit,
-                organization_id=actor.organization_id if actor else None,
                 query_text=query_text,
                 parent_id=parent_id,
                 **kwargs,
@@ -1574,9 +1576,17 @@ class AgentManager:
                     cached_data.pop("memory_block_ids", None)
                     cached_data.pop("memory_prompt_template", None)
 
-                    return PydanticAgentState(
-                        **cached_data
-                    )  # Cache HIT (agent + tools + memory)
+                    agent_state = PydanticAgentState(**cached_data)
+                    
+                    # SECURITY CHECK: Verify agent belongs to this client
+                    # Prevents cross-client access via Redis cache
+                    if agent_state.created_by_id != actor.id:
+                        from sqlalchemy.exc import NoResultFound
+                        raise NoResultFound(
+                            f"Agent {agent_id} not found or not accessible to client {actor.id}"
+                        )
+                    
+                    return agent_state  # Cache HIT (agent + tools + memory)
         except Exception as e:
             # Log but continue to PostgreSQL on Redis error
             from mirix.log import get_logger
@@ -1584,10 +1594,14 @@ class AgentManager:
             logger = get_logger(__name__)
             logger.warning("Redis cache read failed for agent %s: %s", agent_id, e)
 
-        # Cache MISS or Redis unavailable - fetch from PostgreSQL
+        # Cache MISS or Redis unavailable - fetch from PostgreSQL with client filtering
         with self.session_maker() as session:
+            # AgentModel.read calls apply_access_predicate, which now filters by client (organization_id + _created_by_id)
+            # If agent doesn't belong to this client, read() will raise NoResultFound automatically
             agent = AgentModel.read(
-                db_session=session, identifier=agent_id, actor=actor
+                db_session=session,
+                identifier=agent_id,
+                actor=actor  # Triggers client-level filtering via apply_access_predicate
             )
             pydantic_agent = agent.to_pydantic()
 
