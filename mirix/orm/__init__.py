@@ -2,6 +2,7 @@ from mirix.orm.agent import Agent
 from mirix.orm.base import Base
 from mirix.orm.block import Block
 from mirix.orm.client import Client
+from mirix.orm.client_api_key import ClientApiKey
 from mirix.orm.file import FileMetadata
 from mirix.orm.message import Message
 from mirix.orm.organization import Organization
@@ -16,6 +17,7 @@ __all__ = [
     "Base",
     "Block",
     "Client",
+    "ClientApiKey",
     "FileMetadata",
     "Message",
     "Organization",

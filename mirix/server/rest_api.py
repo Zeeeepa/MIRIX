@@ -143,6 +143,7 @@ app.add_middleware(
 def get_client_and_org(
     x_client_id: Optional[str] = None,
     x_org_id: Optional[str] = None,
+    x_api_key: Optional[str] = None,
 ) -> tuple[str, str]:
     """
     Get client_id and org_id from headers or use defaults.
@@ -152,12 +153,23 @@ def get_client_and_org(
     """
     server = get_server()
     
-    if x_client_id:
+    if x_api_key:
+        # get_client_by_api_key already verifies the API key hash internally
+        client = server.client_manager.get_client_by_api_key(x_api_key)
+        if not client:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        if client.is_deleted or client.status != "active":
+            raise HTTPException(status_code=403, detail="Client is inactive or deleted")
+        client_id = client.id
+        org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
+    elif x_client_id:
         client_id = x_client_id
         org_id = x_org_id or server.organization_manager.DEFAULT_ORG_ID
     else:
-        client_id = server.client_manager.DEFAULT_CLIENT_ID
-        org_id = server.organization_manager.DEFAULT_ORG_ID
+        raise HTTPException(
+            status_code=401,
+            detail="X-API-Key header is required for this endpoint",
+        )
     
     return client_id, org_id
 
@@ -380,7 +392,6 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     }
 
     try:
-        import ipdb; ipdb.set_trace()
         response = requests.post(
             f"{base_url.rstrip('/')}/api/chat",
             json=payload,
@@ -455,10 +466,11 @@ async def list_agents(
     parent_id: Optional[str] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """List all agents for the authenticated user."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     
     tags_list = tags.split(",") if tags else None
@@ -498,10 +510,11 @@ async def create_agent(
     request: CreateAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Create a new agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Create memory blocks if provided
@@ -544,12 +557,13 @@ async def get_agent(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get an agent by ID."""
     from mirix.orm.errors import NoResultFound
     
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     
     try:
@@ -566,10 +580,11 @@ async def delete_agent(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Delete an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     server.agent_manager.delete_agent(agent_id, actor=client)
     return {"status": "success", "message": f"Agent {agent_id} deleted"}
@@ -602,10 +617,11 @@ async def update_agent(
     request: UpdateAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Update an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # TODO: Implement update_agent in server
@@ -618,6 +634,7 @@ async def update_agent_system_prompt_by_name(
     request: UpdateSystemPromptRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Update an agent's system prompt by agent name.
@@ -649,7 +666,7 @@ async def update_agent_system_prompt_by_name(
         }
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     
     # List all top-level agents for this client
@@ -726,6 +743,7 @@ async def update_agent_system_prompt(
     request: UpdateSystemPromptRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Update an agent's system prompt by agent ID.
@@ -753,7 +771,7 @@ async def update_agent_system_prompt(
         }
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     
     updated_agent = server.agent_manager.update_system_prompt(
@@ -774,10 +792,11 @@ async def get_agent_memory(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get an agent's in-context memory."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.get_agent_memory(agent_id=agent_id, actor=client)
 
@@ -787,10 +806,11 @@ async def get_archival_memory_summary(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get archival memory summary."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.get_archival_memory_summary(agent_id=agent_id, actor=client)
 
@@ -800,10 +820,11 @@ async def get_recall_memory_summary(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get recall memory summary."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.get_recall_memory_summary(agent_id=agent_id, actor=client)
 
@@ -816,6 +837,7 @@ async def get_agent_messages(
     use_cache: bool = True,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get messages from an agent.
 
@@ -831,7 +853,7 @@ async def get_agent_messages(
         List of messages
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     return server.get_agent_recall_cursor(
         user_id=user_id,
         agent_id=agent_id,
@@ -859,6 +881,7 @@ async def send_message_to_agent(
     request: SendMessageRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Send a message to an agent and get a response.
     
@@ -875,7 +898,7 @@ async def send_message_to_agent(
         MirixResponse: The agent's response including messages and usage statistics
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     try:
@@ -919,10 +942,11 @@ async def list_tools(
     limit: int = 50,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """List all tools."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=client)
 
@@ -932,10 +956,11 @@ async def get_tool(
     tool_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get a tool by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.get_tool_by_id(tool_id, actor=client)
 
@@ -945,10 +970,11 @@ async def create_tool(
     tool: Tool,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Create a new tool."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.create_tool(tool, actor=client)
 
@@ -958,10 +984,11 @@ async def delete_tool(
     tool_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Delete a tool."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     server.tool_manager.delete_tool_by_id(tool_id, actor=client)
     return {"status": "success", "message": f"Tool {tool_id} deleted"}
@@ -977,10 +1004,11 @@ async def list_blocks(
     label: Optional[str] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """List all blocks."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_default_user()
@@ -992,10 +1020,11 @@ async def get_block(
     block_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Get a block by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_default_user()
@@ -1008,10 +1037,11 @@ async def create_block(
     user: Optional[User] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Create a block."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     return server.block_manager.create_or_update_block(block, actor=client, user=user)
 
@@ -1021,10 +1051,11 @@ async def delete_block(
     block_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """Delete a block."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     server.block_manager.delete_block(block_id, actor=client)
     return {"status": "success", "message": f"Block {block_id} deleted"}
@@ -1503,6 +1534,7 @@ async def initialize_meta_agent(
     request: InitializeMetaAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Initialize a meta agent with configuration.
@@ -1510,7 +1542,7 @@ async def initialize_meta_agent(
     This creates a meta memory agent that manages specialized memory agents.
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Extract config components
@@ -1584,6 +1616,7 @@ async def add_memory(
     request: AddMemoryRequest,
     x_org_id: Optional[str] = Header(None),
     x_client_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Add conversation turns to memory (async via queue).
@@ -1592,7 +1625,7 @@ async def add_memory(
     Processing happens in the background, allowing for fast API response times.
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     
     # If client doesn't exist, create the default client
@@ -1947,6 +1980,7 @@ async def retrieve_memory_with_conversation(
     request: RetrieveMemoryRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on conversation context.
@@ -1954,7 +1988,7 @@ async def retrieve_memory_with_conversation(
     """
 
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Add client scope to filter_tags (create if not provided)
@@ -2100,6 +2134,7 @@ async def retrieve_memory_with_topic(
     use_cache: bool = True,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on a topic using BM25 search.
@@ -2112,7 +2147,7 @@ async def retrieve_memory_with_topic(
         use_cache: Whether to use cached results (default: True)
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Parse filter_tags from JSON string to dict
@@ -2177,6 +2212,7 @@ async def search_memory(
     limit: int = 10,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Search for memories using various search methods.
@@ -2198,7 +2234,7 @@ async def search_memory(
         limit: Maximum number of results per memory type (default: 10)
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Get all agents for this client (automatically filtered by client via apply_access_predicate)

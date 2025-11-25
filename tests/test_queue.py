@@ -58,8 +58,7 @@ def sample_client():
         scope="read_write",
         created_at=datetime.now(),
         updated_at=datetime.now(),
-        is_deleted=False,
-        api_key_hash=None
+        is_deleted=False
     )
 
 

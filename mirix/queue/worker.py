@@ -63,8 +63,7 @@ class QueueWorker:
             # Client doesn't have timezone field - it's only for User
             created_at=proto_user.created_at.ToDatetime() if proto_user.HasField('created_at') else datetime.now(),
             updated_at=proto_user.updated_at.ToDatetime() if proto_user.HasField('updated_at') else datetime.now(),
-            is_deleted=proto_user.is_deleted,
-            api_key_hash=None  # No API key hash from protobuf
+            is_deleted=proto_user.is_deleted
         )
     
     def _convert_proto_message_to_pydantic(self, proto_msg) -> 'MessageCreate':

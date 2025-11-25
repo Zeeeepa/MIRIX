@@ -20,17 +20,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# stay in the source code root directory
+# Before running the script, run the following command:
+# python scripts/start_server.py
+# python samples/generate_demo_api_key.py
+#      The above command will output the api key, which we use "your_api_key_here" to denote
+# export MIRIX_API_KEY=your_api_key_here
+# then run python samples/run_client.py
 
 def main():
     
     # Create MirixClient (connects to server via REST API)
-    client_id = 'demo-client-app'  # Identifies the client application
     user_id = 'demo-user'  # Identifies the end-user within the client app
     org_id = 'demo-org'
+    api_key = os.environ.get("MIRIX_API_KEY")
+    if not api_key:
+        raise ValueError("Set MIRIX_API_KEY to the issued client API key before running the demo.")
     
     client = MirixClient(
-        api_key=None, # TODO: add authentication later
-        client_id=client_id,
+        api_key=api_key,
         client_name="Demo Client Application",
         client_scope="Sales",
         org_id=org_id,
@@ -38,25 +46,25 @@ def main():
     )
 
     client.initialize_meta_agent(
-        config_path="../mirix/configs/examples/mirix_gemini.yaml",
+        config_path="mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
         update_agents=False,
     )
 
-    # result = client.add(
-    #    user_id=user_id,
-    #    messages=[
-    #        {
-    #            "role": "user",
-    #            "content": [{
-    #                "type": "text",
-    #                "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-    #            }]
-    #        },
-    #    ],
-    #    chaining=False
-    #)
-    #print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    result = client.add(
+       user_id=user_id,
+       messages=[
+           {
+               "role": "user",
+               "content": [{
+                   "type": "text",
+                   "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
+               }]
+           },
+       ],
+       chaining=False
+    )
+    print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
     # 4. Example: Retrieve memories using new API
     print("Step 4: Retrieving memories with conversation context...")

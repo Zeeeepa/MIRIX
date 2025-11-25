@@ -107,10 +107,9 @@ class MirixClient(AbstractClient):
 
     def __init__(
         self,
-        org_id: str,
+        org_id: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        client_id: Optional[str] = None,
         client_name: Optional[str] = None,
         client_scope: str = "",
         org_name: Optional[str] = None,
@@ -126,12 +125,10 @@ class MirixClient(AbstractClient):
         End-user IDs are passed per-request in the add() method.
 
         Args:
-            org_id: Organization ID (required)
+            org_id: Organization ID (optional; if omitted the server infers from API key)
             base_url: Base URL of the Mirix API server (optional, can also be set via MIRIX_API_URL env var, default: "http://localhost:8000")
-            client_id: Client ID representing this application (optional, will be auto-generated if not provided)
-            client_name: Client name (optional, defaults to client_id if not provided)
+            client_name: Client name (optional, defaults to a generic label)
             client_scope: Client scope (read, write, read_write, admin), default: "read_write"
-            org_id: Organization ID (optional, will be auto-generated if not provided)
             org_name: Organization name (optional, defaults to org_id if not provided)
             debug: Whether to enable debug logging
             timeout: Request timeout in seconds
@@ -145,24 +142,15 @@ class MirixClient(AbstractClient):
             base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8000")
         ).rstrip("/")
 
-        # Generate IDs if not provided
-        if not client_id:
-            import uuid
-
-            client_id = f"client-{uuid.uuid4().hex[:8]}"
-        
-        if not org_id:
-            import uuid
-
-            org_id = f"org-{uuid.uuid4().hex[:8]}"
-        
-        self.client_id = client_id
-        self.client_name = client_name or client_id
+        self.client_name = client_name or "mirix-client"
         self.client_scope = client_scope            
         self.org_id = org_id
         self.org_name = org_name or org_id
         self.timeout = timeout
         self._known_users: Set[str] = set()
+        self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
+        if not self.api_key:
+            raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
         
         # Track initialized meta agent for this project
         self._meta_agent: Optional[AgentState] = None
@@ -190,16 +178,17 @@ class MirixClient(AbstractClient):
         self.session.mount("https://", adapter)
         
         # Set headers
-        if self.client_id:
-            self.session.headers.update({"X-Client-ID": self.client_id})
-        
         if self.org_id:
             self.session.headers.update({"X-Org-ID": self.org_id})
+        
+        if self.api_key:
+            self.session.headers.update({"X-API-Key": self.api_key})
                 
         self.session.headers.update({"Content-Type": "application/json"})
 
-        # Create organization and client if they don't exist
-        self._ensure_org_and_client_exist(headers=headers)
+        # Create organization if requested; with API-key auth the server already knows the client.
+        if self.org_id:
+            self._ensure_org_and_client_exist(headers=headers)
 
     def _ensure_org_and_client_exist(self, headers: Optional[Dict[str, str]] = None):
         """
@@ -227,26 +216,7 @@ class MirixClient(AbstractClient):
                     self.org_name,
                 )
             
-            # Create or get client
-            client_response = self._request(
-                "POST",
-                "/clients/create_or_get",
-                json={
-                    "client_id": self.client_id,
-                    "name": self.client_name,
-                    "org_id": self.org_id,
-                    "scope": self.client_scope,
-                    "status": "active",
-                },
-                headers=headers,
-            )
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Client initialized: %s (name: %s, scope: %s)",
-                    self.client_id,
-                    self.client_name,
-                    self.client_scope,
-                )
+            # Client exists server-side via API key; no creation needed here.
         except Exception as e:
             # Don't fail initialization if this fails - the server might handle it
             if self.debug:
@@ -280,7 +250,7 @@ class MirixClient(AbstractClient):
             str: The user_id (either existing or newly created)
             
         Example:
-            >>> client = MirixClient(client_id="my-app", org_id="my-org")
+            >>> client = MirixClient(api_key="your-key", org_id="my-org")
             >>> 
             >>> # Create user with specific ID
             >>> user_id = client.create_or_get_user(
@@ -583,7 +553,7 @@ class MirixClient(AbstractClient):
             Exception: If agent with the given name is not found
             
         Example:
-            >>> client = MirixClient(client_id="my-app")
+            >>> client = MirixClient(api_key="your-key")
             >>> 
             >>> # Update episodic memory agent's system prompt
             >>> updated_agent = client.update_system_prompt(

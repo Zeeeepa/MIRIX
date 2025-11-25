@@ -377,8 +377,16 @@ class UserManager:
 
     @enforce_types
     def get_default_user(self) -> PydanticUser:
-        """Fetch the default user."""
-        return self.get_user_by_id(self.DEFAULT_USER_ID)
+        """Fetch the default user, creating it if it doesn't exist."""
+        try:
+            return self.get_user_by_id(self.DEFAULT_USER_ID)
+        except NoResultFound:
+            # Default user doesn't exist, create it
+            # First ensure the default organization exists
+            from mirix.services.organization_manager import OrganizationManager
+            org_mgr = OrganizationManager()
+            org_mgr.get_default_organization()  # Auto-creates if missing
+            return self.create_default_user(org_id=OrganizationManager.DEFAULT_ORG_ID)
 
     @enforce_types
     def get_user_or_default(self, user_id: Optional[str] = None):
