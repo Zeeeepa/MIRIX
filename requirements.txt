@@ -53,3 +53,4 @@ pytest
 pytest-cov
 pyyaml
 requests
+bcrypt

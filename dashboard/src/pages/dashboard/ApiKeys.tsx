@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import apiClient from '@/api/client';
@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Copy, Check, Trash2, Key, ExternalLink } from 'lucide-react';
+import { Plus, Copy, Check, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ApiKey {

@@ -11,7 +11,6 @@ Prerequisites:
 import logging
 import os
 
-from mirix.schemas.agent import AgentType
 from mirix import MirixClient
 
 # Configure logging
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 # python scripts/start_server.py
 # python samples/generate_demo_api_key.py
 #      The above command will output the api key, which we use "your_api_key_here" to denote
-# export MIRIX_API_KEY=your_api_key_here
+# export MIRIX_API_KEY=your_api_key_here # for windows it should be: $env:MIRIX_API_KEY = "sk-your-key-here"
 # then run python samples/run_client.py
 
 def main():

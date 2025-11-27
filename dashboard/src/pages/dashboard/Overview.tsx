@@ -1,10 +1,9 @@
-import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Key, Brain, Users } from 'lucide-react';
+import { ArrowRight, Brain, Users } from 'lucide-react';
 
 export const Overview: React.FC = () => {
   const { user } = useAuth(); // Client (Admin)

@@ -1,7 +1,6 @@
-import React from 'react';
-import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Key, Brain, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Key, Brain, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Overview } from './dashboard/Overview';
 import { ApiKeys } from './dashboard/ApiKeys';
@@ -12,7 +11,6 @@ import logoImg from '@/assets/logo.png';
 
 export const Dashboard: React.FC = () => {
   const { user, logout } = useAuth();
-  const location = useLocation();
 
   const navigation = [
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard, end: true },
@@ -36,27 +34,22 @@ export const Dashboard: React.FC = () => {
 
           <div className="flex-1 flex flex-col justify-between px-4 pb-4">
             <nav className="space-y-1">
-              {navigation.map((item) => {
-                const isActive = item.end 
-                  ? location.pathname === item.href 
-                  : location.pathname.startsWith(item.href);
-                  
-                return (
-                  <NavLink
-                    key={item.name}
-                    to={item.href}
-                    className={({ isActive }) => `
-                      flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors
-                      ${isActive 
-                        ? 'bg-primary/10 text-primary' 
-                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}
-                    `}
-                  >
-                    <item.icon className="mr-3 h-4 w-4" />
-                    {item.name}
-                  </NavLink>
-                );
-              })}
+              {navigation.map((item) => (
+                <NavLink
+                  key={item.name}
+                  to={item.href}
+                  end={item.end}
+                  className={(navData) => `
+                    flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors
+                    ${navData.isActive 
+                      ? 'bg-primary/10 text-primary' 
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}
+                  `}
+                >
+                  <item.icon className="mr-3 h-4 w-4" />
+                  {item.name}
+                </NavLink>
+              ))}
             </nav>
             
             <div className="space-y-4 mt-auto pt-4 border-t">
