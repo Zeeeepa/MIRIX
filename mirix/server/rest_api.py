@@ -351,8 +351,6 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
     """
 
-    import ipdb; ipdb.set_trace()
-
     base_url = model_settings.ollama_base_url
     if not base_url:
         logger.warning(
@@ -1201,21 +1199,47 @@ class CreateOrGetUserRequest(BaseModel):
 
     user_id: Optional[str] = None
     name: Optional[str] = None
-    org_id: Optional[str] = None
 
 
 @router.post("/users/create_or_get", response_model=User)
 async def create_or_get_user(
     request: CreateOrGetUserRequest,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
 ):
     """
     Create user if it doesn't exist, or get existing one.
-    This endpoint doesn't require authentication as it's used during client initialization.
     
+    **Accepts both JWT (dashboard) and Client API Key (programmatic access).**
+    
+    The user will be associated with the authenticated client.
+    The organization is determined from the API key or JWT token.
     If user_id is not provided, a random ID will be generated.
-    If user_id is provided, it will be used as-is (no prefix constraint).
     """
     server = get_server()
+    
+    # Try API key first (programmatic access), then JWT (dashboard)
+    if x_api_key:
+        client_id, org_id = get_client_and_org(x_api_key=x_api_key)
+        client = server.client_manager.get_client_by_id(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+    elif authorization:
+        # Require admin JWT authentication
+        client_payload = get_current_admin(authorization)
+        client_id = client_payload["sub"]
+        
+        # Get the client to get the organization ID
+        client = server.client_manager.get_client_by_id(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
+        org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Provide either X-API-Key or Authorization header."
+        )
 
     # Use provided user_id or generate a new one
     if request.user_id:
@@ -1224,10 +1248,6 @@ async def create_or_get_user(
         # Generate a random user ID
         import uuid
         user_id = f"user-{uuid.uuid4().hex[:8]}"
-
-    org_id = request.org_id
-    if not org_id:
-        org_id = server.organization_manager.DEFAULT_ORG_ID
 
     try:
         # Try to get existing user
@@ -1239,7 +1259,7 @@ async def create_or_get_user(
 
     from mirix.schemas.user import User as PydanticUser
 
-    # Create a User object with all required fields
+    # Create a User object with all required fields, linked to the client
     user = server.user_manager.create_user(
         pydantic_user=PydanticUser(
             id=user_id,
@@ -1247,9 +1267,10 @@ async def create_or_get_user(
             organization_id=org_id,
             timezone=server.user_manager.DEFAULT_TIME_ZONE,
             status="active"
-        )
+        ),
+        client_id=client_id,  # Associate user with client
     )
-    logger.debug("Created new user: %s", user_id)
+    logger.debug("Created new user: %s for client: %s", user_id, client_id)
     return user
 
 
@@ -1318,6 +1339,31 @@ async def delete_user_memories(user_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/users", response_model=List[User])
+async def list_users(
+    cursor: Optional[str] = None,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List all users for the authenticated client.
+    
+    **Requires JWT authentication (dashboard only).**
+    """
+    # Require admin JWT authentication
+    client_payload = get_current_admin(authorization)
+    client_id = client_payload["sub"]
+    
+    server = get_server()
+    
+    users = server.user_manager.list_users(
+        cursor=cursor,
+        limit=limit,
+        client_id=client_id,  # Filter by client
+    )
+    return users
 
 
 # ============================================================================
@@ -1399,10 +1445,16 @@ async def list_clients(
     cursor: Optional[str] = None,
     limit: int = 50,
     x_org_id: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
     """
     List all clients with optional pagination.
+    
+    **Requires JWT authentication (dashboard only).**
     """
+    # Require admin JWT authentication for listing clients
+    get_current_admin(authorization)
+    
     server = get_server()
     org_id = x_org_id or server.organization_manager.DEFAULT_ORG_ID
     
@@ -1415,10 +1467,18 @@ async def list_clients(
 
 
 @router.get("/clients/{client_id}", response_model=Client)
-async def get_client(client_id: str):
+async def get_client(
+    client_id: str,
+    authorization: Optional[str] = Header(None),
+):
     """
     Get a specific client by ID.
+    
+    **Requires JWT authentication (dashboard only).**
     """
+    # Require admin JWT authentication
+    get_current_admin(authorization)
+    
     server = get_server()
     client = server.client_manager.get_client_by_id(client_id)
     
@@ -1514,6 +1574,161 @@ async def delete_client_memories(client_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# API Key Management Endpoints (Dashboard Only - JWT Authentication Required)
+# ============================================================================
+
+
+class CreateApiKeyRequest(BaseModel):
+    """Request model for creating an API key."""
+    name: Optional[str] = Field(None, description="Optional name/label for the API key")
+    permission: Optional[str] = Field("all", description="Permission level: all, restricted, read_only")
+    user_id: Optional[str] = Field(None, description="User ID this API key is associated with")
+
+
+class CreateApiKeyResponse(BaseModel):
+    """Response model for API key creation - includes the raw API key (only shown once)."""
+    id: str
+    client_id: str
+    name: Optional[str]
+    api_key: str  # Raw API key - only returned at creation time
+    status: str
+    permission: str  # Permission level: all, restricted, read_only
+    created_at: datetime
+
+
+@router.post("/clients/{client_id}/api-keys", response_model=CreateApiKeyResponse)
+async def create_client_api_key(
+    client_id: str,
+    request: CreateApiKeyRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Create a new API key for a client.
+    
+    **Requires JWT authentication (dashboard only).**
+    
+    The raw API key is only returned once at creation time. Store it securely.
+    Subsequent requests will only show the key ID, not the raw key.
+    
+    Returns:
+        CreateApiKeyResponse with the raw API key (only shown once)
+    """
+    # Require admin JWT authentication
+    get_current_admin(authorization)
+    
+    from mirix.security.api_keys import generate_api_key
+    
+    server = get_server()
+    
+    # Verify client exists
+    client = server.client_manager.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    
+    # Generate new API key
+    raw_api_key = generate_api_key()
+    
+    # Create API key record (stores hashed version)
+    api_key_record = server.client_manager.create_client_api_key(
+        client_id=client_id,
+        api_key=raw_api_key,
+        name=request.name,
+        permission=request.permission or "all",
+        user_id=request.user_id
+    )
+    
+    return CreateApiKeyResponse(
+        id=api_key_record.id,
+        client_id=api_key_record.client_id,
+        name=api_key_record.name,
+        api_key=raw_api_key,  # Return raw key only at creation
+        status=api_key_record.status,
+        permission=api_key_record.permission,
+        created_at=api_key_record.created_at
+    )
+
+
+class ApiKeyInfo(BaseModel):
+    """API key information (without the raw key)."""
+    id: str
+    client_id: str
+    name: Optional[str]
+    status: str
+    created_at: datetime
+
+
+@router.get("/clients/{client_id}/api-keys", response_model=List[ApiKeyInfo])
+async def list_client_api_keys(
+    client_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List all API keys for a client.
+    
+    **Requires JWT authentication (dashboard only).**
+    
+    Note: The raw API key values are never returned after creation.
+    Only metadata (id, name, status, created_at) is shown.
+    """
+    # Require admin JWT authentication
+    get_current_admin(authorization)
+    
+    server = get_server()
+    
+    # Verify client exists
+    client = server.client_manager.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    
+    api_keys = server.client_manager.list_client_api_keys(client_id)
+    
+    return [
+        ApiKeyInfo(
+            id=key.id,
+            client_id=key.client_id,
+            name=key.name,
+            status=key.status,
+            created_at=key.created_at
+        )
+        for key in api_keys
+    ]
+
+
+@router.delete("/clients/{client_id}/api-keys/{api_key_id}")
+async def delete_client_api_key(
+    client_id: str,
+    api_key_id: str,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Delete an API key permanently.
+    
+    **Requires JWT authentication (dashboard only).**
+    
+    This permanently removes the API key from the database.
+    Any applications using this key will immediately stop working.
+    """
+    # Require admin JWT authentication
+    get_current_admin(authorization)
+    
+    server = get_server()
+    
+    # Verify client exists
+    client = server.client_manager.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+    
+    try:
+        server.client_manager.delete_client_api_key(api_key_id)
+        return {
+            "message": f"API key {api_key_id} deleted successfully",
+            "id": api_key_id,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"API key {api_key_id} not found")
 
 
 # ============================================================================
@@ -2422,6 +2637,696 @@ async def search_memory(
         "search_method": search_method,
         "results": all_results,
         "count": len(all_results),
+    }
+
+
+# ============================================================================
+# Memory CRUD Endpoints (Update/Delete individual memories)
+# Accepts both JWT (dashboard) and Client API Key (programmatic access)
+# ============================================================================
+
+
+def get_client_from_jwt_or_api_key(
+    authorization: Optional[str] = None,
+    x_api_key: Optional[str] = None,
+) -> tuple:
+    """
+    Authenticate using either JWT token (dashboard) or Client API Key (programmatic).
+    
+    Args:
+        authorization: Bearer JWT token from Authorization header
+        x_api_key: Client API key from X-API-Key header
+        
+    Returns:
+        tuple: (client, auth_type) where auth_type is "jwt" or "api_key"
+        
+    Raises:
+        HTTPException: If neither auth method is provided or valid
+    """
+    server = get_server()
+    
+    # Try JWT first (dashboard)
+    if authorization:
+        try:
+            admin_payload = get_current_admin(authorization)
+            # For JWT auth, we need to get a default/admin client for operations
+            # The admin has access to all clients
+            return None, "jwt", admin_payload
+        except HTTPException:
+            pass  # Try API key next
+    
+    # Try API key (programmatic access)
+    if x_api_key:
+        client_id, org_id = get_client_and_org(x_api_key=x_api_key)
+        client = server.client_manager.get_client_by_id(client_id)
+        return client, "api_key", None
+    
+    raise HTTPException(
+        status_code=401,
+        detail="Authentication required. Provide either Authorization (Bearer JWT) or X-API-Key header.",
+    )
+
+
+class UpdateEpisodicMemoryRequest(BaseModel):
+    """Request model for updating an episodic memory."""
+    summary: Optional[str] = None
+    details: Optional[str] = None
+
+
+@router.patch("/memory/episodic/{memory_id}")
+async def update_episodic_memory(
+    memory_id: str,
+    request: UpdateEpisodicMemoryRequest,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Update an episodic memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    
+    Updates the summary and/or details fields of the memory.
+    """
+    # Authenticate with either JWT or API key
+    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    # Get user
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    
+    try:
+        updated_memory = server.episodic_memory_manager.update_event(
+            event_id=memory_id,
+            new_summary=request.summary,
+            new_details=request.details,
+            user=user
+        )
+        return {
+            "success": True,
+            "message": f"Episodic memory {memory_id} updated",
+            "memory": {
+                "id": updated_memory.id,
+                "summary": updated_memory.summary,
+                "details": updated_memory.details,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/memory/episodic/{memory_id}")
+async def delete_episodic_memory(
+    memory_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Delete an episodic memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    try:
+        # For JWT auth, pass None as actor (admin access)
+        server.episodic_memory_manager.delete_event_by_id(memory_id, actor=client)
+        return {
+            "success": True,
+            "message": f"Episodic memory {memory_id} deleted"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class UpdateSemanticMemoryRequest(BaseModel):
+    """Request model for updating a semantic memory."""
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    details: Optional[str] = None
+
+
+@router.patch("/memory/semantic/{memory_id}")
+async def update_semantic_memory(
+    memory_id: str,
+    request: UpdateSemanticMemoryRequest,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Update a semantic memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    # Authenticate with either JWT or API key
+    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    # Get user
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    
+    try:
+        updated_memory = server.semantic_memory_manager.update_item(
+            semantic_item_id=memory_id,
+            new_name=request.name,
+            new_summary=request.summary,
+            new_details=request.details,
+            user=user
+        )
+        return {
+            "success": True,
+            "message": f"Semantic memory {memory_id} updated",
+            "memory": {
+                "id": updated_memory.id,
+                "name": updated_memory.name,
+                "summary": updated_memory.summary,
+                "details": updated_memory.details,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/memory/semantic/{memory_id}")
+async def delete_semantic_memory(
+    memory_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Delete a semantic memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    try:
+        server.semantic_memory_manager.delete_semantic_item_by_id(memory_id, actor=client)
+        return {
+            "success": True,
+            "message": f"Semantic memory {memory_id} deleted"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class UpdateProceduralMemoryRequest(BaseModel):
+    """Request model for updating a procedural memory."""
+    summary: Optional[str] = None
+    steps: Optional[List[str]] = None
+
+
+@router.patch("/memory/procedural/{memory_id}")
+async def update_procedural_memory(
+    memory_id: str,
+    request: UpdateProceduralMemoryRequest,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Update a procedural memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    # Authenticate with either JWT or API key
+    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    # Get user
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    
+    try:
+        updated_memory = server.procedural_memory_manager.update_item(
+            procedural_item_id=memory_id,
+            new_summary=request.summary,
+            new_steps=request.steps,
+            user=user
+        )
+        return {
+            "success": True,
+            "message": f"Procedural memory {memory_id} updated",
+            "memory": {
+                "id": updated_memory.id,
+                "summary": updated_memory.summary,
+                "steps": updated_memory.steps,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/memory/procedural/{memory_id}")
+async def delete_procedural_memory(
+    memory_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Delete a procedural memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    try:
+        server.procedural_memory_manager.delete_procedure_by_id(memory_id, actor=client)
+        return {
+            "success": True,
+            "message": f"Procedural memory {memory_id} deleted"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class UpdateResourceMemoryRequest(BaseModel):
+    """Request model for updating a resource memory."""
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    content: Optional[str] = None
+
+
+@router.patch("/memory/resource/{memory_id}")
+async def update_resource_memory(
+    memory_id: str,
+    request: UpdateResourceMemoryRequest,
+    user_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Update a resource memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    # Authenticate with either JWT or API key
+    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    # Get user
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+    
+    try:
+        updated_memory = server.resource_memory_manager.update_item(
+            resource_item_id=memory_id,
+            new_title=request.title,
+            new_summary=request.summary,
+            new_content=request.content,
+            user=user
+        )
+        return {
+            "success": True,
+            "message": f"Resource memory {memory_id} updated",
+            "memory": {
+                "id": updated_memory.id,
+                "title": updated_memory.title,
+                "summary": updated_memory.summary,
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/memory/resource/{memory_id}")
+async def delete_resource_memory(
+    memory_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Delete a resource memory by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    try:
+        server.resource_memory_manager.delete_resource_by_id(memory_id, actor=client)
+        return {
+            "success": True,
+            "message": f"Resource memory {memory_id} deleted"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/memory/knowledge_vault/{memory_id}")
+async def delete_knowledge_vault_memory(
+    memory_id: str,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Delete a knowledge vault item by ID.
+    
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+    """
+    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    
+    server = get_server()
+    
+    try:
+        server.knowledge_vault_manager.delete_knowledge_by_id(memory_id, actor=client)
+        return {
+            "success": True,
+            "message": f"Knowledge vault item {memory_id} deleted"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# ============================================================================
+# Dashboard Authentication Endpoints (Client-based)
+# ============================================================================
+
+
+class DashboardLoginRequest(BaseModel):
+    """Request model for dashboard login."""
+    email: str = Field(..., description="Client email")
+    password: str = Field(..., description="Client password")
+
+
+class DashboardRegisterRequest(BaseModel):
+    """Request model for dashboard registration."""
+    name: str = Field(..., min_length=3, max_length=100, description="Client name")
+    email: str = Field(..., description="Email address for login")
+    password: str = Field(..., min_length=8, description="Password for login")
+
+
+class DashboardClientResponse(BaseModel):
+    """Response model for dashboard client (excludes sensitive data)."""
+    id: str
+    name: str
+    email: Optional[str]
+    scope: str
+    status: str
+    default_user_id: str  # Default user for memory operations
+    created_at: datetime
+    last_login: Optional[datetime]
+
+
+class TokenResponse(BaseModel):
+    """Response model for authentication token."""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    client: DashboardClientResponse
+
+
+def get_current_admin(authorization: Optional[str] = Header(None)) -> dict:
+    """
+    Dependency to get the current authenticated client from JWT token.
+    
+    Args:
+        authorization: Bearer token from Authorization header
+        
+    Returns:
+        Decoded JWT payload with client info
+        
+    Raises:
+        HTTPException: If token is invalid or missing
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Extract token from "Bearer <token>"
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header format. Use: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    token = parts[1]
+    
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    payload = ClientAuthManager.decode_access_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return payload
+
+
+def require_scope(required_scopes: List[str]):
+    """
+    Dependency factory to require specific client scopes.
+    
+    Args:
+        required_scopes: List of allowed scopes
+        
+    Returns:
+        Dependency function that validates scope
+    """
+    def scope_checker(client_payload: dict = None):
+        if client_payload is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        
+        if client_payload.get("scope") not in required_scopes:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Insufficient permissions. Required scopes: {required_scopes}"
+            )
+        return client_payload
+    
+    return scope_checker
+
+
+@router.post("/admin/auth/register", response_model=TokenResponse)
+async def dashboard_register(request: DashboardRegisterRequest):
+    """
+    Register a new client with dashboard access.
+    
+    - First registration: Creates an admin client (no auth required)
+    - Subsequent registrations: May require authentication (future feature)
+    
+    For the first client, no authentication is needed (bootstrap).
+    """
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    
+    # Check if this is the first dashboard user (bootstrap mode)
+    is_first = auth_manager.is_first_dashboard_user()
+    
+    if is_first:
+        logger.info("Creating first dashboard client (bootstrap mode)")
+    
+    try:
+        # Create client with dashboard credentials
+        client = auth_manager.register_client_for_dashboard(
+            name=request.name,
+            email=request.email,
+            password=request.password,
+            scope="admin",  # First/dashboard users get admin scope
+        )
+        
+        # Generate token
+        access_token = ClientAuthManager.create_access_token(client)
+        
+        return TokenResponse(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=24 * 3600,  # 24 hours in seconds
+            client=DashboardClientResponse(
+                id=client.id,
+                name=client.name,
+                email=client.email,
+                scope=client.scope,
+                status=client.status,
+                default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+                created_at=client.created_at,
+                last_login=client.last_login
+            )
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/admin/auth/login", response_model=TokenResponse)
+async def dashboard_login(request: DashboardLoginRequest):
+    """
+    Authenticate client for dashboard and return JWT token.
+    """
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    
+    result = auth_manager.authenticate(request.email, request.password)
+    
+    if not result:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+    
+    client, access_token = result
+    
+    return TokenResponse(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=24 * 3600,
+        client=DashboardClientResponse(
+            id=client.id,
+            name=client.name,
+            email=client.email,
+            scope=client.scope,
+            status=client.status,
+            default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+            created_at=client.created_at,
+            last_login=client.last_login
+        )
+    )
+
+
+@router.get("/admin/auth/me", response_model=DashboardClientResponse)
+async def dashboard_get_current_client(authorization: Optional[str] = Header(None)):
+    """
+    Get current authenticated client.
+    """
+    client_payload = get_current_admin(authorization)
+    
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    client = auth_manager.get_client_by_id(client_payload["sub"])
+    
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    return DashboardClientResponse(
+        id=client.id,
+        name=client.name,
+        email=client.email,
+        scope=client.scope,
+        status=client.status,
+        default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+        created_at=client.created_at,
+        last_login=client.last_login
+    )
+
+
+@router.get("/admin/dashboard-clients", response_model=List[DashboardClientResponse])
+async def list_dashboard_clients(
+    cursor: Optional[str] = None,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List all clients with dashboard access. Requires admin scope.
+    """
+    client_payload = get_current_admin(authorization)
+    
+    # Check scope - only admin can list dashboard clients
+    if client_payload.get("scope") != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin clients can list dashboard clients"
+        )
+    
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    clients = auth_manager.list_dashboard_clients(cursor=cursor, limit=limit)
+    
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    return [
+        DashboardClientResponse(
+            id=c.id,
+            name=c.name,
+            email=c.email,
+            scope=c.scope,
+            status=c.status,
+            default_user_id=ClientAuthManager.get_default_user_id_for_client(c.id),
+            created_at=c.created_at,
+            last_login=c.last_login
+        )
+        for c in clients
+    ]
+
+
+class PasswordChangeRequest(BaseModel):
+    """Request model for password change."""
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., min_length=8, description="New password")
+
+
+@router.post("/admin/auth/change-password")
+async def dashboard_change_password(
+    request: PasswordChangeRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Change the current client's dashboard password.
+    """
+    client_payload = get_current_admin(authorization)
+    
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    
+    success = auth_manager.change_password(
+        client_id=client_payload["sub"],
+        current_password=request.current_password,
+        new_password=request.new_password
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid current password"
+        )
+    
+    return {"message": "Password changed successfully"}
+
+
+@router.get("/admin/auth/check-setup")
+async def dashboard_check_setup():
+    """
+    Check if dashboard setup is complete (any dashboard clients exist).
+    
+    This endpoint is public and used by the dashboard to determine
+    whether to show the registration or login page.
+    """
+    from mirix.services.admin_user_manager import ClientAuthManager
+    
+    auth_manager = ClientAuthManager()
+    is_first = auth_manager.is_first_dashboard_user()
+    
+    return {
+        "setup_required": is_first,
+        "message": "No dashboard users exist. Please create the first account." if is_first else "Dashboard setup complete."
     }
 
 

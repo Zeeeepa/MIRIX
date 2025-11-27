@@ -32,7 +32,6 @@ def main():
     
     # Create MirixClient (connects to server via REST API)
     user_id = 'demo-user'  # Identifies the end-user within the client app
-    org_id = 'demo-org'
     api_key = os.environ.get("MIRIX_API_KEY")
     if not api_key:
         raise ValueError("Set MIRIX_API_KEY to the issued client API key before running the demo.")
@@ -41,7 +40,6 @@ def main():
         api_key=api_key,
         client_name="Demo Client Application",
         client_scope="Sales",
-        org_id=org_id,
         debug=True,
     )
 

@@ -39,6 +39,19 @@ class ClientApiKey(SqlalchemyBase, OrganizationMixin):
         default="active",
         doc="Status of the API key: active, revoked, expired"
     )
+    
+    permission: Mapped[str] = mapped_column(
+        nullable=False,
+        default="all",
+        doc="Permission level: all, restricted, read_only"
+    )
+    
+    # Optional user association
+    user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="The user this API key is associated with (optional)"
+    )
 
     # Relationships
     client: Mapped["Client"] = relationship(

@@ -26,6 +26,7 @@ class User(UserBase):
         id (str): The unique identifier of the user.
         name (str): The name of the user.
         status (str): Whether the user is active or not.
+        client_id (str): The client this user belongs to.
         created_at (datetime): The creation date of the user.
     """
 
@@ -36,6 +37,10 @@ class User(UserBase):
     organization_id: Optional[str] = Field(
         DEFAULT_ORG_ID,
         description="The organization id of the user",
+    )
+    client_id: Optional[str] = Field(
+        None,
+        description="The client this user belongs to.",
     )
     name: str = Field(..., description="The name of the user.")
     status: str = Field("active", description="Whether the user is active or not.")

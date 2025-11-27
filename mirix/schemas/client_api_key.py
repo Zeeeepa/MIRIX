@@ -22,6 +22,7 @@ class ClientApiKey(ClientApiKeyBase):
         api_key_hash (str): The hashed API key.
         name (Optional[str]): Optional name/label for this API key.
         status (str): Status of the API key (active, revoked, expired).
+        permission (str): Permission level (all, restricted, read_only).
         created_at (datetime): The creation date of the API key.
         updated_at (datetime): The last update date of the API key.
     """
@@ -35,6 +36,8 @@ class ClientApiKey(ClientApiKeyBase):
     api_key_hash: str = Field(..., description="Hashed API key for authentication")
     name: Optional[str] = Field(None, description="Optional name/label for this API key")
     status: str = Field("active", description="Status: active, revoked, expired")
+    permission: str = Field("all", description="Permission level: all, restricted, read_only")
+    user_id: Optional[str] = Field(None, description="User ID this API key is associated with")
     
     created_at: Optional[datetime] = Field(
         default_factory=get_utc_time, description="The creation date of the API key."
@@ -54,6 +57,8 @@ class ClientApiKeyCreate(ClientApiKeyBase):
     api_key_hash: str = Field(..., description="Hashed API key for authentication")
     name: Optional[str] = Field(None, description="Optional name/label for this API key")
     status: str = Field("active", description="Status: active, revoked, expired")
+    permission: str = Field("all", description="Permission level: all, restricted, read_only")
+    user_id: Optional[str] = Field(None, description="User ID this API key is associated with")
 
 
 class ClientApiKeyUpdate(ClientApiKeyBase):

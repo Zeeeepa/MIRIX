@@ -55,10 +55,22 @@ class UserManager:
             return user.to_pydantic()
 
     @enforce_types
-    def create_user(self, pydantic_user: PydanticUser) -> PydanticUser:
-        """Create a new user if it doesn't already exist (with Redis caching)."""
+    def create_user(
+        self, 
+        pydantic_user: PydanticUser, 
+        client_id: Optional[str] = None
+    ) -> PydanticUser:
+        """Create a new user if it doesn't already exist (with Redis caching).
+        
+        Args:
+            pydantic_user: The user data
+            client_id: Optional client ID to associate the user with
+        """
         with self.session_maker() as session:
-            new_user = UserModel(**pydantic_user.model_dump())
+            user_data = pydantic_user.model_dump()
+            if client_id:
+                user_data["client_id"] = client_id
+            new_user = UserModel(**user_data)
             new_user.create_with_redis(session, actor=None)  # ⭐ Auto-caches to Redis
             return new_user.to_pydantic()
 
@@ -401,9 +413,36 @@ class UserManager:
 
     @enforce_types
     def list_users(
-        self, cursor: Optional[str] = None, limit: Optional[int] = 50
-    ) -> Tuple[Optional[str], List[PydanticUser]]:
-        """List users with pagination using cursor (id) and limit."""
+        self, 
+        cursor: Optional[str] = None, 
+        limit: Optional[int] = 50,
+        client_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
+    ) -> List[PydanticUser]:
+        """List users with pagination using cursor (id) and limit.
+        
+        Args:
+            cursor: Cursor for pagination
+            limit: Maximum number of users to return
+            client_id: Filter by client ID (users belonging to this client)
+            organization_id: Filter by organization ID
+        """
         with self.session_maker() as session:
-            results = UserModel.list(db_session=session, cursor=cursor, limit=limit)
+            query = session.query(UserModel).filter(UserModel.is_deleted == False)
+            
+            if client_id:
+                query = query.filter(UserModel.client_id == client_id)
+            
+            if organization_id:
+                query = query.filter(UserModel.organization_id == organization_id)
+            
+            query = query.order_by(UserModel.created_at.desc())
+            
+            if cursor:
+                query = query.filter(UserModel.id < cursor)
+            
+            if limit:
+                query = query.limit(limit)
+            
+            results = query.all()
             return [user.to_pydantic() for user in results]

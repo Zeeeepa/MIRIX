@@ -85,7 +85,12 @@ class ClientManager:
 
     @enforce_types
     def create_client_api_key(
-        self, client_id: str, api_key: str, name: Optional[str] = None
+        self, 
+        client_id: str, 
+        api_key: str, 
+        name: Optional[str] = None,
+        permission: str = "all",
+        user_id: Optional[str] = None
     ) -> PydanticClientApiKey:
         """Create a new API key for a client."""
         hashed = hash_api_key(api_key)
@@ -99,7 +104,9 @@ class ClientManager:
                 organization_id=existing_client.organization_id,
                 api_key_hash=hashed,
                 name=name,
-                status="active"
+                status="active",
+                permission=permission,
+                user_id=user_id
             )
             # Convert to ORM model
             new_api_key = ClientApiKeyModel(**api_key_pydantic.model_dump())
@@ -163,6 +170,14 @@ class ClientManager:
             api_key.status = "revoked"
             api_key.update(session, actor=None)
             return api_key.to_pydantic()
+
+    @enforce_types
+    def delete_client_api_key(self, api_key_id: str) -> None:
+        """Permanently delete an API key from the database."""
+        with self.session_maker() as session:
+            api_key = ClientApiKeyModel.read(db_session=session, identifier=api_key_id)
+            session.delete(api_key)
+            session.commit()
 
     @enforce_types
     def update_client_status(self, client_id: str, status: str) -> PydanticClient:

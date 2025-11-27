@@ -71,7 +71,6 @@ def client(check_server, api_key_factory):
         api_key=auth["api_key"],
         client_name="Test Deletion Client",
         client_scope="test",
-        org_id=auth["org_id"],
         debug=False,
     )
     logger.info("Client initialized via API key: %s", TEST_CLIENT_ID)
@@ -81,7 +80,6 @@ def client(check_server, api_key_factory):
         returned_user_id = client.create_or_get_user(
             user_id=TEST_USER_ID,
             user_name="Test Deletion User",
-            org_id=auth["org_id"]
         )
         logger.info("User ready: %s (requested: %s)", returned_user_id, TEST_USER_ID)
         

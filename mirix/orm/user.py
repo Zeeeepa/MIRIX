@@ -1,5 +1,6 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mirix.orm.mixins import OrganizationMixin
@@ -7,7 +8,7 @@ from mirix.orm.sqlalchemy_base import SqlalchemyBase
 from mirix.schemas.user import User as PydanticUser
 
 if TYPE_CHECKING:
-    from mirix.orm import Organization
+    from mirix.orm import Organization, Client
 
 
 class User(SqlalchemyBase, OrganizationMixin):
@@ -25,10 +26,21 @@ class User(SqlalchemyBase, OrganizationMixin):
     timezone: Mapped[str] = mapped_column(
         nullable=False, doc="The timezone of the user."
     )
+    
+    # Foreign key to Client - each user belongs to one client
+    client_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"),
+        nullable=True,  # nullable for backward compatibility with existing users
+        index=True,
+        doc="The client this user belongs to."
+    )
 
     # relationships
     organization: Mapped["Organization"] = relationship(
         "Organization", back_populates="users"
+    )
+    client: Mapped[Optional["Client"]] = relationship(
+        "Client", back_populates="users"
     )
 
     # TODO: Add this back later potentially
