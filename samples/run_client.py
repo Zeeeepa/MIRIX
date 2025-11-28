@@ -44,7 +44,7 @@ def main():
     )
 
     client.initialize_meta_agent(
-        config_path="./mirix/configs/examples/mirix_gemini.yaml",
+        config_path="../mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
         update_agents=False,
     )
