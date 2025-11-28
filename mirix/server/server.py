@@ -500,12 +500,12 @@ class SyncServer(Server):
         # Managers that interface with parallelism
         self.per_agent_lock_manager = PerAgentLockManager()
 
-        # Make default user and org
+        # Make admin user and default org
         if init_with_default_org_and_user:
             self.default_org = self.organization_manager.create_default_organization()
-            self.default_user = self.user_manager.create_default_user()
+            self.admin_user = self.user_manager.create_admin_user()
             self.default_client = self.client_manager.create_default_client()
-            # self.block_manager.add_default_blocks(actor=self.default_user)
+            # self.block_manager.add_default_blocks(actor=self.admin_user)
             self.tool_manager.upsert_base_tools(actor=self.default_client)
 
         # collect providers (always has Mirix as a default)

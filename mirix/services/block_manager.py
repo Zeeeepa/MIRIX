@@ -335,10 +335,10 @@ class BlockManager:
             actor: Client for audit trail
             user_id: Optional user_id for block ownership (uses default if not provided)
         """
-        # Use default user if not provided
+        # Use admin user if not provided
         if user is None:
             from mirix.services.user_manager import UserManager
-            user = UserManager().get_default_user()
+            user = UserManager().get_admin_user()
         
         for persona_file in list_persona_files():
             text = open(persona_file, "r", encoding="utf-8").read()

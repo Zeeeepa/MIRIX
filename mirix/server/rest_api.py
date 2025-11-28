@@ -1009,7 +1009,7 @@ async def list_blocks(
     client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
-    user = server.user_manager.get_default_user()
+    user = server.user_manager.get_admin_user()
     return server.block_manager.get_blocks(user=user, label=label)
 
 
@@ -1024,8 +1024,8 @@ async def get_block(
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
-    # Get default user for block queries (blocks are user-scoped, not client-scoped)
-    user = server.user_manager.get_default_user()
+    # Get admin user for block queries (blocks are user-scoped, not client-scoped)
+    user = server.user_manager.get_admin_user()
     return server.block_manager.get_block_by_id(block_id, user=user)
 
 
@@ -1816,7 +1816,7 @@ async def initialize_meta_agent(
 class AddMemoryRequest(BaseModel):
     """Request model for adding memory."""
 
-    user_id: str
+    user_id: Optional[str] = None  # Optional - uses admin user if not provided
     meta_agent_id: str
     messages: List[Dict[str, Any]]
     chaining: bool = True
@@ -1861,6 +1861,13 @@ async def add_memory(
     # TODO: need to check if we really need to check if the meta_agent exists here 
     meta_agent = server.agent_manager.get_agent_by_id(request.meta_agent_id, actor=client)
 
+    # If user_id is not provided, use the admin user for this client
+    user_id = request.user_id
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
+
     message = request.messages
 
     if isinstance(message, list) and "role" in message[0].keys():
@@ -1899,13 +1906,13 @@ async def add_memory(
 
     # Queue for async processing instead of synchronous execution
     # Note: actor is Client for org-level access control
-    #       user_id in request body represents the actual end-user
+    #       user_id represents the actual end-user (or admin user if not provided)
     put_messages(
         actor=client,
         agent_id=meta_agent.id,
         input_messages=input_messages,
         chaining=request.chaining,
-        user_id=request.user_id,  # End-user for data filtering
+        user_id=user_id,  # End-user for data filtering (or admin user)
         verbose=request.verbose,
         filter_tags=filter_tags,
         use_cache=request.use_cache,
@@ -1926,7 +1933,7 @@ async def add_memory(
 class RetrieveMemoryRequest(BaseModel):
     """Request model for retrieving memory."""
 
-    user_id: str
+    user_id: Optional[str] = None  # Optional - uses admin user if not provided
     messages: List[Dict[str, Any]]
     limit: int = 10  # Maximum number of items to retrieve per memory type
     local_model_for_retrieval: Optional[str] = None  # Optional local Ollama model for topic extraction
@@ -2206,6 +2213,13 @@ async def retrieve_memory_with_conversation(
     client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
 
+    # If user_id is not provided, use the admin user for this client
+    user_id = request.user_id
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
+
     # Add client scope to filter_tags (create if not provided)
     if request.filter_tags is not None:
         # Create a copy to avoid modifying the original request
@@ -2292,7 +2306,7 @@ async def retrieve_memory_with_conversation(
         
         # Get user's timezone for accurate "today" interpretation
         try:
-            user = server.user_manager.get_user_by_id(request.user_id)
+            user = server.user_manager.get_user_by_id(user_id)
             import pytz
             user_tz = pytz.timezone(user.timezone)
             reference_time = datetime.now(user_tz)
@@ -2318,7 +2332,7 @@ async def retrieve_memory_with_conversation(
     memories = retrieve_memories_by_keywords(
         server=server,
         client=client,
-        user_id=request.user_id,
+        user_id=user_id,
         agent_state=all_agents[0],
         key_words=key_words,
         limit=request.limit,
@@ -2342,8 +2356,8 @@ async def retrieve_memory_with_conversation(
 
 @router.get("/memory/retrieve/topic")
 async def retrieve_memory_with_topic(
-    user_id: str,
-    topic: str,
+    user_id: Optional[str] = None,
+    topic: str = "",
     limit: int = 10,
     filter_tags: Optional[str] = None,
     use_cache: bool = True,
@@ -2355,7 +2369,7 @@ async def retrieve_memory_with_topic(
     Retrieve relevant memories based on a topic using BM25 search.
     
     Args:
-        user_id: The user ID to retrieve memories for
+        user_id: The user ID to retrieve memories for (uses admin user if not provided)
         topic: The topic/keywords to search for
         limit: Maximum number of items to retrieve per memory type (default: 10)
         filter_tags: Optional JSON string of tags to filter memories (default: None)
@@ -2364,6 +2378,12 @@ async def retrieve_memory_with_topic(
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
+
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
 
     # Parse filter_tags from JSON string to dict
     parsed_filter_tags = None
@@ -2419,8 +2439,8 @@ async def retrieve_memory_with_topic(
 
 @router.get("/memory/search")
 async def search_memory(
-    user_id: str,
-    query: str,
+    user_id: Optional[str] = None,
+    query: str = "",
     memory_type: str = "all",
     search_field: str = "null",
     search_method: str = "bm25",
@@ -2434,7 +2454,7 @@ async def search_memory(
     Similar to the search_in_memory tool function.
     
     Args:
-        user_id: The user ID to retrieve memories for
+        user_id: The user ID to retrieve memories for (uses admin user if not provided)
         query: The search query string
         memory_type: Type of memory to search. Options: "episodic", "resource", "procedural", 
                     "knowledge_vault", "semantic", "all" (default: "all")
@@ -2451,6 +2471,12 @@ async def search_memory(
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
     client = server.client_manager.get_client_by_id(client_id)
+
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
 
     # Get all agents for this client (automatically filtered by client via apply_access_predicate)
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
@@ -2659,6 +2685,7 @@ def get_client_from_jwt_or_api_key(
         
     Returns:
         tuple: (client, auth_type) where auth_type is "jwt" or "api_key"
+        Both authentication methods return a valid client object.
         
     Raises:
         HTTPException: If neither auth method is provided or valid
@@ -2669,9 +2696,12 @@ def get_client_from_jwt_or_api_key(
     if authorization:
         try:
             admin_payload = get_current_admin(authorization)
-            # For JWT auth, we need to get a default/admin client for operations
-            # The admin has access to all clients
-            return None, "jwt", admin_payload
+            # Get client from JWT payload (sub contains client_id)
+            client_id = admin_payload["sub"]
+            client = server.client_manager.get_client_by_id(client_id)
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+            return client, "jwt"
         except HTTPException:
             pass  # Try API key next
     
@@ -2679,7 +2709,9 @@ def get_client_from_jwt_or_api_key(
     if x_api_key:
         client_id, org_id = get_client_and_org(x_api_key=x_api_key)
         client = server.client_manager.get_client_by_id(client_id)
-        return client, "api_key", None
+        if not client:
+            raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+        return client, "api_key"
     
     raise HTTPException(
         status_code=401,
@@ -2697,7 +2729,7 @@ class UpdateEpisodicMemoryRequest(BaseModel):
 async def update_episodic_memory(
     memory_id: str,
     request: UpdateEpisodicMemoryRequest,
-    user_id: str,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None),
 ):
@@ -2709,9 +2741,15 @@ async def update_episodic_memory(
     Updates the summary and/or details fields of the memory.
     """
     # Authenticate with either JWT or API key
-    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
+    
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
     
     # Get user
     user = server.user_manager.get_user_by_id(user_id)
@@ -2723,7 +2761,8 @@ async def update_episodic_memory(
             event_id=memory_id,
             new_summary=request.summary,
             new_details=request.details,
-            user=user
+            user=user,
+            actor=client,
         )
         return {
             "success": True,
@@ -2749,12 +2788,11 @@ async def delete_episodic_memory(
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
     
     try:
-        # For JWT auth, pass None as actor (admin access)
         server.episodic_memory_manager.delete_event_by_id(memory_id, actor=client)
         return {
             "success": True,
@@ -2775,7 +2813,7 @@ class UpdateSemanticMemoryRequest(BaseModel):
 async def update_semantic_memory(
     memory_id: str,
     request: UpdateSemanticMemoryRequest,
-    user_id: str,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None),
 ):
@@ -2785,9 +2823,15 @@ async def update_semantic_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
+    
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
     
     # Get user
     user = server.user_manager.get_user_by_id(user_id)
@@ -2827,7 +2871,7 @@ async def delete_semantic_memory(
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
     
@@ -2851,7 +2895,7 @@ class UpdateProceduralMemoryRequest(BaseModel):
 async def update_procedural_memory(
     memory_id: str,
     request: UpdateProceduralMemoryRequest,
-    user_id: str,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None),
 ):
@@ -2861,9 +2905,15 @@ async def update_procedural_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
+    
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
     
     # Get user
     user = server.user_manager.get_user_by_id(user_id)
@@ -2901,7 +2951,7 @@ async def delete_procedural_memory(
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
     
@@ -2926,7 +2976,7 @@ class UpdateResourceMemoryRequest(BaseModel):
 async def update_resource_memory(
     memory_id: str,
     request: UpdateResourceMemoryRequest,
-    user_id: str,
+    user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None),
 ):
@@ -2936,9 +2986,15 @@ async def update_resource_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
+    
+    # If user_id is not provided, use the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
     
     # Get user
     user = server.user_manager.get_user_by_id(user_id)
@@ -2977,7 +3033,7 @@ async def delete_resource_memory(
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
     
@@ -3002,7 +3058,7 @@ async def delete_knowledge_vault_memory(
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
     
     server = get_server()
     
@@ -3041,7 +3097,7 @@ class DashboardClientResponse(BaseModel):
     email: Optional[str]
     scope: str
     status: str
-    default_user_id: str  # Default user for memory operations
+    admin_user_id: str  # Admin user for memory operations
     created_at: datetime
     last_login: Optional[datetime]
 
@@ -3164,7 +3220,7 @@ async def dashboard_register(request: DashboardRegisterRequest):
                 email=client.email,
                 scope=client.scope,
                 status=client.status,
-                default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+                admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
                 created_at=client.created_at,
                 last_login=client.last_login
             )
@@ -3202,7 +3258,7 @@ async def dashboard_login(request: DashboardLoginRequest):
             email=client.email,
             scope=client.scope,
             status=client.status,
-            default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+            admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
             created_at=client.created_at,
             last_login=client.last_login
         )
@@ -3230,7 +3286,7 @@ async def dashboard_get_current_client(authorization: Optional[str] = Header(Non
         email=client.email,
         scope=client.scope,
         status=client.status,
-        default_user_id=ClientAuthManager.get_default_user_id_for_client(client.id),
+        admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
         created_at=client.created_at,
         last_login=client.last_login
     )
@@ -3268,7 +3324,7 @@ async def list_dashboard_clients(
             email=c.email,
             scope=c.scope,
             status=c.status,
-            default_user_id=ClientAuthManager.get_default_user_id_for_client(c.id),
+            admin_user_id=ClientAuthManager.get_admin_user_id_for_client(c.id),
             created_at=c.created_at,
             last_login=c.last_login
         )

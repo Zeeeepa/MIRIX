@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 def main():
     
     # Create MirixClient (connects to server via REST API)
-    user_id = 'demo-user'  # Identifies the end-user within the client app
+    # user_id is now optional - if not provided, the admin user for the client will be used
+    user_id = 'demo-user'  # Set to None to use admin user, or provide a specific user ID like 'demo-user'
     api_key = os.environ.get("MIRIX_API_KEY")
     if not api_key:
         raise ValueError("Set MIRIX_API_KEY to the issued client API key before running the demo.")
@@ -49,7 +50,7 @@ def main():
     )
 
     result = client.add(
-       user_id=user_id,
+       user_id=user_id,  # Optional - uses admin user if None
        messages=[
            {
                "role": "user",
@@ -70,7 +71,7 @@ def main():
         filter_tags = {} #{"expert_id": "expert-234"}
 
         memories = client.retrieve_with_conversation(
-            user_id=user_id,
+            user_id=user_id,  # Optional - uses admin user if None
             messages=[
                 {
                     "role": "user",

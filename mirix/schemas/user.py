@@ -45,6 +45,7 @@ class User(UserBase):
     name: str = Field(..., description="The name of the user.")
     status: str = Field("active", description="Whether the user is active or not.")
     timezone: str = Field(..., description="The timezone of the user.")
+    is_admin: bool = Field(False, description="Whether this is an admin user for the client.")
     created_at: Optional[datetime] = Field(
         default_factory=get_utc_time, description="The creation date of the user."
     )

@@ -245,7 +245,7 @@ class MirixClient(AbstractClient):
             )
 
     def _ensure_user_exists(
-        self, user_id: str, headers: Optional[Dict[str, str]] = None
+        self, user_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None
     ):
         """Ensure that the given user exists for the client's organization.
 
@@ -254,7 +254,7 @@ class MirixClient(AbstractClient):
             headers: Optional headers to include in the request
         """
         if not user_id:
-            raise ValueError("user_id is required")
+            return
         if user_id in self._known_users:
             return
         try:
@@ -1122,7 +1122,6 @@ class MirixClient(AbstractClient):
             ... }
             >>> meta_agent = client.initialize_meta_agent(config=config)
         """
-        # self._ensure_user_exists(user_id)
         
         # Load config from file if provided
         if config_path:

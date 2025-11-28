@@ -12,8 +12,8 @@ from mirix.utils import enforce_types
 class UserManager:
     """Manager class to handle business logic related to Users."""
 
-    DEFAULT_USER_NAME = "default_user"
-    DEFAULT_USER_ID = "user-00000000-0000-4000-8000-000000000000"
+    ADMIN_USER_NAME = "admin_user"
+    ADMIN_USER_ID = "user-00000000-0000-4000-8000-000000000000"
     DEFAULT_TIME_ZONE = "UTC (UTC+00:00)"
 
     def __init__(self):
@@ -23,10 +23,10 @@ class UserManager:
         self.session_maker = db_context
 
     @enforce_types
-    def create_default_user(
+    def create_admin_user(
         self, org_id: str = OrganizationManager.DEFAULT_ORG_ID
     ) -> PydanticUser:
-        """Create the default user."""
+        """Create the admin user."""
         with self.session_maker() as session:
             # Make sure the org id exists
             try:
@@ -39,16 +39,17 @@ class UserManager:
             # Try to retrieve the user
             try:
                 user = UserModel.read(
-                    db_session=session, identifier=self.DEFAULT_USER_ID
+                    db_session=session, identifier=self.ADMIN_USER_ID
                 )
             except NoResultFound:
                 # If it doesn't exist, make it
                 user = UserModel(
-                    id=self.DEFAULT_USER_ID,
-                    name=self.DEFAULT_USER_NAME,
+                    id=self.ADMIN_USER_ID,
+                    name=self.ADMIN_USER_NAME,
                     status="active",
                     timezone=self.DEFAULT_TIME_ZONE,
                     organization_id=org_id,
+                    is_admin=True,
                 )
                 user.create(session)
 
@@ -388,28 +389,28 @@ class UserManager:
             return pydantic_user
 
     @enforce_types
-    def get_default_user(self) -> PydanticUser:
-        """Fetch the default user, creating it if it doesn't exist."""
+    def get_admin_user(self) -> PydanticUser:
+        """Fetch the admin user, creating it if it doesn't exist."""
         try:
-            return self.get_user_by_id(self.DEFAULT_USER_ID)
+            return self.get_user_by_id(self.ADMIN_USER_ID)
         except NoResultFound:
-            # Default user doesn't exist, create it
+            # Admin user doesn't exist, create it
             # First ensure the default organization exists
             from mirix.services.organization_manager import OrganizationManager
             org_mgr = OrganizationManager()
             org_mgr.get_default_organization()  # Auto-creates if missing
-            return self.create_default_user(org_id=OrganizationManager.DEFAULT_ORG_ID)
+            return self.create_admin_user(org_id=OrganizationManager.DEFAULT_ORG_ID)
 
     @enforce_types
-    def get_user_or_default(self, user_id: Optional[str] = None):
-        """Fetch the user or default user."""
+    def get_user_or_admin(self, user_id: Optional[str] = None):
+        """Fetch the user or admin user."""
         if not user_id:
-            return self.get_default_user()
+            return self.get_admin_user()
 
         try:
             return self.get_user_by_id(user_id=user_id)
         except NoResultFound:
-            return self.get_default_user()
+            return self.get_admin_user()
 
     @enforce_types
     def list_users(

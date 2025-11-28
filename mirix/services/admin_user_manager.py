@@ -122,8 +122,8 @@ class ClientAuthManager:
     # =========================================================================
 
     @staticmethod
-    def get_default_user_id_for_client(client_id: str) -> str:
-        """Get the default user ID associated with a client."""
+    def get_admin_user_id_for_client(client_id: str) -> str:
+        """Get the admin user ID associated with a client."""
         return f"user-{client_id.replace('client-', '')}"
 
     @staticmethod
@@ -134,15 +134,15 @@ class ClientAuthManager:
         
         expire = datetime.now(timezone.utc) + expires_delta
         
-        # Include default user_id in token for memory operations
-        default_user_id = ClientAuthManager.get_default_user_id_for_client(client.id)
+        # Include admin user_id in token for memory operations
+        admin_user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
         
         payload = {
             "sub": client.id,
             "name": client.name,
             "email": client.email,
             "scope": client.scope,
-            "default_user_id": default_user_id,  # For memory operations
+            "admin_user_id": admin_user_id,  # For memory operations
             "exp": expire,
             "iat": datetime.now(timezone.utc),
         }
@@ -178,7 +178,7 @@ class ClientAuthManager:
         """
         Register a new client with dashboard login credentials.
         
-        Also creates a default user for this client (for memory operations).
+        Also creates an admin user for this client (for memory operations).
         
         Args:
             name: The client name
@@ -232,31 +232,32 @@ class ClientAuthManager:
             client.create(session)
             logger.info("Registered client for dashboard: %s (%s)", client.name, client.email)
             
-            # Create a default user for this client
+            # Create an admin user for this client
             # User ID is derived from client ID for easy association
-            default_user_id = f"user-{client.id.replace('client-', '')}"
+            admin_user_id = f"user-{client.id.replace('client-', '')}"
             
             try:
                 # Check if user already exists
                 existing_user = (
                     session.query(UserModel)
-                    .filter(UserModel.id == default_user_id)
+                    .filter(UserModel.id == admin_user_id)
                     .first()
                 )
                 
                 if not existing_user:
-                    default_user = UserModel(
-                        id=default_user_id,
-                        name=f"Default",
+                    admin_user = UserModel(
+                        id=admin_user_id,
+                        name=f"Admin",
                         status="active",
                         timezone="UTC",
                         organization_id=org_id,
                         client_id=client.id,  # Link user to client
+                        is_admin=True,  # Mark as admin user
                     )
-                    default_user.create(session)
-                    logger.info("Created default user for client: %s -> %s", client.id, default_user_id)
+                    admin_user.create(session)
+                    logger.info("Created admin user for client: %s -> %s", client.id, admin_user_id)
             except Exception as e:
-                logger.warning("Failed to create default user for client %s: %s", client.id, e)
+                logger.warning("Failed to create admin user for client %s: %s", client.id, e)
                 # Don't fail client registration if user creation fails
             
             return client.to_pydantic()

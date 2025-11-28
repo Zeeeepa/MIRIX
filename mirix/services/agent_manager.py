@@ -225,11 +225,11 @@ class AgentManager:
                     user_id,
                     e,
                 )
-                user = user_manager.get_default_user()
+                user = user_manager.get_admin_user()
         else:
-            # If no user_id provided, use default user
+            # If no user_id provided, use admin user
             user_manager = UserManager()
-            user = user_manager.get_default_user()
+            user = user_manager.get_admin_user()
 
         # Ensure base tools are available in the database for this organization
         self.tool_manager.upsert_base_tools(actor=actor)

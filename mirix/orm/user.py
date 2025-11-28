@@ -26,6 +26,9 @@ class User(SqlalchemyBase, OrganizationMixin):
     timezone: Mapped[str] = mapped_column(
         nullable=False, doc="The timezone of the user."
     )
+    is_admin: Mapped[bool] = mapped_column(
+        nullable=False, default=False, doc="Whether this is an admin user for the client."
+    )
     
     # Foreign key to Client - each user belongs to one client
     client_id: Mapped[Optional[str]] = mapped_column(

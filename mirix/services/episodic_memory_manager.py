@@ -556,8 +556,8 @@ class EpisodicMemoryManager:
             if client_id is None:
                 client_id = actor.id
             if user_id is None:
-                user_id = UserManager.DEFAULT_USER_ID
-                logger.debug("user_id not provided, using DEFAULT_USER_ID: %s", user_id)
+                user_id = UserManager.ADMIN_USER_ID
+                logger.debug("user_id not provided, using ADMIN_USER_ID: %s", user_id)
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
             if BUILD_EMBEDDINGS_FOR_MEMORY:
                 # TODO: need to check if we need to chunk the text
@@ -1219,23 +1219,13 @@ class EpisodicMemoryManager:
         new_summary: str = None,
         new_details: str = None,
         user: PydanticUser = None,
+        actor: PydanticClient = None,
     ):
         """
         Update the selected events
         """
 
         with self.session_maker() as session:
-            # Construct a PydanticClient for actor using user's organization_id.
-            # Note: We can pass in a PydanticClient with a default client ID because
-            # EpisodicEvent.read() only uses the organization_id from the actor for
-            # access control (see apply_access_predicate in sqlalchemy_base.py).
-            # The actual client ID is not used for filtering.
-            actor = PydanticClient(
-                id="system-default-client",
-                organization_id=user.organization_id,
-                name="system-client"
-            )
-            
             # query = select(EpisodicEvent)
             # query = query.where(EpisodicEvent.id == event_id)
             # selected_event = session.execute(query).scalar_one_or_none()
