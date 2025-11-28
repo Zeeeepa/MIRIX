@@ -10,13 +10,9 @@ export const Overview: React.FC = () => {
   const { selectedUser, users, isLoading } = useWorkspace(); // Selected End User
   const navigate = useNavigate();
 
-  // Check if selected user is the default user
-  const isDefaultUser = selectedUser && user?.default_user_id === selectedUser.id;
-
-  // Get display name with "(Default)" suffix if applicable
+  // Get display name - just show the user name as-is
   const getDisplayName = () => {
     if (!selectedUser) return 'None Selected';
-    if (isDefaultUser) return `${selectedUser.name} (Default)`;
     return selectedUser.name;
   };
 
@@ -39,9 +35,6 @@ export const Overview: React.FC = () => {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{isLoading ? 'Loading...' : getDisplayName()}</div>
-            <p className="text-xs text-muted-foreground">
-              {selectedUser?.id || 'No user selected'}
-            </p>
           </CardContent>
         </Card>
         <Card>

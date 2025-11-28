@@ -17,6 +17,7 @@ interface WorkspaceContextType {
   setSelectedUser: (user: User) => void;
   refreshUsers: () => Promise<void>;
   createUser: (name: string) => Promise<User>;
+  deleteUser: (userId: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -79,6 +80,26 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return newUser;
   };
 
+  const deleteUser = async (userId: string) => {
+    if (!clientUser) throw new Error("Not authenticated");
+    
+    await apiClient.delete(`/users/${userId}`);
+    
+    // If deleted user was selected, switch to another user
+    if (selectedUser?.id === userId) {
+      const remainingUsers = users.filter(u => u.id !== userId);
+      if (remainingUsers.length > 0) {
+        // Try to select the default user, otherwise first available
+        const defaultUser = remainingUsers.find(u => u.id === clientUser.default_user_id);
+        setSelectedUser(defaultUser || remainingUsers[0]);
+      } else {
+        setSelectedUser(null);
+      }
+    }
+    
+    await fetchUsers(); // Refresh list
+  };
+
   useEffect(() => {
     if (clientUser) {
       fetchUsers();
@@ -92,6 +113,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setSelectedUser, 
       refreshUsers: fetchUsers,
       createUser,
+      deleteUser,
       isLoading 
     }}>
       {children}

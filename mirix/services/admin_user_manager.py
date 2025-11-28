@@ -247,7 +247,7 @@ class ClientAuthManager:
                 if not existing_user:
                     default_user = UserModel(
                         id=default_user_id,
-                        name=f"{name} (default user)",
+                        name=f"Default",
                         status="active",
                         timezone="UTC",
                         organization_id=org_id,

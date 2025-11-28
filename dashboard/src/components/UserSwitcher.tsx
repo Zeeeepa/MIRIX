@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronsUpDown, Check, Plus, User as UserIcon } from 'lucide-react';
+import { ChevronsUpDown, Check, Plus, User as UserIcon, Trash2 } from 'lucide-react';
 import { useWorkspace, User } from '@/contexts/WorkspaceContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -22,12 +22,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) => {
-  const { users, selectedUser, setSelectedUser, createUser, isLoading } = useWorkspace();
+  const { users, selectedUser, setSelectedUser, createUser, deleteUser, isLoading } = useWorkspace();
   const { user: clientUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [newUserName, setNewUserName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Check if a user is the default user
   const isDefaultUser = (user: User) => {
@@ -49,11 +52,29 @@ export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) =>
     }
   };
 
-  // Get display name with "(Default)" suffix if applicable
-  const getDisplayName = (user: User) => {
-    if (isDefaultUser(user)) {
-      return `${user.name} (Default)`;
+  const handleDeleteClick = (e: React.MouseEvent, user: User) => {
+    e.stopPropagation();
+    setUserToDelete(user);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!userToDelete) return;
+    setDeleteLoading(true);
+    try {
+      await deleteUser(userToDelete.id);
+      setDeleteDialogOpen(false);
+      setUserToDelete(null);
+      setOpen(false);
+    } catch (error) {
+      console.error("Failed to delete user", error);
+    } finally {
+      setDeleteLoading(false);
     }
+  };
+
+  // Get display name - just show the user name as-is
+  const getDisplayName = (user: User) => {
     return user.name;
   };
 
@@ -88,7 +109,7 @@ export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) =>
               <div
                 key={user.id}
                 className={cn(
-                  "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+                  "group relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
                   selectedUser?.id === user.id && "bg-accent text-accent-foreground"
                 )}
                 onClick={() => {
@@ -98,11 +119,17 @@ export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) =>
               >
                 <UserIcon className="mr-2 h-4 w-4 shrink-0" />
                 <span className="truncate flex-1">{user.name}</span>
-                {isDefaultUser(user) && (
-                  <span className="ml-1 text-xs text-muted-foreground">(Default)</span>
-                )}
                 {selectedUser?.id === user.id && (
                   <Check className="ml-2 h-4 w-4 shrink-0" />
+                )}
+                {!isDefaultUser(user) && (
+                  <button
+                    className="ml-2 h-6 w-6 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 flex items-center justify-center transition-opacity"
+                    onClick={(e) => handleDeleteClick(e, user)}
+                    title="Delete user"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </button>
                 )}
               </div>
             ))}
@@ -149,6 +176,36 @@ export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) =>
           </DialogFooter>
         </form>
       </DialogContent>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{userToDelete?.name}</strong>? This will soft-delete the user and all associated memories. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={deleteLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleConfirmDelete}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete User'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 };
