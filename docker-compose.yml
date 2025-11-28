@@ -91,7 +91,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mirix-api:latest
+    image: docker.io/yuwucsd/mirix-api:latest
     container_name: mirix_api
     restart: unless-stopped
     depends_on:
@@ -221,7 +221,7 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
-    image: mirix-dashboard:latest
+    image: docker.io/yuwucsd/mirix-dashboard:latest
     container_name: mirix_dashboard
     restart: unless-stopped
     depends_on:

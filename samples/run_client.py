@@ -44,25 +44,25 @@ def main():
     )
 
     client.initialize_meta_agent(
-        config_path="mirix/configs/examples/mirix_gemini.yaml",
+        config_path="../mirix/configs/examples/mirix_gemini.yaml",
         # config_path="mirix/configs/examples/mirix_openai.yaml",
         update_agents=False,
     )
 
-    result = client.add(
-       user_id=user_id,  # Optional - uses admin user if None
-       messages=[
-           {
-               "role": "user",
-               "content": [{
-                   "type": "text",
-                   "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-               }]
-           },
-       ],
-       chaining=False
-    )
-    print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    # result = client.add(
+    #    user_id=user_id,  # Optional - uses admin user if None
+    #    messages=[
+    #        {
+    #            "role": "user",
+    #            "content": [{
+    #                "type": "text",
+    #                "text": "MemoryLLM means a memory system that uses a language model to generate memories."
+    #            }]
+    #        },
+    #    ],
+    #    chaining=False
+    # )
+    # print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
     # 4. Example: Retrieve memories using new API
     print("Step 4: Retrieving memories with conversation context...")

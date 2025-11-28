@@ -47,6 +47,17 @@ agent.send_message(
 ```
 For more details, please refer to [Backend Usage](https://docs.mirix.io/user-guide/backend-usage/).
 
+### Run with Docker Compose
+- Images: docker.io/yuwucsd/mirix-api:latest, docker.io/yuwucsd/mirix-dashboard:latest (Redis/pgvector pulled upstream)
+- Start everything (from repo root; public pulls):
+```
+docker compose up -d --pull always
+```
+- Optional (avoid rate limits or for pushing later): `docker login`
+- Dashboard: http://localhost:5173
+- API: http://localhost:8531
+
+
 ## Python SDK (NEW!) 🎉
 
 We've created a simple [Python SDK](https://pypi.org/project/mirix/0.1.5/) that makes it incredibly easy to integrate Mirix's memory capabilities into your applications:
