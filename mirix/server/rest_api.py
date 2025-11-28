@@ -2445,6 +2445,7 @@ async def search_memory(
     search_field: str = "null",
     search_method: str = "bm25",
     limit: int = 10,
+    authorization: Optional[str] = Header(None),
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None),
@@ -2469,8 +2470,13 @@ async def search_memory(
         limit: Maximum number of results per memory type (default: 10)
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
-    client = server.client_manager.get_client_by_id(client_id)
+
+    # Support both dashboard JWTs and programmatic API key access
+    if authorization or x_api_key:
+        client, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    else:
+        client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+        client = server.client_manager.get_client_by_id(client_id)
 
     # If user_id is not provided, use the admin user for this client
     if not user_id:
@@ -2528,8 +2534,8 @@ async def search_memory(
     if memory_type in ["episodic", "all"]:
         try:
             episodic_memories = server.episodic_memory_manager.list_episodic_memory(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
@@ -2555,8 +2561,8 @@ async def search_memory(
     if memory_type in ["resource", "all"]:
         try:
             resource_memories = server.resource_memory_manager.list_resources(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
                 search_method=search_method,
@@ -2581,8 +2587,8 @@ async def search_memory(
     if memory_type in ["procedural", "all"]:
         try:
             procedural_memories = server.procedural_memory_manager.list_procedures(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
@@ -2606,8 +2612,8 @@ async def search_memory(
     if memory_type in ["knowledge_vault", "all"]:
         try:
             knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "caption",
                 search_method=search_method,
@@ -2633,8 +2639,8 @@ async def search_memory(
     if memory_type in ["semantic", "all"]:
         try:
             semantic_memories = server.semantic_memory_manager.list_semantic_items(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
@@ -2663,6 +2669,246 @@ async def search_memory(
         "search_method": search_method,
         "results": all_results,
         "count": len(all_results),
+    }
+
+
+@router.get("/memory/components")
+async def list_memory_components(
+    user_id: Optional[str] = None,
+    memory_type: str = "all",
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Return memory records grouped by component for the given user.
+
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+
+    Args:
+        user_id: End-user whose memories should be listed (defaults to the client's admin user)
+        memory_type: One of ["episodic","semantic","procedural","resource","knowledge_vault","core","all"]
+        limit: Maximum number of items to return per memory type
+    """
+    valid_memory_types = {
+        "episodic",
+        "semantic",
+        "procedural",
+        "resource",
+        "knowledge_vault",
+        "core",
+        "all",
+    }
+    memory_type = (memory_type or "all").lower()
+    if memory_type not in valid_memory_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported memory_type '{memory_type}'. Must be one of {sorted(valid_memory_types)}",
+        )
+
+    # Authenticate (JWT or API key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    server = get_server()
+
+    # Default to the admin user for this client
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
+
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+
+    timezone_str = getattr(user, "timezone", None) or "UTC"
+    limit = max(1, min(limit, 200))  # guardrails
+
+    # Need an agent state for memory manager configuration
+    agents = server.agent_manager.list_agents(actor=client, limit=1)
+    if not agents:
+        raise HTTPException(status_code=404, detail="No agents found for this client")
+    agent_state = agents[0]
+
+    fetch_all = memory_type == "all"
+    memories: Dict[str, Any] = {}
+
+    if fetch_all or memory_type == "episodic":
+        episodic_items = server.episodic_memory_manager.list_episodic_memory(
+            agent_state=agent_state,
+            user=user,
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        memories["episodic"] = {
+            "total_count": server.episodic_memory_manager.get_total_number_of_items(user=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "occurred_at": item.occurred_at.isoformat() if item.occurred_at else None,
+                    "event_type": item.event_type,
+                    "actor": item.actor,
+                    "summary": item.summary,
+                    "details": item.details,
+                    "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+                    "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
+                }
+                for item in episodic_items
+            ],
+        }
+
+    if fetch_all or memory_type == "semantic":
+        semantic_items = server.semantic_memory_manager.list_semantic_items(
+            agent_state=agent_state,
+            user=user,
+            query="",
+            search_field="summary",
+            search_method="bm25",
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        memories["semantic"] = {
+            "total_count": server.semantic_memory_manager.get_total_number_of_items(user=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "name": item.name,
+                    "summary": item.summary,
+                    "details": item.details,
+                    "source": item.source,
+                    "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+                    "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
+                }
+                for item in semantic_items
+            ],
+        }
+
+    if fetch_all or memory_type == "procedural":
+        procedural_items = server.procedural_memory_manager.list_procedures(
+            agent_state=agent_state,
+            user=user,
+            query="",
+            search_field="summary",
+            search_method="bm25",
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        memories["procedural"] = {
+            "total_count": server.procedural_memory_manager.get_total_number_of_items(user=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "entry_type": item.entry_type,
+                    "summary": item.summary,
+                    "steps": item.steps,
+                    "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+                    "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
+                }
+                for item in procedural_items
+            ],
+        }
+
+    if fetch_all or memory_type == "resource":
+        resource_items = server.resource_memory_manager.list_resources(
+            agent_state=agent_state,
+            user=user,
+            query="",
+            search_field="summary",
+            search_method="bm25",
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        memories["resource"] = {
+            "total_count": server.resource_memory_manager.get_total_number_of_items(user=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "resource_type": item.resource_type,
+                    "title": item.title,
+                    "summary": item.summary,
+                    "content": item.content,
+                    "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+                    "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
+                }
+                for item in resource_items
+            ],
+        }
+
+    if fetch_all or memory_type == "knowledge_vault":
+        knowledge_items = server.knowledge_vault_manager.list_knowledge(
+            agent_state=agent_state,
+            user=user,
+            query="",
+            search_field="caption",
+            search_method="bm25",
+            limit=limit,
+            timezone_str=timezone_str,
+        )
+        memories["knowledge_vault"] = {
+            "total_count": server.knowledge_vault_manager.get_total_number_of_items(user=user),
+            "items": [
+                {
+                    "id": item.id,
+                    "entry_type": item.entry_type,
+                    "source": item.source,
+                    "sensitivity": item.sensitivity,
+                    "secret_value": item.secret_value,
+                    "caption": item.caption,
+                    "created_at": item.created_at.isoformat() if getattr(item, "created_at", None) else None,
+                    "updated_at": item.updated_at.isoformat() if getattr(item, "updated_at", None) else None,
+                }
+                for item in knowledge_items
+            ],
+        }
+
+    if fetch_all or memory_type == "core":
+        blocks = server.block_manager.get_blocks(user=user)
+        memories["core"] = {
+            "total_count": len(blocks),
+            "items": [
+                {
+                    "id": block.id,
+                    "label": block.label,
+                    "value": block.value,
+                }
+                for block in blocks[:limit]
+            ],
+        }
+
+    return {
+        "success": True,
+        "user_id": user_id,
+        "memory_type": memory_type,
+        "limit": limit,
+        "memories": memories,
+    }
+
+
+@router.get("/memory/fields")
+async def list_memory_fields(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None),
+):
+    """
+    Return the searchable fields for each memory component.
+
+    Useful for UI clients to populate search field dropdowns in sync with
+    what the backend supports.
+    """
+    # Authenticate to keep parity with other memory endpoints
+    get_client_from_jwt_or_api_key(authorization, x_api_key)
+
+    fields_by_type = {
+        "episodic": ["summary", "details"],
+        "semantic": ["name", "summary", "details"],
+        "procedural": ["summary", "steps"],
+        "resource": ["summary", "content"],
+        "knowledge_vault": ["caption", "secret_value"],
+        "core": ["label", "value"],
+    }
+
+    return {
+        "success": True,
+        "fields": fields_by_type,
     }
 
 
