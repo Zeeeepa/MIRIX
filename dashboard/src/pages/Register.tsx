@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import apiClient from '@/api/client';
@@ -7,6 +8,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import logoImg from '@/assets/logo.png';
+
+const parseErrorDetail = (detail: unknown, fallback: string) => {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item: any) => {
+        const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : undefined;
+        const msg = item?.msg || item?.message;
+        if (!msg) return null;
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join(', ');
+  }
+  return fallback;
+};
 
 export const Register: React.FC = () => {
   const [name, setName] = useState('');
@@ -30,8 +47,13 @@ export const Register: React.FC = () => {
 
       const { access_token, client } = response.data;
       login(access_token, client);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to register');
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        const message = parseErrorDetail(err.response?.data?.detail, 'Failed to register');
+        setError(message);
+      } else {
+        setError('Failed to register');
+      }
     } finally {
       setLoading(false);
     }
@@ -80,7 +102,6 @@ export const Register: React.FC = () => {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
               />
             </div>
             {error && <div className="text-sm text-red-500">{error}</div>}
@@ -99,4 +120,3 @@ export const Register: React.FC = () => {
     </div>
   );
 };
-

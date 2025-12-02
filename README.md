@@ -25,7 +25,7 @@ docker compose up -d --pull always
 - Dashboard: http://localhost:5173  
 - API: http://localhost:8531  
 
-**Step 2: Create an API key in the dashboard (http://localhost:5173) and set as the environmental variable.**
+**Step 2: Create an API key in the dashboard (http://localhost:5173) and set as the environmental variable `MIRIX_API_KEY`.**
 
 **Step 3: Client (Python, `mirix-client`, https://pypi.org/project/mirix-client/):**
 ```
@@ -41,18 +41,49 @@ client = MirixClient(
     base_url="http://localhost:8531",
 )
 
-meta = client.initialize_meta_agent(
-    config={"llm_config": {"model": "gemini-2.0-flash"}}
+client.initialize_meta_agent(
+    config={
+        "llm_config": {
+            "model": "gemini-2.0-flash",
+            "model_endpoint_type": "google_ai",
+            "api_key": "your-api-key-here",
+            "model_endpoint": "https://generativelanguage.googleapis.com",
+            "context_window": 1_000_000,
+        },
+        "embedding_config": {
+            "embedding_model": "text-embedding-004",
+            "embedding_endpoint_type": "google_ai",
+            "api_key": "your-api-key-here",
+            "embedding_endpoint": "https://generativelanguage.googleapis.com",
+            "embedding_dim": 768,
+        },
+        "meta_agent_config": {
+            "agents": [
+                {
+                    "core_memory_agent": {
+                        "blocks": [
+                            {"label": "human", "value": ""},
+                            {"label": "persona", "value": "I am a helpful assistant."},
+                        ]
+                    }
+                },
+                "resource_memory_agent",
+                "semantic_memory_agent",
+                "episodic_memory_agent",
+                "procedural_memory_agent",
+                "knowledge_vault_memory_agent",
+            ],
+        },
+    }
 )
 
-resp = client.add(
+client.add(
     user_id="demo-user",
     messages=[
         {"role": "user", "content": [{"type": "text", "text": "The moon now has a president."}]},
         {"role": "assistant", "content": [{"type": "text", "text": "Noted."}]},
     ],
 )
-print(resp)
 
 memories = client.retrieve_with_conversation(
     user_id="demo-user",
@@ -63,8 +94,7 @@ memories = client.retrieve_with_conversation(
 )
 print(memories)
 ```
-For more API examples, see `samples/remote_client_example.py`.
-
+For more API examples, see `samples/run_client.py`.
 
 ## License
 

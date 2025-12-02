@@ -56,7 +56,19 @@ def main():
                "role": "user",
                "content": [{
                    "type": "text",
-                   "text": "MemoryLLM means a memory system that uses a language model to generate memories."
+                   "text": (
+                       "Hi! My name is David, and I'm a senior software engineer at TechCorp. "
+                       "I prefer Python over JavaScript, and my favorite IDE is VS Code. "
+                       "Yesterday, I attended the quarterly planning meeting where we discussed the new AI features roadmap. "
+                       "Last week, I completed the database migration project successfully. "
+                       "I've learned that microservices architecture requires careful API design and that "
+                       "distributed tracing is essential for debugging complex systems. "
+                       "I reviewed the Q4 Performance Report and the System Architecture Documentation from our wiki. "
+                       "For deploying our application, the process is: first run the test suite, then build the Docker image, "
+                       "push to the registry, and finally apply the Kubernetes manifests in staging before production. "
+                       "My production database password is db_prod_2024! and the API key for our payment gateway is sk-live-abc123xyz."
+                       "Please update all memories to reflect my latest activities and preferences."
+                   )
                }]
            },
        ],

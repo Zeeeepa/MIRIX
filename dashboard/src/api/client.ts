@@ -18,7 +18,10 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const requestUrl = error.response?.config?.url;
+    const isAuthPath = requestUrl === '/admin/auth/login' || requestUrl === '/admin/auth/register';
+
+    if (error.response?.status === 401 && !isAuthPath) {
       localStorage.removeItem('token');
       window.location.href = '/login';
     }
@@ -27,4 +30,3 @@ apiClient.interceptors.response.use(
 );
 
 export default apiClient;
-

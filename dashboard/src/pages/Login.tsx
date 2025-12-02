@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import apiClient from '@/api/client';
@@ -7,6 +8,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import logoImg from '@/assets/logo.png';
+
+const parseErrorDetail = (detail: unknown, fallback: string) => {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item: any) => {
+        const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : undefined;
+        const msg = item?.msg || item?.message;
+        if (!msg) return null;
+        return field ? `${field}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+    if (messages.length) return messages.join(', ');
+  }
+  return fallback;
+};
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -28,8 +45,18 @@ export const Login: React.FC = () => {
 
       const { access_token, client } = response.data;
       login(access_token, client);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Failed to login');
+    } catch (err) {
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 404) {
+          setError(parseErrorDetail(err.response?.data?.detail, 'Account does not exist. Please create an account.'));
+        } else if (err.response?.status === 401) {
+          setError(parseErrorDetail(err.response?.data?.detail, 'Invalid credentials. Please try again.'));
+        } else {
+          setError(parseErrorDetail(err.response?.data?.detail, 'Failed to login'));
+        }
+      } else {
+        setError('Failed to login');
+      }
     } finally {
       setLoading(false);
     }
@@ -88,4 +115,3 @@ export const Login: React.FC = () => {
     </div>
   );
 };
-

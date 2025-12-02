@@ -10,7 +10,19 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 import bcrypt
-import jwt
+
+try:
+    # PyJWT provides the encode/decode helpers we rely on
+    import jwt
+except ImportError as exc:  # pragma: no cover - import guard
+    raise ImportError("PyJWT is required for dashboard authentication. Install with `pip install PyJWT`.") from exc
+
+# Some environments may have an incompatible `jwt` package installed; validate it early
+if not hasattr(jwt, "encode") or not hasattr(jwt, "decode"):  # pragma: no cover - import guard
+    raise ImportError(
+        "Incompatible `jwt` package detected. Install PyJWT (e.g. `pip install PyJWT>=2.10.1`) "
+        "and remove conflicting jwt packages."
+    )
 
 from mirix.log import get_logger
 from mirix.orm.client import Client as ClientModel
@@ -263,7 +275,7 @@ class ClientAuthManager:
             return client.to_pydantic()
 
     @enforce_types
-    def authenticate(self, email: str, password: str) -> Optional[Tuple[PydanticClient, str]]:
+    def authenticate(self, email: str, password: str) -> Tuple[Optional[PydanticClient], Optional[str], str]:
         """
         Authenticate a client for dashboard access and return client + JWT token.
         
@@ -272,7 +284,13 @@ class ClientAuthManager:
             password: The password
             
         Returns:
-            Tuple of (client, access_token) if successful, None if failed
+            Tuple of (client, access_token, status)
+            status can be:
+                - "ok": authentication successful
+                - "not_found": email not found
+                - "inactive": client is not active
+                - "no_password": client has no password set
+                - "wrong_password": password mismatch
         """
         with self.session_maker() as session:
             client = (
@@ -286,19 +304,19 @@ class ClientAuthManager:
             
             if not client:
                 logger.warning("Login attempt for non-existent email: %s", email)
-                return None
+                return None, None, "not_found"
             
             if client.status != "active":
                 logger.warning("Login attempt for inactive client: %s", email)
-                return None
+                return None, None, "inactive"
             
             if not client.password_hash:
                 logger.warning("Login attempt for client without password: %s", email)
-                return None
+                return None, None, "no_password"
             
             if not self.verify_password(password, client.password_hash):
                 logger.warning("Failed login attempt for client: %s", email)
-                return None
+                return None, None, "wrong_password"
             
             # Update last login time
             client.last_login = datetime.now(timezone.utc)
@@ -308,7 +326,7 @@ class ClientAuthManager:
             access_token = self.create_access_token(pydantic_client)
             
             logger.info("Successful dashboard login for client: %s", email)
-            return pydantic_client, access_token
+            return pydantic_client, access_token, "ok"
 
     @enforce_types
     def get_client_by_id(self, client_id: str) -> Optional[PydanticClient]:

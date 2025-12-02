@@ -138,6 +138,9 @@ export const Memories: React.FC = () => {
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [expandedEpisodic, setExpandedEpisodic] = useState<Record<string, boolean>>({});
   const [expandedSemantic, setExpandedSemantic] = useState<Record<string, boolean>>({});
+  const [expandedProcedural, setExpandedProcedural] = useState<Record<string, boolean>>({});
+  const [expandedResource, setExpandedResource] = useState<Record<string, boolean>>({});
+  const [expandedKnowledge, setExpandedKnowledge] = useState<Record<string, boolean>>({});
   const [fieldsByType, setFieldsByType] = useState<Record<MemoryTypeFilter, string[]>>(DEFAULT_FIELDS);
   const prevUserIdRef = useRef<string | null>(null);
 
@@ -237,6 +240,9 @@ export const Memories: React.FC = () => {
         setMemoryTab('episodic');
         setExpandedEpisodic({});
         setExpandedSemantic({});
+        setExpandedProcedural({});
+        setExpandedResource({});
+        setExpandedKnowledge({});
         setMemoryTypeFilter('all');
         setSearchField('null');
         setSearchMethod('bm25');
@@ -252,6 +258,18 @@ export const Memories: React.FC = () => {
 
   const toggleSemantic = (id: string) => {
     setExpandedSemantic((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleProcedural = (id: string) => {
+    setExpandedProcedural((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleResource = (id: string) => {
+    setExpandedResource((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleKnowledge = (id: string) => {
+    setExpandedKnowledge((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Keep search_field sensible when filters change
@@ -429,13 +447,34 @@ export const Memories: React.FC = () => {
                     </span>
                     {item.created_at && <span>{formatDate(item.created_at)}</span>}
                   </div>
-                  <div className="font-semibold text-base">{item.summary || 'No summary'}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-base">{item.summary || 'No summary'}</div>
+                    {item.steps && item.steps.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleProcedural(item.id)}
+                        className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {expandedProcedural[item.id] ? (
+                          <>
+                            Hide details <ChevronUp className="ml-1 h-4 w-4" />
+                          </>
+                        ) : (
+                          <>
+                            Show details <ChevronDown className="ml-1 h-4 w-4" />
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   {item.steps && item.steps.length > 0 ? (
-                    <ul className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-                      {item.steps.map((step, idx) => (
-                        <li key={`${item.id}-step-${idx}`}>{step}</li>
-                      ))}
-                    </ul>
+                    expandedProcedural[item.id] ? (
+                      <ul className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+                        {item.steps.map((step, idx) => (
+                          <li key={`${item.id}-step-${idx}`}>{step}</li>
+                        ))}
+                      </ul>
+                    ) : null
                   ) : (
                     <p className="text-sm text-muted-foreground">No steps recorded.</p>
                   )}
@@ -463,10 +502,35 @@ export const Memories: React.FC = () => {
                     {item.created_at && <span>{formatDate(item.created_at)}</span>}
                   </div>
                   <div className="font-semibold text-base">{item.title || 'Untitled'}</div>
-                  <p className="text-sm text-muted-foreground">{item.summary || 'No summary provided.'}</p>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {item.content || 'No content stored.'}
-                  </p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm text-muted-foreground">{item.summary || 'No summary provided.'}</p>
+                    {item.content && (
+                      <button
+                        type="button"
+                        onClick={() => toggleResource(item.id)}
+                        className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {expandedResource[item.id] ? (
+                          <>
+                            Hide details <ChevronUp className="ml-1 h-4 w-4" />
+                          </>
+                        ) : (
+                          <>
+                            Show details <ChevronDown className="ml-1 h-4 w-4" />
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {item.content ? (
+                    expandedResource[item.id] ? (
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                        {item.content}
+                      </p>
+                    ) : null
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No content stored.</p>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -490,11 +554,30 @@ export const Memories: React.FC = () => {
                     </span>
                     {item.created_at && <span>{formatDate(item.created_at)}</span>}
                   </div>
-                  <div className="font-semibold text-base">{item.caption || 'No caption'}</div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold text-base">{item.caption || 'No caption'}</div>
+                    {item.secret_value && (
+                      <button
+                        type="button"
+                        onClick={() => toggleKnowledge(item.id)}
+                        className="flex items-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {expandedKnowledge[item.id] ? (
+                          <>
+                            Hide details <ChevronUp className="ml-1 h-4 w-4" />
+                          </>
+                        ) : (
+                          <>
+                            Show details <ChevronDown className="ml-1 h-4 w-4" />
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">
                     Source: {item.source || 'Unknown'} | Sensitivity: {item.sensitivity || 'Unspecified'}
                   </p>
-                  {item.secret_value && (
+                  {item.secret_value && expandedKnowledge[item.id] && (
                     <div className="rounded bg-muted px-3 py-2 text-sm font-mono break-all">
                       {item.secret_value}
                     </div>
@@ -714,5 +797,4 @@ export const Memories: React.FC = () => {
     </div>
   );
 };
-
 

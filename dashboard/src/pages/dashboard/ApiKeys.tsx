@@ -284,7 +284,7 @@ export const ApiKeys: React.FC = () => {
 
       {/* Success Dialog (Show created key) */}
       <Dialog open={successDialogOpen} onOpenChange={handleSuccessDialogClose}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
             <DialogTitle>Save your key</DialogTitle>
             <DialogDescription className="pt-2">
@@ -296,8 +296,8 @@ export const ApiKeys: React.FC = () => {
           </DialogHeader>
           
           <div className="py-4">
-            <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
-              <code className="flex-1 text-sm font-mono truncate">
+            <div className="flex items-center gap-2 p-3 bg-muted rounded-md min-w-0">
+              <code className="flex-1 min-w-0 text-sm font-mono truncate">
                 {createdKey?.api_key}
               </code>
               <Button 

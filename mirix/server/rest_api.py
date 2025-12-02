@@ -35,6 +35,8 @@ from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySumm
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
+from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
+from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
 from mirix.schemas.sandbox_config import (
     E2BSandboxConfig,
     LocalSandboxConfig,
@@ -42,6 +44,7 @@ from mirix.schemas.sandbox_config import (
     SandboxConfigCreate,
     SandboxConfigUpdate,
 )
+from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
@@ -783,85 +786,6 @@ async def update_agent_system_prompt(
 # ============================================================================
 # Memory Endpoints
 # ============================================================================
-
-
-@router.get("/agents/{agent_id}/memory", response_model=Memory)
-async def get_agent_memory(
-    agent_id: str,
-    x_client_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
-):
-    """Get an agent's in-context memory."""
-    server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
-    client = server.client_manager.get_client_by_id(client_id)
-    return server.get_agent_memory(agent_id=agent_id, actor=client)
-
-
-@router.get("/agents/{agent_id}/memory/archival", response_model=ArchivalMemorySummary)
-async def get_archival_memory_summary(
-    agent_id: str,
-    x_client_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
-):
-    """Get archival memory summary."""
-    server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
-    client = server.client_manager.get_client_by_id(client_id)
-    return server.get_archival_memory_summary(agent_id=agent_id, actor=client)
-
-
-@router.get("/agents/{agent_id}/memory/recall", response_model=RecallMemorySummary)
-async def get_recall_memory_summary(
-    agent_id: str,
-    x_client_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
-):
-    """Get recall memory summary."""
-    server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
-    client = server.client_manager.get_client_by_id(client_id)
-    return server.get_recall_memory_summary(agent_id=agent_id, actor=client)
-
-
-@router.get("/agents/{agent_id}/messages", response_model=List[Message])
-async def get_agent_messages(
-    agent_id: str,
-    cursor: Optional[str] = None,
-    limit: int = 1000,
-    use_cache: bool = True,
-    x_client_id: Optional[str] = Header(None),
-    x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
-):
-    """Get messages from an agent.
-
-    Args:
-        agent_id: The ID of the agent
-        cursor: Cursor for pagination
-        limit: Maximum number of messages to return
-        use_cache: Control Redis cache behavior (default: True)
-        x_user_id: User ID from header
-        x_org_id: Organization ID from header
-    
-    Returns:
-        List of messages
-    """
-    server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
-    return server.get_agent_recall_cursor(
-        user_id=user_id,
-        agent_id=agent_id,
-        before=cursor,
-        limit=limit,
-        reverse=True,
-        use_cache=use_cache,
-    )
-
-
 class SendMessageRequest(BaseModel):
     """Request to send a message to an agent."""
     message: str
@@ -1596,7 +1520,7 @@ class CreateApiKeyResponse(BaseModel):
     api_key: str  # Raw API key - only returned at creation time
     status: str
     permission: str  # Permission level: all, restricted, read_only
-    created_at: datetime
+    created_at: Optional[datetime]
 
 
 @router.post("/clients/{client_id}/api-keys", response_model=CreateApiKeyResponse)
@@ -1657,7 +1581,7 @@ class ApiKeyInfo(BaseModel):
     client_id: str
     name: Optional[str]
     status: str
-    created_at: datetime
+    created_at: Optional[datetime]
 
 
 @router.get("/clients/{client_id}/api-keys", response_model=List[ApiKeyInfo])
@@ -1762,10 +1686,6 @@ async def initialize_meta_agent(
 
     # Extract config components
     config = request.config
-    llm_config = None
-    embedding_config = None
-    system_prompts = None
-    agents_config = None
 
     # Build create_params by flattening meta_agent_config
     create_params = {
@@ -3085,12 +3005,17 @@ async def update_semantic_memory(
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
     
     try:
+        semantic_update_data = {"id": memory_id}
+        if request.name is not None:
+            semantic_update_data["name"] = request.name
+        if request.summary is not None:
+            semantic_update_data["summary"] = request.summary
+        if request.details is not None:
+            semantic_update_data["details"] = request.details
+
         updated_memory = server.semantic_memory_manager.update_item(
-            semantic_item_id=memory_id,
-            new_name=request.name,
-            new_summary=request.summary,
-            new_details=request.details,
-            user=user
+            item_update=SemanticMemoryItemUpdate.model_validate(semantic_update_data),
+            user=user,
         )
         return {
             "success": True,
@@ -3167,11 +3092,17 @@ async def update_procedural_memory(
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
     
     try:
+        procedural_update_data = {"id": memory_id}
+        if request.summary is not None:
+            procedural_update_data["summary"] = request.summary
+        if request.steps is not None:
+            procedural_update_data["steps"] = request.steps
+
         updated_memory = server.procedural_memory_manager.update_item(
-            procedural_item_id=memory_id,
-            new_summary=request.summary,
-            new_steps=request.steps,
-            user=user
+            item_update=ProceduralMemoryItemUpdate.model_validate(
+                procedural_update_data
+            ),
+            user=user,
         )
         return {
             "success": True,
@@ -3248,12 +3179,17 @@ async def update_resource_memory(
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
     
     try:
+        resource_update_data = {"id": memory_id}
+        if request.title is not None:
+            resource_update_data["title"] = request.title
+        if request.summary is not None:
+            resource_update_data["summary"] = request.summary
+        if request.content is not None:
+            resource_update_data["content"] = request.content
+
         updated_memory = server.resource_memory_manager.update_item(
-            resource_item_id=memory_id,
-            new_title=request.title,
-            new_summary=request.summary,
-            new_content=request.content,
-            user=user
+            item_update=ResourceMemoryItemUpdate.model_validate(resource_update_data),
+            user=user,
         )
         return {
             "success": True,
@@ -3331,9 +3267,9 @@ class DashboardLoginRequest(BaseModel):
 
 class DashboardRegisterRequest(BaseModel):
     """Request model for dashboard registration."""
-    name: str = Field(..., min_length=3, max_length=100, description="Client name")
+    name: str = Field(..., max_length=100, description="Client name")
     email: str = Field(..., description="Email address for login")
-    password: str = Field(..., min_length=8, description="Password for login")
+    password: str = Field(..., description="Password for login")
 
 
 class DashboardClientResponse(BaseModel):
@@ -3344,7 +3280,7 @@ class DashboardClientResponse(BaseModel):
     scope: str
     status: str
     admin_user_id: str  # Admin user for memory operations
-    created_at: datetime
+    created_at: Optional[datetime]
     last_login: Optional[datetime]
 
 
@@ -3484,15 +3420,23 @@ async def dashboard_login(request: DashboardLoginRequest):
     
     auth_manager = ClientAuthManager()
     
-    result = auth_manager.authenticate(request.email, request.password)
+    client, access_token, auth_status = auth_manager.authenticate(request.email, request.password)
     
-    if not result:
+    if auth_status == "not_found":
+        raise HTTPException(
+            status_code=404,
+            detail="Account does not exist. Please create an account."
+        )
+    if auth_status == "wrong_password":
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect password"
+        )
+    if auth_status != "ok" or not client or not access_token:
         raise HTTPException(
             status_code=401,
             detail="Invalid email or password"
         )
-    
-    client, access_token = result
     
     return TokenResponse(
         access_token=access_token,

@@ -1467,10 +1467,9 @@ class SyncServer(Server):
             llm_config = mirix_agent.agent_state.llm_config
             if stream_tokens and (
                 llm_config.model_endpoint_type != "openai"
-                or "inference.memgpt.ai" in llm_config.model_endpoint
             ):
                 warnings.warn(
-                    "Token streaming is only supported for models with type 'openai' or `inference.memgpt.ai` in the model_endpoint: agent has endpoint type {llm_config.model_endpoint_type} and {llm_config.model_endpoint}. Setting stream_tokens to False."
+                    "Token streaming is only supported for models with type 'openai' in the model_endpoint: agent has endpoint type {llm_config.model_endpoint_type} and {llm_config.model_endpoint}. Setting stream_tokens to False."
                 )
                 stream_tokens = False
 

@@ -54,3 +54,4 @@ pytest-cov
 pyyaml
 requests
 bcrypt
+PyJWT>=2.10.1
