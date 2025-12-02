@@ -7,13 +7,42 @@ This setup script packages ONLY the client-side components of Mirix.
 The client package is lightweight and contains only what's needed to
 communicate with a Mirix server.
 
-Package Name: mirix-client
+Package Name: mirix-client (default, configurable via --package-name)
 Purpose: Remote client library for Mirix server
 """
 
 import os
+import sys
 
 from setuptools import find_packages, setup
+
+# Parse command line arguments for package name and version
+package_name = "mirix-client"  # Default value
+version = None
+
+if "--package-name" in sys.argv:
+    try:
+        idx = sys.argv.index("--package-name")
+        package_name = sys.argv[idx + 1]
+        # Remove the --package-name argument and its value from sys.argv
+        # so setuptools doesn't see it
+        sys.argv.pop(idx)  # Remove --package-name
+        sys.argv.pop(idx)  # Remove the value
+    except (IndexError, ValueError):
+        print("Error: --package-name requires a value")
+        sys.exit(1)
+
+if "--version" in sys.argv:
+    try:
+        idx = sys.argv.index("--version")
+        version = sys.argv[idx + 1]
+        # Remove the --version argument and its value from sys.argv
+        # so setuptools doesn't see it
+        sys.argv.pop(idx)  # Remove --version
+        sys.argv.pop(idx)  # Remove the value
+    except (IndexError, ValueError):
+        print("Error: --version requires a value")
+        sys.exit(1)
 
 # Read the contents of README file
 this_directory = os.path.abspath(os.path.dirname(__file__))
@@ -24,8 +53,13 @@ with open(os.path.join(project_root, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 
-# Get version
+# Get version from command line or __init__.py
 def get_version():
+    # If version was provided via command line, use that
+    if version is not None:
+        return version
+
+    # Otherwise, fall back to reading from __init__.py
     import re
 
     version_file = os.path.join(project_root, "mirix", "__init__.py")
@@ -58,7 +92,7 @@ client_dependencies = [
 os.chdir(project_root)
 
 setup(
-    name="mirix-client",
+    name=package_name,
     version=get_version(),
     author="Mirix AI",
     author_email="yuwang@mirix.io",
