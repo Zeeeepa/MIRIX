@@ -1592,6 +1592,103 @@ class MirixClient(AbstractClient):
         
         return self._request("GET", "/memory/search", params=params, headers=headers)
 
+    def search_all_users(
+        self,
+        query: str,
+        memory_type: str = "all",
+        search_field: str = "null",
+        search_method: str = "bm25",
+        limit: int = 10,
+        client_id: Optional[str] = None,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        org_id: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Search for memories across ALL users in the organization.
+        Results are automatically filtered by client scope.
+        
+        If client_id is provided, uses that client's organization.
+        
+        Args:
+            query: Search query
+            memory_type: Type of memory to search. Options: "episodic", "resource", 
+                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+            search_field: Field to search in. Options vary by memory type:
+                         - episodic: "summary", "details"
+                         - resource: "summary", "content"
+                         - procedural: "summary", "steps"
+                         - knowledge_vault: "caption", "secret_value"
+                         - semantic: "name", "summary", "details"
+                         - For "all": use "null" (default)
+            search_method: Search method. Options: "bm25" (default), "embedding"
+            limit: Maximum results per memory type (total across all users)
+            client_id: Optional client ID (uses its org_id and scope for filtering)
+            filter_tags: Optional additional filter tags (scope added automatically)
+            org_id: Optional organization scope (overridden by client's org if client_id provided)
+        
+        Returns:
+            Dict containing:
+                - success: bool
+                - query: str (the search query)
+                - memory_type: str (the memory type searched)
+                - search_field: str (the field searched)
+                - search_method: str (the search method used)
+                - results: List[Dict] (flat list of results with user_id for each)
+                - count: int (total number of results)
+                - client_id: str (which client was used)
+                - organization_id: str (which org was searched)
+                - client_scope: str (scope used for filtering)
+                - filter_tags: dict (applied filter tags)
+            
+        Example:
+            >>> # Search all users' episodic memories
+            >>> results = client.search_all_users(
+            ...     query="meeting notes",
+            ...     memory_type="episodic",
+            ...     limit=20
+            ... )
+            >>> print(f"Found {results['count']} memories across users")
+            >>> 
+            >>> # Search with specific client and additional filters
+            >>> results = client.search_all_users(
+            ...     query="project documentation",
+            ...     client_id="client-123",
+            ...     filter_tags={"project": "alpha"},
+            ...     memory_type="resource"
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError(
+                "Meta agent not initialized. Call initialize_meta_agent() first."
+            )
+        
+        params = {
+            "query": query,
+            "memory_type": memory_type,
+            "search_field": search_field,
+            "search_method": search_method,
+            "limit": limit,
+        }
+        
+        # Add client_id if provided (server will use this client's org_id)
+        if client_id:
+            params["client_id"] = client_id
+        
+        # Add org_id if provided (used only if no client_id specified)
+        if org_id:
+            params["org_id"] = org_id
+        elif not client_id:
+            # Use current client's org_id if neither client_id nor org_id provided
+            params["org_id"] = self.org_id
+        
+        # Add filter_tags if provided
+        if filter_tags:
+            import json
+            params["filter_tags"] = json.dumps(filter_tags)
+        
+        return self._request("GET", "/memory/search_all_users", params=params, headers=headers)
+
     # ========================================================================
     # LangChain/Composio/CrewAI Integration (Not Supported)
     # ========================================================================

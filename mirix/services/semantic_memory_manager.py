@@ -1150,3 +1150,100 @@ class SemanticMemoryManager:
                 redis_client.client.delete(*batch)
         
         return count
+
+    @update_timezone
+    @enforce_types
+    def list_semantic_items_by_org(
+        self,
+        agent_state: AgentState,
+        organization_id: str,
+        query: str = "",
+        embedded_text: Optional[List[float]] = None,
+        search_field: str = "",
+        search_method: str = "embedding",
+        limit: Optional[int] = 50,
+        timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
+    ) -> List[PydanticSemanticMemoryItem]:
+        """List semantic memory items across ALL users in an organization."""
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if use_cache and redis_client:
+            try:
+                if not query or query == "":
+                    results = redis_client.search_recent_by_org(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        sort_by="created_at_ts",
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+                elif search_method == "embedding":
+                    if embedded_text is None:
+                        from mirix.embeddings.embedding_model import embed_and_upload_batch
+                        embedded_text = embed_and_upload_batch([query], agent_state.embedding_config)[0]
+                    
+                    vector_field = f"{search_field}_embedding" if search_field in ["name", "summary", "details"] else "details_embedding"
+                    results = redis_client.search_vector_by_org(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        embedding=embedded_text,
+                        vector_field=vector_field,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+                else:
+                    results = redis_client.search_text_by_org(
+                        index_name=redis_client.SEMANTIC_INDEX,
+                        query_text=query,
+                        search_field=search_field or "details",
+                        search_method=search_method,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticSemanticMemoryItem(**item) for item in results]
+            except Exception as e:
+                logger.warning("Redis search failed: %s", e)
+        
+        with self.session_maker() as session:
+            # Return full SemanticMemoryItem objects, not individual columns
+            base_query = select(SemanticMemoryItem).where(
+                SemanticMemoryItem.organization_id == organization_id
+            )
+            
+            if filter_tags:
+                from sqlalchemy import func, or_
+                for key, value in filter_tags.items():
+                    if key == "scope":
+                        # Scope matching: input value must be in memory's scope field
+                        base_query = base_query.where(
+                            or_(
+                                func.lower(SemanticMemoryItem.filter_tags[key].as_string()).contains(str(value).lower()),
+                                SemanticMemoryItem.filter_tags[key].as_string() == str(value)
+                            )
+                        )
+                    else:
+                        # Other keys: exact match
+                        base_query = base_query.where(SemanticMemoryItem.filter_tags[key].as_string() == str(value))
+
+            # Order by created_at for consistent results
+            base_query = base_query.order_by(SemanticMemoryItem.created_at.desc())
+
+            if limit:
+                base_query = base_query.limit(limit)
+            
+            result = session.execute(base_query)
+            items = result.scalars().all()
+            return [item.to_pydantic() for item in items]
+

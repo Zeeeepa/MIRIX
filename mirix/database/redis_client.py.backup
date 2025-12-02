@@ -1314,6 +1314,99 @@ class RedisMemoryClient:
             logger.warning("Redis recent search failed for index %s (sort_by: %s): %s", index_name, sort_by, e)
             return []
     
+    @staticmethod
+    def clean_redis_fields(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Remove Redis-specific fields before Pydantic validation.
+        
+        ⚠️ SECURITY: We keep Pydantic's extra="forbid" for API validation security.
+        This helper strips Redis-internal fields (_ts timestamps, search metadata) that
+        would otherwise cause validation errors, while preserving strict validation for
+        user input.
+        
+        Redis stores both datetime ISO strings and numeric timestamps (_ts suffix) for sorting.
+        This helper removes the Redis-specific _ts fields after search operations.
+        
+        Args:
+            items: List of dictionaries from Redis Search results
+            
+        Returns:
+            List of cleaned dictionaries ready for strict Pydantic validation
+        """
+        from datetime import datetime
+        
+        for item in items:
+            # Remove Redis-specific timestamp fields (keeping only the datetime ISO strings)
+            if 'created_at_ts' in item:
+                # If we don't have the ISO string, convert from timestamp
+                if 'created_at' not in item:
+                    item['created_at'] = datetime.fromtimestamp(item['created_at_ts']).isoformat()
+                item.pop('created_at_ts')
+                
+            if 'occurred_at_ts' in item:
+                # If we don't have the ISO string, convert from timestamp
+                if 'occurred_at' not in item:
+                    item['occurred_at'] = datetime.fromtimestamp(item['occurred_at_ts']).isoformat()
+                item.pop('occurred_at_ts')
+            
+            # Remove search metadata fields
+            item.pop('similarity_score', None)
+            item.pop('vector_distance', None)
+        
+        return items
+
+
+def initialize_redis_client() -> Optional[RedisMemoryClient]:
+    """Initialize global Redis client from settings with optimized connection pool."""
+    global _redis_client
+    
+    if _redis_client is not None:
+        return _redis_client
+    
+    try:
+        from mirix.settings import settings
+        
+        if not settings.redis_enabled:
+            logger.info("Redis is disabled (MIRIX_REDIS_ENABLED=false)")
+            return None
+        
+        redis_uri = settings.mirix_redis_uri
+        if not redis_uri:
+            logger.warning("Redis enabled but no URI configured")
+            return None
+        
+        # Initialize with optimized connection pool settings
+        _redis_client = RedisMemoryClient(
+            redis_uri=redis_uri,
+            max_connections=settings.redis_max_connections,
+            socket_timeout=settings.redis_socket_timeout,
+            socket_connect_timeout=settings.redis_socket_connect_timeout,
+            socket_keepalive=settings.redis_socket_keepalive,
+            retry_on_timeout=settings.redis_retry_on_timeout,
+        )
+        
+        # Test connection
+        if not _redis_client.ping():
+            logger.error("Redis ping failed - disabling Redis")
+            _redis_client = None
+            return None
+        
+        # Create indexes
+        _redis_client.create_indexes()
+        
+        # Log connection pool info
+        _redis_client.log_connection_stats()
+        
+        logger.info("✅ Redis client initialized successfully with optimized connection pool")
+        return _redis_client
+        
+    except Exception as e:
+        logger.error("Failed to initialize Redis client: %s", e)
+        logger.info("System will continue without Redis caching")
+        _redis_client = None
+        return None
+
+
     def search_recent_by_org(
         self,
         index_name: str,
@@ -1550,98 +1643,6 @@ class RedisMemoryClient:
         except Exception as e:
             logger.warning("Redis text search failed for org search: %s", e)
             return []
-
-    def clean_redis_fields(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Remove Redis-specific fields before Pydantic validation.
-        
-        ⚠️ SECURITY: We keep Pydantic's extra="forbid" for API validation security.
-        This helper strips Redis-internal fields (_ts timestamps, search metadata) that
-        would otherwise cause validation errors, while preserving strict validation for
-        user input.
-        
-        Redis stores both datetime ISO strings and numeric timestamps (_ts suffix) for sorting.
-        This helper removes the Redis-specific _ts fields after search operations.
-        
-        Args:
-            items: List of dictionaries from Redis Search results
-            
-        Returns:
-            List of cleaned dictionaries ready for strict Pydantic validation
-        """
-        from datetime import datetime
-        
-        for item in items:
-            # Remove Redis-specific timestamp fields (keeping only the datetime ISO strings)
-            if 'created_at_ts' in item:
-                # If we don't have the ISO string, convert from timestamp
-                if 'created_at' not in item:
-                    item['created_at'] = datetime.fromtimestamp(item['created_at_ts']).isoformat()
-                item.pop('created_at_ts')
-                
-            if 'occurred_at_ts' in item:
-                # If we don't have the ISO string, convert from timestamp
-                if 'occurred_at' not in item:
-                    item['occurred_at'] = datetime.fromtimestamp(item['occurred_at_ts']).isoformat()
-                item.pop('occurred_at_ts')
-            
-            # Remove search metadata fields
-            item.pop('similarity_score', None)
-            item.pop('vector_distance', None)
-        
-        return items
-
-
-def initialize_redis_client() -> Optional[RedisMemoryClient]:
-    """Initialize global Redis client from settings with optimized connection pool."""
-    global _redis_client
-    
-    if _redis_client is not None:
-        return _redis_client
-    
-    try:
-        from mirix.settings import settings
-        
-        if not settings.redis_enabled:
-            logger.info("Redis is disabled (MIRIX_REDIS_ENABLED=false)")
-            return None
-        
-        redis_uri = settings.mirix_redis_uri
-        if not redis_uri:
-            logger.warning("Redis enabled but no URI configured")
-            return None
-        
-        # Initialize with optimized connection pool settings
-        _redis_client = RedisMemoryClient(
-            redis_uri=redis_uri,
-            max_connections=settings.redis_max_connections,
-            socket_timeout=settings.redis_socket_timeout,
-            socket_connect_timeout=settings.redis_socket_connect_timeout,
-            socket_keepalive=settings.redis_socket_keepalive,
-            retry_on_timeout=settings.redis_retry_on_timeout,
-        )
-        
-        # Test connection
-        if not _redis_client.ping():
-            logger.error("Redis ping failed - disabling Redis")
-            _redis_client = None
-            return None
-        
-        # Create indexes
-        _redis_client.create_indexes()
-        
-        # Log connection pool info
-        _redis_client.log_connection_stats()
-        
-        logger.info("✅ Redis client initialized successfully with optimized connection pool")
-        return _redis_client
-        
-    except Exception as e:
-        logger.error("Failed to initialize Redis client: %s", e)
-        logger.info("System will continue without Redis caching")
-        _redis_client = None
-        return None
-
 
 
 def get_redis_client() -> Optional[RedisMemoryClient]:

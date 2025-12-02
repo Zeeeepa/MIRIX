@@ -1038,3 +1038,164 @@ class ResourceMemoryManager:
                 redis_client.client.delete(*batch)
         
         return count
+
+    @update_timezone
+    @enforce_types
+    def list_resources_by_org(
+        self,
+        agent_state: AgentState,
+        organization_id: str,
+        query: str = "",
+        embedded_text: Optional[List[float]] = None,
+        search_field: str = "content",
+        search_method: str = "string_match",
+        limit: Optional[int] = 50,
+        timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
+    ) -> List[PydanticResourceMemoryItem]:
+        """
+        List resource memories across ALL users in an organization.
+        Filtered by organization_id and filter_tags (including scope).
+        
+        Args:
+            agent_state: Agent state
+            organization_id: Organization ID to filter by
+            query: Search query
+            search_field: Field to search in ('summary', 'content', etc.)
+            search_method: Search method ('embedding', 'bm25', 'string_match')
+            limit: Maximum results
+            timezone_str: Timezone
+            filter_tags: Filter tags dict (should include "scope": client.scope)
+            use_cache: Whether to try Redis
+        
+        Returns:
+            List of resource memories matching org_id and filter_tags["scope"]
+        """
+        
+        # Try Redis Search first
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if use_cache and redis_client:
+            try:
+                # Case 1: No query - recent items
+                if not query or query == "":
+                    results = redis_client.search_recent_by_org(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        sort_by="created_at_ts",
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        logger.debug("✅ Redis: %d resource memories for org %s", len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+                
+                # Case 2: Vector search
+                elif search_method == "embedding":
+                    if embedded_text is None:
+                        from mirix.embeddings.embedding_model import embed_and_upload_batch
+                        embedded_text = embed_and_upload_batch(
+                            [query], agent_state.embedding_config
+                        )[0]
+                    
+                    vector_field = "summary_embedding"
+                    
+                    results = redis_client.search_vector_by_org(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        embedding=embedded_text,
+                        vector_field=vector_field,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        logger.debug("✅ Redis vector: %d results for org %s", len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+                
+                # Case 3: Text search
+                else:
+                    results = redis_client.search_text_by_org(
+                        index_name=redis_client.RESOURCE_INDEX,
+                        query_text=query,
+                        search_field=search_field or "content",
+                        search_method=search_method,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                    )
+                    if results:
+                        logger.debug("✅ Redis text: %d results for org %s", len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticResourceMemoryItem(**item) for item in results]
+            
+            except Exception as e:
+                logger.warning("Redis search failed: %s", e)
+        
+        # PostgreSQL fallback
+        logger.debug("⚠️ PostgreSQL fallback for org %s", organization_id)
+        
+        with self.session_maker() as session:
+            # Return full ResourceMemoryItem objects, not individual columns
+            base_query = select(ResourceMemoryItem).where(
+                ResourceMemoryItem.organization_id == organization_id
+            )
+            
+            # Apply filter_tags (INCLUDING SCOPE)
+            if filter_tags:
+                from sqlalchemy import func, or_
+                for key, value in filter_tags.items():
+                    if key == "scope":
+                        # Scope matching: input value must be in memory's scope field
+                        base_query = base_query.where(
+                            or_(
+                                func.lower(ResourceMemoryItem.filter_tags[key].as_string()).contains(str(value).lower()),
+                                ResourceMemoryItem.filter_tags[key].as_string() == str(value)
+                            )
+                        )
+                    else:
+                        # Other keys: exact match
+                        base_query = base_query.where(ResourceMemoryItem.filter_tags[key].as_string() == str(value))
+
+            # Handle empty query - fall back to recent sort
+            if not query or query == "":
+                base_query = base_query.order_by(ResourceMemoryItem.created_at.desc())
+                if limit:
+                    base_query = base_query.limit(limit)
+                result = session.execute(base_query)
+                resource_memory = result.scalars().all()
+                return [item.to_pydantic() for item in resource_memory]
+
+            if search_method == "string_match":
+                if query:
+                    if search_field == "content":
+                        base_query = base_query.where(ResourceMemoryItem.content.ilike(f"%{query}%"))
+                    elif search_field == "summary":
+                        base_query = base_query.where(ResourceMemoryItem.summary.ilike(f"%{query}%"))
+            elif search_method == "embedding":
+                embedding_config = agent_state.embedding_config
+                if embedded_text is None:
+                    from mirix.embeddings import embedding_model
+                    embedded_text = embedding_model.embed_and_upload_batch([query], embedding_config)[0]
+                
+                embedding_query_field = ResourceMemoryItem.summary_embedding.cosine_distance(embedded_text).label("distance")
+                base_query = base_query.add_columns(embedding_query_field).order_by(embedding_query_field)
+            elif search_method == "bm25":
+                from sqlalchemy import func
+                
+                text_field = ResourceMemoryItem.content if search_field == "content" else ResourceMemoryItem.summary
+                tsquery = func.plainto_tsquery("english", query)
+                tsvector = func.to_tsvector("english", text_field)
+                rank = func.ts_rank_cd(tsvector, tsquery).label("rank")
+                
+                base_query = base_query.add_columns(rank).where(tsvector.op("@@")(tsquery)).order_by(rank.desc())
+            
+            if limit:
+                base_query = base_query.limit(limit)
+            
+            result = session.execute(base_query)
+            resource_memory = result.scalars().all()
+            return [item.to_pydantic() for item in resource_memory]

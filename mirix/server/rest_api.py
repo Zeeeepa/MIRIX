@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import requests
-from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -2386,6 +2386,278 @@ async def search_memory(
         "search_method": search_method,
         "results": all_results,
         "count": len(all_results),
+    }
+
+
+@router.get("/memory/search_all_users")
+async def search_memory_all_users(
+    query: str,
+    memory_type: str = "all",
+    search_field: str = "null",
+    search_method: str = "bm25",
+    limit: int = 10,
+    client_id: Optional[str] = Query(None),
+    org_id: Optional[str] = Query(None),
+    filter_tags: Optional[str] = Query(None),
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Search for memories across ALL users in the organization.
+    Automatically filters by client scope using filter_tags.
+    
+    Organization resolution priority:
+    1. If client_id provided: use that client's organization_id
+    2. Else: use org_id from query param or x_org_id header
+    
+    Args:
+        query: The search query string
+        memory_type: Type of memory to search. Options: "episodic", "resource", 
+                    "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+        search_field: Field to search in. Options vary by memory type
+        search_method: Search method. Options: "bm25" (default), "embedding"
+        limit: Maximum number of results (total across all users)
+        client_id: Optional client ID (uses its org_id and scope)
+        org_id: Optional organization ID (used if client_id not provided)
+        filter_tags: Optional JSON string of additional filter tags
+    """
+    import json
+    
+    server = get_server()
+    
+    # Determine which client to use and which org to search
+    if client_id:
+        # Use the provided client_id - fetch its org_id
+        effective_client_id = client_id
+        client = server.client_manager.get_client_by_id(effective_client_id)
+        effective_org_id = client.organization_id  # Use CLIENT's org_id
+        logger.info(
+            "Using provided client_id=%s with its organization_id=%s",
+            effective_client_id, effective_org_id
+        )
+    else:
+        # Fall back to headers
+        effective_client_id, header_org_id = get_client_and_org(x_client_id, x_org_id)
+        client = server.client_manager.get_client_by_id(effective_client_id)
+        # Use org_id from query param if provided, otherwise use header org_id
+        effective_org_id = org_id or header_org_id
+        logger.info(
+            "Using client_id=%s from header with org_id=%s",
+            effective_client_id, effective_org_id
+        )
+
+    # Parse filter_tags if provided, otherwise create new dict
+    if filter_tags:
+        try:
+            filter_tags_dict = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid filter_tags JSON format"
+            )
+    else:
+        filter_tags_dict = {}
+    
+    # Add client scope to filter_tags (same pattern as retrieve_with_conversation)
+    # This filters memories where memory.filter_tags["scope"] == client.scope
+    filter_tags_dict["scope"] = client.scope
+    
+    logger.info(
+        "Cross-user search: client=%s, org=%s, client_scope=%s, filter_tags=%s",
+        effective_client_id, effective_org_id, client.scope, filter_tags_dict
+    )
+
+    # Get agents for this client
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
+    if not all_agents:
+        return {
+            "success": False,
+            "error": "No agents found for this client",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    agent_state = all_agents[0]
+    
+    # Validate search parameters
+    if memory_type == "resource" and search_field == "content" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for resource memory's 'content' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    if memory_type == "all":
+        search_field = "null"
+
+    # Collect results using organization_id filter
+    all_results = []
+
+    # Search episodic memories across organization
+    if memory_type in ["episodic", "all"]:
+        try:
+            episodic_memories = server.episodic_memory_manager.list_episodic_memory_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "episodic",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "timestamp": x.occurred_at.isoformat() if x.occurred_at else None,
+                    "event_type": x.event_type,
+                    "actor": x.actor,
+                    "summary": x.summary,
+                    "details": x.details,
+                }
+                for x in episodic_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching episodic memories across organization: %s", e)
+
+    # Search resource memories across organization
+    if memory_type in ["resource", "all"]:
+        try:
+            resource_memories = server.resource_memory_manager.list_resources_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "resource",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "resource_type": x.resource_type,
+                    "title": x.title,
+                    "summary": x.summary,
+                    "content": x.content[:200] if x.content else None,
+                }
+                for x in resource_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching resource memories across organization: %s", e)
+
+    # Search procedural memories across organization
+    if memory_type in ["procedural", "all"]:
+        try:
+            procedural_memories = server.procedural_memory_manager.list_procedures_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "procedural",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "summary": x.summary,
+                    "steps": x.steps,
+                }
+                for x in procedural_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching procedural memories across organization: %s", e)
+
+    # Search knowledge vault across organization
+    if memory_type in ["knowledge_vault", "all"]:
+        try:
+            knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "caption",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "knowledge_vault",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "source": x.source,
+                    "sensitivity": x.sensitivity,
+                    "secret_value": x.secret_value,
+                    "caption": x.caption,
+                }
+                for x in knowledge_vault_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching knowledge vault across organization: %s", e)
+
+    # Search semantic memories across organization
+    if memory_type in ["semantic", "all"]:
+        try:
+            semantic_memories = server.semantic_memory_manager.list_semantic_items_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "semantic",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "name": x.name,
+                    "summary": x.summary,
+                    "details": x.details,
+                    "source": x.source,
+                }
+                for x in semantic_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching semantic memories across organization: %s", e)
+
+    return {
+        "success": True,
+        "query": query,
+        "memory_type": memory_type,
+        "search_field": search_field,
+        "search_method": search_method,
+        "results": all_results,
+        "count": len(all_results),
+        "client_id": effective_client_id,
+        "organization_id": effective_org_id,
+        "client_scope": client.scope,
+        "filter_tags": filter_tags_dict,
     }
 
 
