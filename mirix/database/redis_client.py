@@ -1176,8 +1176,8 @@ class RedisMemoryClient:
             # Add return fields if specified
             if return_fields:
                 query_obj = query_obj.return_fields(*return_fields, "vector_distance")
-            else:
-                query_obj = query_obj.return_fields("vector_distance")
+            # If no specific fields requested, return all fields (don't specify return_fields)
+            # Redis will return all indexed fields when return_fields is not called
             
             # Execute search
             results = self.client.ft(index_name).search(
@@ -1344,13 +1344,21 @@ class RedisMemoryClient:
         try:
             from redis.commands.search.query import Query
             from datetime import datetime
+            import re
+            
+            def escape_text_value(value: str) -> str:
+                """Escape special characters for Redis TEXT field values."""
+                # Escape special chars that have meaning in Redis Search queries
+                special_chars = r'[\-:.()\[\]{}"\',<>;!@#$%^&*+=~|]'
+                return re.sub(special_chars, lambda m: f'\\{m.group(0)}', str(value))
             
             # Build query parts
             query_parts = []
             
-            # Add organization_id filter (TEXT field)
+            # Add organization_id filter (TEXT field) - MUST ESCAPE
             if organization_id:
-                query_parts.append(f"@organization_id:{organization_id}")
+                escaped_org_id = escape_text_value(organization_id)
+                query_parts.append(f"@organization_id:{escaped_org_id}")
             
             # Add temporal filtering (numeric range query)
             if start_date or end_date:
@@ -1423,13 +1431,20 @@ class RedisMemoryClient:
         try:
             from redis.commands.search.query import Query
             from datetime import datetime
+            import re
+            
+            def escape_text_value(value: str) -> str:
+                """Escape special characters for Redis TEXT field values."""
+                special_chars = r'[\-:.()\[\]{}"\',<>;!@#$%^&*+=~|]'
+                return re.sub(special_chars, lambda m: f'\\{m.group(0)}', str(value))
             
             # Build filter query parts (organization_id + filter_tags + temporal)
             filter_parts = []
             
-            # Add organization_id filter
+            # Add organization_id filter - MUST ESCAPE
             if organization_id:
-                filter_parts.append(f"@organization_id:{organization_id}")
+                escaped_org_id = escape_text_value(organization_id)
+                filter_parts.append(f"@organization_id:{escaped_org_id}")
             
             # Add temporal filtering
             if start_date or end_date:
@@ -1462,8 +1477,8 @@ class RedisMemoryClient:
             
             if return_fields:
                 query_obj = query_obj.return_fields(*return_fields, "distance")
-            else:
-                query_obj = query_obj.return_fields("distance")
+            # If no specific fields requested, return all fields (don't specify return_fields)
+            # Redis will return all indexed fields when return_fields is not called
             
             # Execute vector search
             results = self.client.ft(index_name).search(
@@ -1510,13 +1525,20 @@ class RedisMemoryClient:
         try:
             from redis.commands.search.query import Query
             from datetime import datetime
+            import re
+            
+            def escape_text_value(value: str) -> str:
+                """Escape special characters for Redis TEXT field values."""
+                special_chars = r'[\-:.()\[\]{}"\',<>;!@#$%^&*+=~|]'
+                return re.sub(special_chars, lambda m: f'\\{m.group(0)}', str(value))
             
             # Build query parts
             query_parts = []
             
-            # Add organization_id filter
+            # Add organization_id filter - MUST ESCAPE
             if organization_id:
-                query_parts.append(f"@organization_id:{organization_id}")
+                escaped_org_id = escape_text_value(organization_id)
+                query_parts.append(f"@organization_id:{escaped_org_id}")
             
             # Add temporal filtering
             if start_date or end_date:
@@ -1551,6 +1573,30 @@ class RedisMemoryClient:
             logger.warning("Redis text search failed for org search: %s", e)
             return []
 
+    def _doc_to_dict(self, doc) -> Dict[str, Any]:
+        """
+        Convert a Redis search result document to a dictionary.
+        
+        Args:
+            doc: Redis document from search results
+            
+        Returns:
+            Dictionary representation of the document
+        """
+        import json
+        
+        # For JSON documents
+        if hasattr(doc, 'json'):
+            return json.loads(doc.json)
+        # For Hash documents
+        else:
+            doc_dict = {}
+            for key, value in doc.__dict__.items():
+                if not key.startswith('_'):
+                    doc_dict[key] = value
+            return doc_dict
+    
+    @staticmethod
     def clean_redis_fields(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Remove Redis-specific fields before Pydantic validation.

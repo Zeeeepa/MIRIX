@@ -732,10 +732,17 @@ class EpisodicMemoryManager:
                 elif search_method == "embedding":
                     # Generate or use provided embedding
                     if embedded_text is None:
-                        from mirix.embeddings.embedding_model import embed_and_upload_batch
-                        embedded_text = embed_and_upload_batch(
-                            [query], agent_state.embedding_config
-                        )[0]
+                        from mirix.embeddings import embedding_model
+                        import numpy as np
+                        from mirix.constants import MAX_EMBEDDING_DIM
+                        
+                        embedded_text = embedding_model(agent_state.embedding_config).get_text_embedding(query)
+                        embedded_text = np.array(embedded_text)
+                        embedded_text = np.pad(
+                            embedded_text,
+                            (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                            mode="constant",
+                        ).tolist()
                     
                     # Determine vector field
                     vector_field = f"{search_field}_embedding" if search_field else "details_embedding"
@@ -1396,10 +1403,17 @@ class EpisodicMemoryManager:
                 elif search_method == "embedding":
                     # Generate or use provided embedding
                     if embedded_text is None:
-                        from mirix.embeddings.embedding_model import embed_and_upload_batch
-                        embedded_text = embed_and_upload_batch(
-                            [query], agent_state.embedding_config
-                        )[0]
+                        from mirix.embeddings import embedding_model
+                        import numpy as np
+                        from mirix.constants import MAX_EMBEDDING_DIM
+                        
+                        embedded_text = embedding_model(agent_state.embedding_config).get_text_embedding(query)
+                        embedded_text = np.array(embedded_text)
+                        embedded_text = np.pad(
+                            embedded_text,
+                            (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                            mode="constant",
+                        ).tolist()
                     
                     # Determine vector field
                     vector_field = f"{search_field}_embedding" if search_field else "details_embedding"
@@ -1490,9 +1504,16 @@ class EpisodicMemoryManager:
                 # Use provided embedding or generate it
                 if embedded_text is None:
                     from mirix.embeddings import embedding_model
-                    embedded_text = embedding_model.embed_and_upload_batch(
-                        [query], embedding_config
-                    )[0]
+                    import numpy as np
+                    from mirix.constants import MAX_EMBEDDING_DIM
+                    
+                    embedded_text = embedding_model(embedding_config).get_text_embedding(query)
+                    embedded_text = np.array(embedded_text)
+                    embedded_text = np.pad(
+                        embedded_text,
+                        (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                        mode="constant",
+                    ).tolist()
 
                 # Determine which embedding field to search
                 if not search_field or search_field == "details":

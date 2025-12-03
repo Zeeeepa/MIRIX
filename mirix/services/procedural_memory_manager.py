@@ -634,8 +634,8 @@ class ProceduralMemoryManager:
                 # Case 2: Vector similarity search
                 elif search_method == "embedding":
                     if embedded_text is None:
-                        from mirix.embeddings.embedding_model import embed_and_upload_batch
-                        embedded_text = embed_and_upload_batch(
+                        from mirix.embeddings import embedding_model
+                        embedded_text = embedding_model.embed_and_upload_batch(
                             [query], agent_state.embedding_config
                         )[0]
                     
@@ -1173,8 +1173,17 @@ class ProceduralMemoryManager:
                 
                 elif search_method == "embedding":
                     if embedded_text is None:
-                        from mirix.embeddings.embedding_model import embed_and_upload_batch
-                        embedded_text = embed_and_upload_batch([query], agent_state.embedding_config)[0]
+                        from mirix.embeddings import embedding_model
+                        import numpy as np
+                        from mirix.constants import MAX_EMBEDDING_DIM
+                        
+                        embedded_text = embedding_model(agent_state.embedding_config).get_text_embedding(query)
+                        embedded_text = np.array(embedded_text)
+                        embedded_text = np.pad(
+                            embedded_text,
+                            (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                            mode="constant",
+                        ).tolist()
                     
                     vector_field = f"{search_field}_embedding" if search_field else "summary_embedding"
                     results = redis_client.search_vector_by_org(
@@ -1227,8 +1236,55 @@ class ProceduralMemoryManager:
                         # Other keys: exact match
                         base_query = base_query.where(ProceduralMemoryItem.filter_tags[key].as_string() == str(value))
             
-            # Order by created_at for consistent results
-            base_query = base_query.order_by(ProceduralMemoryItem.created_at.desc())
+            # Handle empty query - fall back to recent sort
+            if not query or query == "":
+                base_query = base_query.order_by(ProceduralMemoryItem.created_at.desc())
+                if limit:
+                    base_query = base_query.limit(limit)
+                result = session.execute(base_query)
+                items = result.scalars().all()
+                return [item.to_pydantic() for item in items]
+
+            # Embedding search
+            if search_method == "embedding":
+                embedding_config = agent_state.embedding_config
+                if embedded_text is None:
+                    from mirix.embeddings import embedding_model
+                    embedded_text = embedding_model.embed_and_upload_batch([query], embedding_config)[0]
+                
+                # Determine which embedding field to search
+                if search_field == "summary":
+                    embedding_field = ProceduralMemoryItem.summary_embedding
+                elif search_field == "steps":
+                    embedding_field = ProceduralMemoryItem.steps_embedding
+                else:
+                    embedding_field = ProceduralMemoryItem.summary_embedding
+                
+                embedding_query_field = embedding_field.cosine_distance(embedded_text).label("distance")
+                base_query = base_query.add_columns(embedding_query_field).order_by(embedding_query_field)
+            
+            # BM25 search
+            elif search_method == "bm25":
+                from sqlalchemy import func
+                
+                # Determine search field
+                if search_field == "summary":
+                    text_field = ProceduralMemoryItem.summary
+                elif search_field == "steps":
+                    text_field = ProceduralMemoryItem.steps
+                else:
+                    text_field = ProceduralMemoryItem.summary
+                
+                tsquery = func.plainto_tsquery("english", query)
+                tsvector = func.to_tsvector("english", text_field)
+                rank = func.ts_rank_cd(tsvector, tsquery).label("rank")
+                
+                base_query = (
+                    base_query
+                    .add_columns(rank)
+                    .where(tsvector.op("@@")(tsquery))
+                    .order_by(rank.desc())
+                )
             
             if limit:
                 base_query = base_query.limit(limit)
