@@ -138,6 +138,34 @@ app.add_middleware(
 )
 
 
+# Middleware to resolve X-API-Key into X-Client-Id/X-Org-Id for all routes
+@app.middleware("http")
+async def inject_client_org_headers(request: Request, call_next):
+    """
+    If a request includes X-API-Key, resolve it to client/org and inject
+    X-Client-Id and X-Org-Id headers so downstream endpoints don't need to
+    handle X-API-Key directly.
+    """
+    x_api_key = request.headers.get("x-api-key")
+    if x_api_key:
+        try:
+            client_id, org_id = get_client_and_org(x_api_key=x_api_key)
+
+            # Replace or add headers so FastAPI dependencies can read them
+            headers = [
+                (name, value)
+                for name, value in request.scope.get("headers", [])
+                if name.lower() not in {b"x-client-id", b"x-org-id"}
+            ]
+            headers.append((b"x-client-id", client_id.encode()))
+            headers.append((b"x-org-id", org_id.encode()))
+            request.scope["headers"] = headers
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    return await call_next(request)
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -467,11 +495,10 @@ async def list_agents(
     parent_id: Optional[str] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """List all agents for the authenticated user."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     
     tags_list = tags.split(",") if tags else None
@@ -511,11 +538,10 @@ async def create_agent(
     request: CreateAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Create a new agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Create memory blocks if provided
@@ -558,13 +584,12 @@ async def get_agent(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Get an agent by ID."""
     from mirix.orm.errors import NoResultFound
     
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     
     try:
@@ -581,11 +606,10 @@ async def delete_agent(
     agent_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Delete an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     server.agent_manager.delete_agent(agent_id, actor=client)
     return {"status": "success", "message": f"Agent {agent_id} deleted"}
@@ -618,11 +642,10 @@ async def update_agent(
     request: UpdateAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Update an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     # TODO: Implement update_agent in server
@@ -635,7 +658,6 @@ async def update_agent_system_prompt_by_name(
     request: UpdateSystemPromptRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Update an agent's system prompt by agent name.
@@ -667,7 +689,7 @@ async def update_agent_system_prompt_by_name(
         }
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     
     # List all top-level agents for this client
@@ -744,7 +766,6 @@ async def update_agent_system_prompt(
     request: UpdateSystemPromptRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Update an agent's system prompt by agent ID.
@@ -772,7 +793,7 @@ async def update_agent_system_prompt(
         }
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     
     updated_agent = server.agent_manager.update_system_prompt(
@@ -803,7 +824,6 @@ async def send_message_to_agent(
     request: SendMessageRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Send a message to an agent and get a response.
     
@@ -820,7 +840,7 @@ async def send_message_to_agent(
         MirixResponse: The agent's response including messages and usage statistics
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     try:
@@ -864,11 +884,10 @@ async def list_tools(
     limit: int = 50,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """List all tools."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.list_tools(cursor=cursor, limit=limit, actor=client)
 
@@ -878,11 +897,10 @@ async def get_tool(
     tool_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Get a tool by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.get_tool_by_id(tool_id, actor=client)
 
@@ -892,11 +910,10 @@ async def create_tool(
     tool: Tool,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Create a new tool."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     return server.tool_manager.create_tool(tool, actor=client)
 
@@ -906,11 +923,10 @@ async def delete_tool(
     tool_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Delete a tool."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     server.tool_manager.delete_tool_by_id(tool_id, actor=client)
     return {"status": "success", "message": f"Tool {tool_id} deleted"}
@@ -926,11 +942,10 @@ async def list_blocks(
     label: Optional[str] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """List all blocks."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
@@ -942,11 +957,10 @@ async def get_block(
     block_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Get a block by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     # Get admin user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
@@ -959,11 +973,10 @@ async def create_block(
     user: Optional[User] = None,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Create a block."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     return server.block_manager.create_or_update_block(block, actor=client, user=user)
 
@@ -973,11 +986,10 @@ async def delete_block(
     block_id: str,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """Delete a block."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     server.block_manager.delete_block(block_id, actor=client)
     return {"status": "success", "message": f"Block {block_id} deleted"}
@@ -1129,7 +1141,7 @@ class CreateOrGetUserRequest(BaseModel):
 async def create_or_get_user(
     request: CreateOrGetUserRequest,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Create user if it doesn't exist, or get existing one.
@@ -1142,28 +1154,11 @@ async def create_or_get_user(
     """
     server = get_server()
     
-    # Try API key first (programmatic access), then JWT (dashboard)
-    if x_api_key:
-        client_id, org_id = get_client_and_org(x_api_key=x_api_key)
-        client = server.client_manager.get_client_by_id(client_id)
-        if not client:
-            raise HTTPException(status_code=404, detail="Client not found")
-    elif authorization:
-        # Require admin JWT authentication
-        client_payload = get_current_admin(authorization)
-        client_id = client_payload["sub"]
-        
-        # Get the client to get the organization ID
-        client = server.client_manager.get_client_by_id(client_id)
-        if not client:
-            raise HTTPException(status_code=404, detail="Client not found")
-        
-        org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
-    else:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required. Provide either X-API-Key or Authorization header."
-        )
+    # Accept JWT or injected headers (from API key middleware)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
 
     # Use provided user_id or generate a new one
     if request.user_id:
@@ -1673,7 +1668,6 @@ async def initialize_meta_agent(
     request: InitializeMetaAgentRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Initialize a meta agent with configuration.
@@ -1681,7 +1675,7 @@ async def initialize_meta_agent(
     This creates a meta memory agent that manages specialized memory agents.
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     # Extract config components
@@ -1751,7 +1745,6 @@ async def add_memory(
     request: AddMemoryRequest,
     x_org_id: Optional[str] = Header(None),
     x_client_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Add conversation turns to memory (async via queue).
@@ -1760,7 +1753,7 @@ async def add_memory(
     Processing happens in the background, allowing for fast API response times.
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
     
     # If client doesn't exist, create the default client
@@ -2122,7 +2115,6 @@ async def retrieve_memory_with_conversation(
     request: RetrieveMemoryRequest,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on conversation context.
@@ -2130,7 +2122,7 @@ async def retrieve_memory_with_conversation(
     """
 
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     # If user_id is not provided, use the admin user for this client
@@ -2283,7 +2275,6 @@ async def retrieve_memory_with_topic(
     use_cache: bool = True,
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Retrieve relevant memories based on a topic using BM25 search.
@@ -2296,7 +2287,7 @@ async def retrieve_memory_with_topic(
         use_cache: Whether to use cached results (default: True)
     """
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
 
     # If user_id is not provided, use the admin user for this client
@@ -2368,7 +2359,6 @@ async def search_memory(
     authorization: Optional[str] = Header(None),
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
 ):
     """
     Search for memories using various search methods.
@@ -2392,10 +2382,10 @@ async def search_memory(
     server = get_server()
 
     # Support both dashboard JWTs and programmatic API key access
-    if authorization or x_api_key:
-        client, _ = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    if authorization:
+        client, _ = get_client_from_jwt_or_api_key(authorization)
     else:
-        client_id, org_id = get_client_and_org(x_client_id, x_org_id, x_api_key)
+        client_id, org_id = get_client_and_org(x_client_id, x_org_id)
         client = server.client_manager.get_client_by_id(client_id)
 
     # If user_id is not provided, use the admin user for this client
@@ -2598,7 +2588,7 @@ async def list_memory_components(
     memory_type: str = "all",
     limit: int = 50,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Return memory records grouped by component for the given user.
@@ -2627,7 +2617,7 @@ async def list_memory_components(
         )
 
     # Authenticate (JWT or API key)
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     server = get_server()
 
     # Default to the admin user for this client
@@ -2806,7 +2796,7 @@ async def list_memory_components(
 @router.get("/memory/fields")
 async def list_memory_fields(
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Return the searchable fields for each memory component.
@@ -2815,7 +2805,7 @@ async def list_memory_fields(
     what the backend supports.
     """
     # Authenticate to keep parity with other memory endpoints
-    get_client_from_jwt_or_api_key(authorization, x_api_key)
+    get_client_from_jwt_or_api_key(authorization, http_request)
 
     fields_by_type = {
         "episodic": ["summary", "details"],
@@ -2840,14 +2830,14 @@ async def list_memory_fields(
 
 def get_client_from_jwt_or_api_key(
     authorization: Optional[str] = None,
-    x_api_key: Optional[str] = None,
+    request: Optional[Request] = None,
 ) -> tuple:
     """
     Authenticate using either JWT token (dashboard) or Client API Key (programmatic).
     
     Args:
         authorization: Bearer JWT token from Authorization header
-        x_api_key: Client API key from X-API-Key header
+        request: FastAPI request to inspect injected headers (from X-API-Key middleware)
         
     Returns:
         tuple: (client, auth_type) where auth_type is "jwt" or "api_key"
@@ -2871,13 +2861,16 @@ def get_client_from_jwt_or_api_key(
         except HTTPException:
             pass  # Try API key next
     
-    # Try API key (programmatic access)
-    if x_api_key:
-        client_id, org_id = get_client_and_org(x_api_key=x_api_key)
-        client = server.client_manager.get_client_by_id(client_id)
-        if not client:
-            raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
-        return client, "api_key"
+    # Try injected client headers (programmatic access via middleware)
+    if request:
+        client_id = request.headers.get("x-client-id")
+        org_id = request.headers.get("x-org-id")
+        if client_id:
+            client_id, org_id = get_client_and_org(client_id, org_id)
+            client = server.client_manager.get_client_by_id(client_id)
+            if not client:
+                raise HTTPException(status_code=404, detail=f"Client {client_id} not found")
+            return client, "api_key"
     
     raise HTTPException(
         status_code=401,
@@ -2897,7 +2890,7 @@ async def update_episodic_memory(
     request: UpdateEpisodicMemoryRequest,
     user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Update an episodic memory by ID.
@@ -2907,7 +2900,7 @@ async def update_episodic_memory(
     Updates the summary and/or details fields of the memory.
     """
     # Authenticate with either JWT or API key
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -2947,14 +2940,14 @@ async def update_episodic_memory(
 async def delete_episodic_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Delete an episodic memory by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -2981,7 +2974,7 @@ async def update_semantic_memory(
     request: UpdateSemanticMemoryRequest,
     user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Update a semantic memory by ID.
@@ -2989,7 +2982,7 @@ async def update_semantic_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3035,14 +3028,14 @@ async def update_semantic_memory(
 async def delete_semantic_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Delete a semantic memory by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3068,7 +3061,7 @@ async def update_procedural_memory(
     request: UpdateProceduralMemoryRequest,
     user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Update a procedural memory by ID.
@@ -3076,7 +3069,7 @@ async def update_procedural_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3121,14 +3114,14 @@ async def update_procedural_memory(
 async def delete_procedural_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Delete a procedural memory by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3155,7 +3148,7 @@ async def update_resource_memory(
     request: UpdateResourceMemoryRequest,
     user_id: Optional[str] = None,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Update a resource memory by ID.
@@ -3163,7 +3156,7 @@ async def update_resource_memory(
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
     # Authenticate with either JWT or API key
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3208,14 +3201,14 @@ async def update_resource_memory(
 async def delete_resource_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Delete a resource memory by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
@@ -3233,14 +3226,14 @@ async def delete_resource_memory(
 async def delete_knowledge_vault_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
-    x_api_key: Optional[str] = Header(None),
+    http_request: Request = None,
 ):
     """
     Delete a knowledge vault item by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, x_api_key)
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     
     server = get_server()
     
