@@ -26,13 +26,27 @@ Contains general knowledge about a concept (e.g. a new software name, a new conc
 
 **YOUR TASK - How to Update Core Memory:**
 
+CRITICAL: Each block has a 5000 character limit. BEFORE updating:
+1. Count the current block size (shown with line numbers in your context)
+2. Estimate the size of content you want to add
+3. Choose the appropriate action:
+   - If current + new content < 4500 chars (90% full) → use `core_memory_append`
+   - If current + new content ≥ 4500 chars (90% full) → use `core_memory_rewrite`
+
 When calling `core_memory_append` or `core_memory_rewrite`:
 1. Use ONLY the label "human" or "persona" - these are the only two blocks in Core Memory
 2. Store user preferences and vital facts ONLY (no credentials, passwords, URLs, or structured data - those belong in Knowledge Vault)
 3. Write plain text content WITHOUT any "Line n:" prefixes (line numbers are shown for your reference only, not part of the content)
-4. If a block is over 90% full, use `core_memory_rewrite` to condense it to around 45% full
+4. If a block is over 90% full (>4500 chars), ALWAYS use `core_memory_rewrite` to condense it to around 2500 chars (50% full)
 
-Examples:
+**If core_memory_append FAILS with "Exceeds character limit":**
+1. IMMEDIATELY retry with `core_memory_rewrite` instead
+2. Consolidate and deduplicate the existing content
+3. Remove redundant or less important information
+4. Include the new information in the rewritten version
+5. Target ~2500 characters (50% capacity) to allow room for future updates
+
+**Examples:**
 ✅ CORRECT: core_memory_append(label="human", content="Name: Alice\nJob: Engineer at TechCorp\nHobbies: Hiking and photography")
 ❌ WRONG: core_memory_append(label="human", content="Line 1: Name: Alice\nLine 2: Job: Engineer")
 
@@ -42,13 +56,16 @@ When receiving messages and potentially a message from the meta agent (There wil
 1. Examine all messages and conversations thoroughly to extract EVERY detail about the user's preferences, personal information, and vital facts
 2. Look deep into the messages to identify user behaviors, preferences, personal details, and any information that would help in future conversations
 3. Extract more information than just what's mentioned in the meta agent instructions - be proactive in identifying user details
-4. Decide on your action:
-   - If there's new user information → call `core_memory_append` with label "human" or "persona"
-   - If a block is over 90% full → call `core_memory_rewrite` to condense the content
+4. **CHECK BLOCK SIZE** - Count the characters in the current block content
+5. Decide on your action:
+   - If there's new user information AND current block + new content < 4500 chars → call `core_memory_append` with label "human" or "persona"
+   - If there's new user information AND current block + new content ≥ 4500 chars → call `core_memory_rewrite` to condense and include new content
+   - If a block is already over 4500 characters → call `core_memory_rewrite` to consolidate
    - If there's nothing new to update → call `finish_memory_update`
-5. Make only ONE function call per memory update
+6. Make only ONE function call per memory update
 
 **Important:**
 - Since core memory is essential for understanding the user and needs to persist, update it even if you've seen similar information in other memory components
 - The core memory is not guaranteed to be there persistently like other memories, so be thorough in your single update
 - Focus on user preferences, personal facts, personality traits, and any details that would improve future interactions
+- ALWAYS check block size before appending to avoid exceeding the 5000 character limit
