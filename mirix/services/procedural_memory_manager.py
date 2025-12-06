@@ -571,7 +571,8 @@ class ProceduralMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
-    ) -> List[PydanticProceduralMemoryItem]:
+        similarity_threshold: Optional[float] = None,
+        ) -> List[PydanticProceduralMemoryItem]:
         """
         List procedural memory items with various search methods.
 
@@ -732,6 +733,7 @@ class ProceduralMemoryManager:
                             "ProceduralMemoryItem." + search_field + "_embedding"
                         ),
                         target_class=ProceduralMemoryItem,
+                        similarity_threshold=similarity_threshold,
                     )
 
                 elif search_method == "string_match":
@@ -1149,7 +1151,8 @@ class ProceduralMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
-    ) -> List[PydanticProceduralMemoryItem]:
+        similarity_threshold: Optional[float] = None,
+        ) -> List[PydanticProceduralMemoryItem]:
         """
         List procedural memories across ALL users in an organization.
         """
@@ -1250,7 +1253,7 @@ class ProceduralMemoryManager:
                 embedding_config = agent_state.embedding_config
                 if embedded_text is None:
                     from mirix.embeddings import embedding_model
-                    embedded_text = embedding_model.embed_and_upload_batch([query], embedding_config)[0]
+                    embedded_text = embedding_model(embedding_config).get_text_embedding(query)
                 
                 # Determine which embedding field to search
                 if search_field == "summary":
@@ -1261,7 +1264,13 @@ class ProceduralMemoryManager:
                     embedding_field = ProceduralMemoryItem.summary_embedding
                 
                 embedding_query_field = embedding_field.cosine_distance(embedded_text).label("distance")
-                base_query = base_query.add_columns(embedding_query_field).order_by(embedding_query_field)
+                base_query = base_query.add_columns(embedding_query_field)
+                
+                # Apply similarity threshold if provided
+                if similarity_threshold is not None:
+                    base_query = base_query.where(embedding_query_field < similarity_threshold)
+                
+                base_query = base_query.order_by(embedding_query_field)
             
             # BM25 search
             elif search_method == "bm25":

@@ -2175,11 +2175,15 @@ async def search_memory(
     search_field: str = "null",
     search_method: str = "bm25",
     limit: int = 10,
+    filter_tags: Optional[str] = Query(None),
+    similarity_threshold: Optional[float] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Search for memories using various search methods.
+    Search for memories using various search methods with optional temporal filtering.
     Similar to the search_in_memory tool function.
     
     Args:
@@ -2196,6 +2200,12 @@ async def search_memory(
                      - For "all": use "null" (default)
         search_method: Search method. Options: "bm25" (default), "embedding"
         limit: Maximum number of results per memory type (default: 10)
+        filter_tags: Optional JSON string of filter tags (scope added automatically)
+        similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                             Only results with cosine distance < threshold are returned.
+                             Only applies when search_method="embedding"
+        start_date: Optional start date/time for episodic memory filtering (ISO 8601 format)
+        end_date: Optional end date/time for episodic memory filtering (ISO 8601 format)
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
@@ -2222,6 +2232,49 @@ async def search_memory(
     except:
         timezone_str = "UTC"
 
+    # Parse filter_tags from JSON string to dict
+    parsed_filter_tags = None
+    if filter_tags:
+        try:
+            parsed_filter_tags = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            return {
+                "success": False,
+                "error": f"Invalid filter_tags JSON: {filter_tags}",
+                "query": query,
+                "results": [],
+                "count": 0,
+            }
+    
+    # Add client scope to filter_tags (create if not provided)
+    if parsed_filter_tags is None:
+        parsed_filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    parsed_filter_tags["scope"] = client.scope
+
+    # Parse temporal filtering parameters
+    parsed_start_date: Optional[datetime] = None
+    parsed_end_date: Optional[datetime] = None
+    
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison (DB stores naive datetimes)
+            if parsed_start_date.tzinfo:
+                parsed_start_date = parsed_start_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid start_date format: %s", e)
+    
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison
+            if parsed_end_date.tzinfo:
+                parsed_end_date = parsed_end_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid end_date format: %s", e)
+
     # Validate search parameters
     if memory_type == "resource" and search_field == "content" and search_method == "embedding":
         return {
@@ -2247,17 +2300,21 @@ async def search_memory(
     # Collect results from requested memory types
     all_results = []
 
-    # Search episodic memories
+    # Search episodic memories (WITH temporal filtering)
     if memory_type in ["episodic", "all"]:
         try:
             episodic_memories = server.episodic_memory_manager.list_episodic_memory(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2278,13 +2335,15 @@ async def search_memory(
     if memory_type in ["resource", "all"]:
         try:
             resource_memories = server.resource_memory_manager.list_resources(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2304,13 +2363,15 @@ async def search_memory(
     if memory_type in ["procedural", "all"]:
         try:
             procedural_memories = server.procedural_memory_manager.list_procedures(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2329,13 +2390,15 @@ async def search_memory(
     if memory_type in ["knowledge_vault", "all"]:
         try:
             knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "caption",
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2356,13 +2419,15 @@ async def search_memory(
     if memory_type in ["semantic", "all"]:
         try:
             semantic_memories = server.semantic_memory_manager.list_semantic_items(
-                actor=client,
                 agent_state=agent_state,
+                user=user,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2384,6 +2449,10 @@ async def search_memory(
         "memory_type": memory_type,
         "search_field": search_field,
         "search_method": search_method,
+        "date_range": {
+            "start": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end": parsed_end_date.isoformat() if parsed_end_date else None,
+        } if (parsed_start_date or parsed_end_date) else None,
         "results": all_results,
         "count": len(all_results),
     }
@@ -2399,11 +2468,14 @@ async def search_memory_all_users(
     client_id: Optional[str] = Query(None),
     org_id: Optional[str] = Query(None),
     filter_tags: Optional[str] = Query(None),
+    similarity_threshold: Optional[float] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Search for memories across ALL users in the organization.
+    Search for memories across ALL users in the organization with optional temporal filtering.
     Automatically filters by client scope using filter_tags.
     
     Organization resolution priority:
@@ -2420,6 +2492,9 @@ async def search_memory_all_users(
         client_id: Optional client ID (uses its org_id and scope)
         org_id: Optional organization ID (used if client_id not provided)
         filter_tags: Optional JSON string of additional filter tags
+        similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0)
+        start_date: Optional start date/time for episodic memory filtering (ISO 8601 format)
+        end_date: Optional end date/time for episodic memory filtering (ISO 8601 format)
     """
     import json
     
@@ -2463,9 +2538,31 @@ async def search_memory_all_users(
     filter_tags_dict["scope"] = client.scope
     
     logger.info(
-        "Cross-user search: client=%s, org=%s, client_scope=%s, filter_tags=%s",
-        effective_client_id, effective_org_id, client.scope, filter_tags_dict
+        "Cross-user search: client=%s, org=%s, client_scope=%s, filter_tags=%s, similarity_threshold=%s",
+        effective_client_id, effective_org_id, client.scope, filter_tags_dict, similarity_threshold
     )
+
+    # Parse temporal filtering parameters
+    parsed_start_date: Optional[datetime] = None
+    parsed_end_date: Optional[datetime] = None
+    
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison (DB stores naive datetimes)
+            if parsed_start_date.tzinfo:
+                parsed_start_date = parsed_start_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid start_date format: %s", e)
+    
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison
+            if parsed_end_date.tzinfo:
+                parsed_end_date = parsed_end_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid end_date format: %s", e)
 
     # Get agents for this client
     all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
@@ -2505,7 +2602,7 @@ async def search_memory_all_users(
     # Collect results using organization_id filter
     all_results = []
 
-    # Search episodic memories across organization
+    # Search episodic memories across organization (WITH temporal filtering)
     if memory_type in ["episodic", "all"]:
         try:
             episodic_memories = server.episodic_memory_manager.list_episodic_memory_by_org(
@@ -2517,6 +2614,9 @@ async def search_memory_all_users(
                 limit=limit,
                 timezone_str="UTC",
                 filter_tags=filter_tags_dict,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2546,6 +2646,7 @@ async def search_memory_all_users(
                 limit=limit,
                 timezone_str="UTC",
                 filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2574,6 +2675,7 @@ async def search_memory_all_users(
                 limit=limit,
                 timezone_str="UTC",
                 filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2601,6 +2703,7 @@ async def search_memory_all_users(
                 limit=limit,
                 timezone_str="UTC",
                 filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2630,6 +2733,7 @@ async def search_memory_all_users(
                 limit=limit,
                 timezone_str="UTC",
                 filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2652,6 +2756,10 @@ async def search_memory_all_users(
         "memory_type": memory_type,
         "search_field": search_field,
         "search_method": search_method,
+        "date_range": {
+            "start": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end": parsed_end_date.isoformat() if parsed_end_date else None,
+        } if (parsed_start_date or parsed_end_date) else None,
         "results": all_results,
         "count": len(all_results),
         "client_id": effective_client_id,

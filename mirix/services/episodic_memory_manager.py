@@ -663,6 +663,7 @@ class EpisodicMemoryManager:
         use_cache: bool = True,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        similarity_threshold: Optional[float] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
         List all episodic events with various search methods and optional temporal filtering.
@@ -865,6 +866,7 @@ class EpisodicMemoryManager:
                             "EpisodicEvent." + search_field + "_embedding"
                         ),
                         target_class=EpisodicEvent,
+                        similarity_threshold=similarity_threshold,
                     )
 
                 elif search_method == "string_match":
@@ -1347,6 +1349,7 @@ class EpisodicMemoryManager:
         use_cache: bool = True,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        similarity_threshold: Optional[float] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
         List episodic events across ALL users in an organization.
@@ -1520,9 +1523,14 @@ class EpisodicMemoryManager:
                 embedding_query_field = (
                     embedding_field.cosine_distance(embedded_text).label("distance")
                 )
-                base_query = base_query.add_columns(embedding_query_field).order_by(
-                    embedding_query_field
-                )
+                
+                base_query = base_query.add_columns(embedding_query_field)
+                
+                # Apply similarity threshold if provided
+                if similarity_threshold is not None:
+                    base_query = base_query.where(embedding_query_field < similarity_threshold)
+                
+                base_query = base_query.order_by(embedding_query_field)
             elif search_method == "bm25":
                 # Use PostgreSQL native full-text search if available
                 from sqlalchemy import text, func
