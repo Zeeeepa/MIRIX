@@ -12,7 +12,6 @@ import logging
 import os
 from pathlib import Path
 
-from mirix.schemas.agent import AgentType
 from mirix import MirixClient
 
 # Configure logging
@@ -21,6 +20,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# stay in the source code root directory
+# Before running the script, run the following command:
+# python scripts/start_server.py
+# python samples/generate_demo_api_key.py
+#      The above command will output the api key, which we use "your_api_key_here" to denote
+# export MIRIX_API_KEY=your_api_key_here # for windows it should be: $env:MIRIX_API_KEY = "sk-your-key-here"
+# then run python samples/run_client.py
 
 def print_memories(memories):
     """Print retrieved memories in a formatted way.
@@ -367,11 +373,9 @@ def main():
     org_id = 'demo-org'
     
     client = MirixClient(
-        api_key=None, # TODO: add authentication later
-        client_id=client_id,
+        api_key=api_key,
         client_name="Demo Client Application",
         client_scope="Sales",
-        org_id=org_id,
         debug=True,
     )
 
@@ -381,20 +385,32 @@ def main():
         update_agents=False,
     )
 
-    # result = client.add(
-    #    user_id=user_id,
-    #    messages=[
-    #        {
-    #            "role": "user",
-    #            "content": [{
-    #                "type": "text",
-    #                "text": "I just had a meeting with Sarah from the design team at 2 PM today. We discussed the new UI mockups and she showed me three different color schemes."
-    #            }]
-    #        },
-    #    ],
-    #    chaining=False
-    #)
-    #print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    result = client.add(
+       user_id=user_id,  # Optional - uses admin user if None
+       messages=[
+           {
+               "role": "user",
+               "content": [{
+                   "type": "text",
+                   "text": (
+                       "Hi! My name is David, and I'm a senior software engineer at TechCorp. "
+                       "I prefer Python over JavaScript, and my favorite IDE is VS Code. "
+                       "Yesterday, I attended the quarterly planning meeting where we discussed the new AI features roadmap. "
+                       "Last week, I completed the database migration project successfully. "
+                       "I've learned that microservices architecture requires careful API design and that "
+                       "distributed tracing is essential for debugging complex systems. "
+                       "I reviewed the Q4 Performance Report and the System Architecture Documentation from our wiki. "
+                       "For deploying our application, the process is: first run the test suite, then build the Docker image, "
+                       "push to the registry, and finally apply the Kubernetes manifests in staging before production. "
+                       "My production database password is db_prod_2024! and the API key for our payment gateway is sk-live-abc123xyz."
+                       "Please update all memories to reflect my latest activities and preferences."
+                   )
+               }]
+           },
+       ],
+       chaining=False
+    )
+    print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
     # 4. Example: Retrieve memories using new API
     # test_retrieve_with_conversation(client, user_id)

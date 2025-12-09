@@ -63,8 +63,7 @@ class QueueWorker:
             # Client doesn't have timezone field - it's only for User
             created_at=proto_user.created_at.ToDatetime() if proto_user.HasField('created_at') else datetime.now(),
             updated_at=proto_user.updated_at.ToDatetime() if proto_user.HasField('updated_at') else datetime.now(),
-            is_deleted=proto_user.is_deleted,
-            api_key_hash=None  # No API key hash from protobuf
+            is_deleted=proto_user.is_deleted
         )
     
     def _convert_proto_message_to_pydantic(self, proto_msg) -> 'MessageCreate':
@@ -183,17 +182,17 @@ class QueueWorker:
                         )
                         logger.info("✓ Auto-created user: %s in organization: %s", user_id, actor.organization_id)
                     except Exception as create_error:
-                        # If auto-creation fails, fall back to default user
+                        # If auto-creation fails, fall back to admin user
                         logger.error(
-                            "Failed to auto-create user with id=%s: %s. Falling back to default user.",
+                            "Failed to auto-create user with id=%s: %s. Falling back to admin user.",
                             user_id,
                             create_error
                     )
-                    user = user_manager.get_default_user()
+                    user = user_manager.get_admin_user()
             else:
-                # If no user_id provided, use default user
+                # If no user_id provided, use admin user
                 user_manager = UserManager()
-                user = user_manager.get_default_user()            
+                user = user_manager.get_admin_user()            
             
             # Extract filter_tags from protobuf Struct
             filter_tags = None
