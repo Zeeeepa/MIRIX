@@ -30,7 +30,7 @@ class User(UserBase):
     """
 
     id: str = Field(
-        default_factory=_generate_user_id,
+        ...,
         description="The unique identifier of the user.",
     )
     organization_id: Optional[str] = Field(
