@@ -90,13 +90,15 @@ class MirixClient(AbstractClient):
     This client runs on the user's local machine and makes HTTP requests
     to a Mirix server hosted in the cloud.
     
+    The API key identifies both the client and organization, so no explicit
+    org_id is needed.
+    
     Example:
         >>> client = MirixClient(
+        ...     api_key="your-api-key",
         ...     base_url="https://api.mirix.ai",
-        ...     org_id="my-org",
         ... )
         >>> meta_agent = client.initialize_meta_agent(
-        ...     user_id="my-user",
         ...     config={"llm_config": {...}, "embedding_config": {...}},
         ... )
         >>> response = client.add(
@@ -107,12 +109,10 @@ class MirixClient(AbstractClient):
 
     def __init__(
         self,
-        org_id: Optional[str] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         client_name: Optional[str] = None,
         client_scope: str = "",
-        org_name: Optional[str] = None,
         debug: bool = False,
         timeout: int = 60,
         max_retries: int = 3,
@@ -123,13 +123,14 @@ class MirixClient(AbstractClient):
         
         This client represents a CLIENT APPLICATION (tenant), not an end-user.
         End-user IDs are passed per-request in the add() method.
+        
+        The API key identifies the client and organization, so no explicit org_id is needed.
 
         Args:
-            org_id: Organization ID (optional; if omitted the server infers from API key)
+            api_key: API key for authentication (required; can also be set via MIRIX_API_KEY env var)
             base_url: Base URL of the Mirix API server (optional, can also be set via MIRIX_API_URL env var, default: "http://localhost:8000")
             client_name: Client name (optional, defaults to a generic label)
             client_scope: Client scope (read, write, read_write, admin), default: "read_write"
-            org_name: Organization name (optional, defaults to org_id if not provided)
             debug: Whether to enable debug logging
             timeout: Request timeout in seconds
             max_retries: Number of retries for failed requests
@@ -139,13 +140,11 @@ class MirixClient(AbstractClient):
         
         # Get base URL from parameter or environment variable
         self.base_url = (
-            base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8000")
+            base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8531")
         ).rstrip("/")
 
         self.client_name = client_name or "mirix-client"
         self.client_scope = client_scope            
-        self.org_id = org_id
-        self.org_name = org_name or org_id
         self.timeout = timeout
         self._known_users: Set[str] = set()
         self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
@@ -177,61 +176,14 @@ class MirixClient(AbstractClient):
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Set headers
-        if self.org_id:
-            self.session.headers.update({"X-Org-ID": self.org_id})
-        
-        if self.api_key:
-            self.session.headers.update({"X-API-Key": self.api_key})
-                
+        # Set headers - API key identifies client and org
+        self.session.headers.update({"X-API-Key": self.api_key})
         self.session.headers.update({"Content-Type": "application/json"})
-
-        # Create organization if requested; with API-key auth the server already knows the client.
-        if self.org_id:
-            self._ensure_org_and_client_exist(headers=headers)
-
-    def _ensure_org_and_client_exist(self, headers: Optional[Dict[str, str]] = None):
-        """
-        Ensure that the organization and client exist on the server.
-        Creates them if they don't exist.
-        
-        Note: This method does NOT create users. Users are created per-request
-        based on the user_id parameter in add() and other methods.
-
-        Args:
-            headers: Optional headers to include in the request
-        """
-        try:
-            # Create or get organization first
-            org_response = self._request(
-                "POST",
-                "/organizations/create_or_get",
-                json={"org_id": self.org_id, "name": self.org_name},
-                headers=headers,
-            )
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Organization initialized: %s (name: %s)",
-                    self.org_id,
-                    self.org_name,
-                )
-            
-            # Client exists server-side via API key; no creation needed here.
-        except Exception as e:
-            # Don't fail initialization if this fails - the server might handle it
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Note: Could not pre-create org/client: %s", e
-                )
-                logger.debug(
-                    "[MirixClient] Server will create them on first request if needed"
-                )
 
     def create_or_get_user(
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
-        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -241,16 +193,17 @@ class MirixClient(AbstractClient):
         operations that require a user_id. If the user already exists, it returns
         the existing user_id. If not, it creates a new user.
         
+        The organization is automatically determined from the API key.
+        
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
-            org_id: Optional organization ID. Defaults to client's org_id if not provided.
             
         Returns:
             str: The user_id (either existing or newly created)
             
         Example:
-            >>> client = MirixClient(api_key="your-key", org_id="my-org")
+            >>> client = MirixClient(api_key="your-key")
             >>> 
             >>> # Create user with specific ID
             >>> user_id = client.create_or_get_user(
@@ -269,15 +222,10 @@ class MirixClient(AbstractClient):
             ...     messages=[...]
             ... )
         """
-        # Use client's org_id if not specified
-        if not org_id:
-            org_id = self.org_id
-        
-        # Prepare request data
+        # Prepare request data - org is determined from API key on server side
         request_data = {
             "user_id": user_id,
             "name": user_name,
-            "org_id": org_id,
         }
         
         # Make API request
@@ -297,16 +245,16 @@ class MirixClient(AbstractClient):
             )
 
     def _ensure_user_exists(
-        self, user_id: str, headers: Optional[Dict[str, str]] = None
+        self, user_id: Optional[str] = None, headers: Optional[Dict[str, str]] = None
     ):
-        """Ensure that the given user exists for this org.
+        """Ensure that the given user exists for the client's organization.
 
         Args:
             user_id: User ID to ensure exists
             headers: Optional headers to include in the request
         """
         if not user_id:
-            raise ValueError("user_id is required")
+            return
         if user_id in self._known_users:
             return
         try:
@@ -316,15 +264,12 @@ class MirixClient(AbstractClient):
                 json={
                     "user_id": user_id,
                     "name": user_id,
-                    "org_id": self.org_id,
                 },
                 headers=headers,
             )
             self._known_users.add(user_id)
             if self.debug:
-                logger.debug(
-                    "[MirixClient] User ensured: %s (org: %s)", user_id, self.org_id
-                )
+                logger.debug("[MirixClient] User ensured: %s", user_id)
         except Exception as e:
             if self.debug:
                 logger.debug(
@@ -1170,14 +1115,13 @@ class MirixClient(AbstractClient):
             AgentState: The initialized meta agent
             
         Example:
-            >>> client = MirixClient(org_id="org-123")
+            >>> client = MirixClient(api_key="your-api-key")
             >>> config = {
             ...     "llm_config": {"model": "gemini-2.0-flash"},
             ...     "embedding_config": {"model": "text-embedding-004"}
             ... }
             >>> meta_agent = client.initialize_meta_agent(config=config)
         """
-        # self._ensure_user_exists(user_id)
         
         # Load config from file if provided
         if config_path:
@@ -1204,9 +1148,8 @@ class MirixClient(AbstractClient):
             )
             del config["meta_agent_config"]["system_prompts_folder"]
 
-        # Prepare request data
+        # Prepare request data - org is determined from API key on server side
         request_data = {
-            "org_id": self.org_id,
             "config": config,
             "update_agents": update_agents,
         }
@@ -1301,9 +1244,9 @@ class MirixClient(AbstractClient):
         
         self._ensure_user_exists(user_id, headers=headers)
         
+        # Prepare request data - org is determined from API key on server side
         request_data = {
             "user_id": user_id,
-            "org_id": self.org_id,
             "meta_agent_id": self._meta_agent.id,
             "messages": messages,
             "chaining": chaining,
@@ -1402,9 +1345,9 @@ class MirixClient(AbstractClient):
         
         self._ensure_user_exists(user_id)
         
+        # Prepare request data - org is determined from API key on server side
         request_data = {
             "user_id": user_id,
-            "org_id": self.org_id,
             "messages": messages,
             "limit": limit,
             "local_model_for_retrieval": local_model_for_retrieval,
@@ -1489,7 +1432,6 @@ class MirixClient(AbstractClient):
         search_field: str = "null",
         search_method: str = "bm25",
         limit: int = 10,
-        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
@@ -1498,6 +1440,8 @@ class MirixClient(AbstractClient):
         
         This method performs a search across specified memory types and returns
         a flat list of results.
+        
+        The organization is automatically determined from the API key.
         
         Args:
             user_id: User ID for the conversation
@@ -1513,7 +1457,6 @@ class MirixClient(AbstractClient):
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
             limit: Maximum number of results per memory type (default: 10)
-            org_id: Optional organization scope override (defaults to client's org)
         
         Returns:
             Dict containing:
@@ -1550,9 +1493,9 @@ class MirixClient(AbstractClient):
         
         self._ensure_user_exists(user_id, headers=headers)
         
+        # Prepare params - org is determined from API key on server side
         params = {
             "user_id": user_id,
-            "org_id": org_id or self.org_id,
             "query": query,
             "memory_type": memory_type,
             "search_field": search_field,

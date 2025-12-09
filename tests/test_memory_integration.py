@@ -83,7 +83,6 @@ def client(server_process, api_auth):
     # Use same user/org as run_client.py to ensure agents are already initialized
     client = MirixClient(
         api_key=api_auth["api_key"],
-        org_id=api_auth["org_id"],  # Explicitly set org_id
         debug=False,  # Turn off debug to avoid Unicode encoding issues on Windows
     )
     

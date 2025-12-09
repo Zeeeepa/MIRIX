@@ -261,6 +261,10 @@ class Settings(BaseSettings):
     enable_batch_job_polling: bool = False
     poll_running_llm_batches_interval_seconds: int = 5 * 60
 
+    # JWT settings for dashboard authentication
+    jwt_secret_key: Optional[str] = Field(None, env="MIRIX_JWT_SECRET_KEY")
+    jwt_expiration_hours: int = Field(24, env="MIRIX_JWT_EXPIRATION_HOURS")
+
     @property
     def mirix_pg_uri(self) -> str:
         if self.pg_uri:

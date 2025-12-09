@@ -129,6 +129,7 @@ def episodic_memory_merge(
         event_id=event_id,
         new_summary=combined_summary,
         new_details=combined_details,
+        user=self.user,
         actor=self.actor,
     )
     response = (

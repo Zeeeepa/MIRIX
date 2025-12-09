@@ -70,7 +70,6 @@ def client_a(check_server, api_key_factory):
         api_key=auth_a["api_key"],
         client_name="Test Isolation Client A",
         client_scope="test",
-        org_id=auth_a["org_id"],
         debug=False,
     )
     logger.info("✓ Client A initialized: %s", TEST_CLIENT_A_ID)
@@ -80,7 +79,6 @@ def client_a(check_server, api_key_factory):
         returned_user_id = client.create_or_get_user(
             user_id=TEST_USER_A_ID,
             user_name="Test User A",
-            org_id=auth_a["org_id"]
         )
         logger.info("✓ User A ready: %s", returned_user_id)
     except Exception as e:
@@ -119,7 +117,6 @@ def client_b(check_server, api_key_factory):
         api_key=auth_b["api_key"],
         client_name="Test Isolation Client B",
         client_scope="test",
-        org_id=auth_b["org_id"],
         debug=False,
     )
     logger.info("✓ Client B initialized: %s", TEST_CLIENT_B_ID)
@@ -129,7 +126,6 @@ def client_b(check_server, api_key_factory):
         returned_user_id = client.create_or_get_user(
             user_id=TEST_USER_B_ID,
             user_name="Test User B",
-            org_id=auth_b["org_id"]
         )
         logger.info("✓ User B ready: %s", returned_user_id)
     except Exception as e:

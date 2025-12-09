@@ -72,7 +72,6 @@ def client(server_check, api_auth):
     """Create a client connected to the test server."""
     client = MirixClient(
         api_key=api_auth["api_key"],
-        org_id=api_auth["org_id"],
         debug=False,
     )
     

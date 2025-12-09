@@ -81,7 +81,6 @@ def client(server_check, api_auth):
         api_key=api_auth["api_key"],
         client_name="Demo Client Application",
         client_scope="Sales",
-        org_id=api_auth["org_id"],
         debug=False,
     )
     print("[SETUP] Client created via API key")
@@ -92,7 +91,6 @@ def client(server_check, api_auth):
         user_id = client.create_or_get_user(
             user_id="demo-user",
             user_name="Demo User",
-            org_id=api_auth["org_id"]
         )
         print(f"[SETUP] User ready: {user_id}")
     except Exception as e:

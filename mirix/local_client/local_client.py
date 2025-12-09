@@ -142,7 +142,7 @@ class LocalClient(AbstractClient):
             self.user_id = user_id
         else:
             # get default user
-            self.user_id = self.server.user_manager.DEFAULT_USER_ID
+            self.user_id = self.server.user_manager.ADMIN_USER_ID
 
         self.user = self.server.user_manager.get_user_or_default(self.user_id)
         self.organization = self.server.get_organization_or_default(self.org_id)
