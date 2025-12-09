@@ -125,7 +125,7 @@ class MessageManager:
             elif not pydantic_msg.user_id:
                 # Fallback: use default system user for client-level operations
                 from mirix.services.user_manager import UserManager
-                pydantic_msg.user_id = UserManager.DEFAULT_USER_ID
+                pydantic_msg.user_id = UserManager.ADMIN_USER_ID
             
             msg_data = pydantic_msg.model_dump()
             msg = MessageModel(**msg_data)

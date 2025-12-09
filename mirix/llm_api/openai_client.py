@@ -152,9 +152,7 @@ class OpenAIClient(LLMClientBase):
         # TODO(matt) move into LLMConfig
         # TODO: This vllm checking is very brittle and is a patch at most
         tool_choice = None
-        if llm_config.model_endpoint == "https://inference.memgpt.ai" or (
-            llm_config.handle and "vllm" in self.llm_config.handle
-        ):
+        if llm_config.handle and "vllm" in self.llm_config.handle:
             tool_choice = "auto"  # TODO change to "required" once proxy supports it
         elif tools:
             # only set if tools is non-Null
@@ -179,13 +177,6 @@ class OpenAIClient(LLMClientBase):
             max_completion_tokens=llm_config.max_tokens,
             temperature=llm_config.temperature,
         )
-
-        if "inference.memgpt.ai" in llm_config.model_endpoint:
-            # override user id for inference.memgpt.ai
-            import uuid
-
-            data.user = str(uuid.UUID(int=0))
-            data.model = "memgpt-openai"
 
         if data.tools is not None and len(data.tools) > 0:
             # Convert to structured output style (which has 'strict' and no optionals)

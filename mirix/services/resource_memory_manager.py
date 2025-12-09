@@ -524,7 +524,8 @@ class ResourceMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
-    ) -> List[PydanticResourceMemoryItem]:
+        similarity_threshold: Optional[float] = None,
+        ) -> List[PydanticResourceMemoryItem]:
         """
         Retrieve resource memory items according to the query.
 
@@ -698,6 +699,7 @@ class ResourceMemoryManager:
                         "ResourceMemoryItem." + search_field + "_embedding"
                     ),
                     target_class=ResourceMemoryItem,
+                    similarity_threshold=similarity_threshold,
                 )
 
             elif search_method == "bm25":
@@ -1053,7 +1055,8 @@ class ResourceMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
-    ) -> List[PydanticResourceMemoryItem]:
+        similarity_threshold: Optional[float] = None,
+        ) -> List[PydanticResourceMemoryItem]:
         """
         List resource memories across ALL users in an organization.
         Filtered by organization_id and filter_tags (including scope).
@@ -1186,10 +1189,16 @@ class ResourceMemoryManager:
                 embedding_config = agent_state.embedding_config
                 if embedded_text is None:
                     from mirix.embeddings import embedding_model
-                    embedded_text = embedding_model.embed_and_upload_batch([query], embedding_config)[0]
+                    embedded_text = embedding_model(embedding_config).get_text_embedding(query)
                 
                 embedding_query_field = ResourceMemoryItem.summary_embedding.cosine_distance(embedded_text).label("distance")
-                base_query = base_query.add_columns(embedding_query_field).order_by(embedding_query_field)
+                base_query = base_query.add_columns(embedding_query_field)
+                
+                # Apply similarity threshold if provided
+                if similarity_threshold is not None:
+                    base_query = base_query.where(embedding_query_field < similarity_threshold)
+                
+                base_query = base_query.order_by(embedding_query_field)
             elif search_method == "bm25":
                 from sqlalchemy import func
                 

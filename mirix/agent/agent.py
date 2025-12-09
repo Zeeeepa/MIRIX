@@ -167,7 +167,7 @@ class Agent(BaseAgent):
         else:
             from mirix.services.user_manager import UserManager
 
-            self.user_id = UserManager().DEFAULT_USER_ID
+            self.user_id = UserManager().ADMIN_USER_ID
 
         if actor:
             self.client_id = actor.id
@@ -1348,7 +1348,7 @@ class Agent(BaseAgent):
                             user_id=(
                                 self.user_id
                                 if self.user_id
-                                else UserManager.DEFAULT_USER_ID
+                                else UserManager.ADMIN_USER_ID
                             ),  # Fallback to default user
                         )
 
@@ -1461,36 +1461,36 @@ class Agent(BaseAgent):
 
             if self.agent_state.agent_type == AgentType.core_memory_agent:
                 if not existing_blocks:
-                    # No blocks exist for this user - auto-create from DEFAULT_USER_ID template
+                    # No blocks exist for this user - auto-create from ADMIN_USER_ID template
                     logger.debug(
                         "Core memory blocks missing for user '%s', auto-creating from template. Agent ID: %s",
                         user.id,
                         self.agent_state.id,
                     )
 
-                    # Query template blocks from DEFAULT_USER_ID
-                    # Get the default user from the database (has all required fields)
+                    # Query template blocks from ADMIN_USER_ID
+                    # Get the admin user from the database (has all required fields)
                     from mirix.services.user_manager import UserManager
 
                     user_manager = UserManager()
                     try:
-                        default_user = user_manager.get_user_by_id(
-                            UserManager.DEFAULT_USER_ID
+                        admin_user = user_manager.get_user_by_id(
+                            UserManager.ADMIN_USER_ID
                         )
                         # Override organization_id to match the current user's organization
                         # This ensures we query blocks from the correct organization
-                        default_user.organization_id = user.organization_id
+                        admin_user.organization_id = user.organization_id
                     except Exception as e:
                         logger.error(
-                            "Failed to get DEFAULT_USER (id: %s): %s. Cannot auto-create blocks.",
-                            UserManager.DEFAULT_USER_ID,
+                            "Failed to get ADMIN_USER (id: %s): %s. Cannot auto-create blocks.",
+                            UserManager.ADMIN_USER_ID,
                             e,
                         )
-                        default_user = None
+                        admin_user = None
 
-                    if default_user:
+                    if admin_user:
                         template_blocks = self.block_manager.get_blocks(
-                            user=default_user, agent_id=self.agent_state.id
+                            user=admin_user, agent_id=self.agent_state.id
                         )
 
                         if template_blocks:
@@ -1528,7 +1528,7 @@ class Agent(BaseAgent):
                             )
                         else:
                             logger.warning(
-                                "No template blocks found for DEFAULT_USER_ID (agent_id: %s). Cannot auto-create blocks.",
+                                "No template blocks found for ADMIN_USER_ID (agent_id: %s). Cannot auto-create blocks.",
                                 self.agent_state.id,
                             )
 
