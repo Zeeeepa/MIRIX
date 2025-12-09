@@ -663,6 +663,7 @@ class EpisodicMemoryManager:
         use_cache: bool = True,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
+        similarity_threshold: Optional[float] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
         List all episodic events with various search methods and optional temporal filtering.
@@ -732,10 +733,17 @@ class EpisodicMemoryManager:
                 elif search_method == "embedding":
                     # Generate or use provided embedding
                     if embedded_text is None:
-                        from mirix.embeddings.embedding_model import embed_and_upload_batch
-                        embedded_text = embed_and_upload_batch(
-                            [query], agent_state.embedding_config
-                        )[0]
+                        from mirix.embeddings import embedding_model
+                        import numpy as np
+                        from mirix.constants import MAX_EMBEDDING_DIM
+                        
+                        embedded_text = embedding_model(agent_state.embedding_config).get_text_embedding(query)
+                        embedded_text = np.array(embedded_text)
+                        embedded_text = np.pad(
+                            embedded_text,
+                            (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                            mode="constant",
+                        ).tolist()
                     
                     # Determine vector field
                     vector_field = f"{search_field}_embedding" if search_field else "details_embedding"
@@ -858,6 +866,7 @@ class EpisodicMemoryManager:
                             "EpisodicEvent." + search_field + "_embedding"
                         ),
                         target_class=EpisodicEvent,
+                        similarity_threshold=similarity_threshold,
                     )
 
                 elif search_method == "string_match":
@@ -1218,17 +1227,21 @@ class EpisodicMemoryManager:
         event_id: str = None,
         new_summary: str = None,
         new_details: str = None,
-        user: PydanticUser = None,
         actor: PydanticClient = None,
     ):
         """
         Update the selected events
+        
+        Args:
+            event_id: ID of the episodic event to update
+            new_summary: New summary text (will overwrite existing summary)
+            new_details: New details text (will be appended to existing details)
+            actor: Client performing the update (for access control and audit trail)
         """
 
         with self.session_maker() as session:
-            # query = select(EpisodicEvent)
-            # query = query.where(EpisodicEvent.id == event_id)
-            # selected_event = session.execute(query).scalar_one_or_none()
+            # Use the passed actor directly for access control
+            # EpisodicEvent.read() uses organization_id from actor for filtering
             selected_event = EpisodicEvent.read(
                 db_session=session, identifier=event_id, actor=actor
             )
@@ -1319,3 +1332,233 @@ class EpisodicMemoryManager:
         except Exception as e:
             logger.debug("Warning: Failed to parse embedding field: %s", e)
             return None
+
+    @update_timezone
+    @enforce_types
+    def list_episodic_memory_by_org(
+        self,
+        agent_state: AgentState,
+        organization_id: str,
+        query: str = "",
+        embedded_text: Optional[List[float]] = None,
+        search_field: str = "",
+        search_method: str = "embedding",
+        limit: Optional[int] = 50,
+        timezone_str: str = None,
+        filter_tags: Optional[dict] = None,
+        use_cache: bool = True,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        similarity_threshold: Optional[float] = None,
+    ) -> List[PydanticEpisodicEvent]:
+        """
+        List episodic events across ALL users in an organization.
+        Filtered by organization_id and filter_tags (including scope).
+        
+        Args:
+            agent_state: Agent state containing embedding configuration
+            organization_id: Organization ID to filter by
+            query: Search query string
+            embedded_text: Pre-computed embedding for semantic search
+            search_field: Field to search in ('summary', 'details', etc.)
+            search_method: Search method ('embedding', 'bm25', 'string_match', etc.)
+            limit: Maximum number of results to return
+            timezone_str: Timezone string for timestamp conversion
+            filter_tags: Filter tags dict (should include "scope": client.scope)
+            use_cache: If True, try Redis cache first
+            start_date: Optional start datetime for filtering by occurred_at
+            end_date: Optional end datetime for filtering by occurred_at
+        
+        Returns:
+            List of episodic events matching org_id and filter_tags["scope"]
+        """
+        
+        # Try Redis Search first (if cache enabled and Redis is available)
+        from mirix.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        
+        if use_cache and redis_client:
+            try:
+                # Case 1: No query - get recent items
+                if not query or query == "":
+                    results = redis_client.search_recent_by_org(
+                        index_name=redis_client.EPISODIC_INDEX,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        sort_by="occurred_at_ts",
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    if results:
+                        logger.debug("✅ Redis cache HIT: returned %d recent episodic events for org %s", 
+                                    len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticEpisodicEvent(**item) for item in results]
+                
+                # Case 2: Vector similarity search
+                elif search_method == "embedding":
+                    # Generate or use provided embedding
+                    if embedded_text is None:
+                        from mirix.embeddings import embedding_model
+                        import numpy as np
+                        from mirix.constants import MAX_EMBEDDING_DIM
+                        
+                        embedded_text = embedding_model(agent_state.embedding_config).get_text_embedding(query)
+                        embedded_text = np.array(embedded_text)
+                        embedded_text = np.pad(
+                            embedded_text,
+                            (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                            mode="constant",
+                        ).tolist()
+                    
+                    # Determine vector field
+                    vector_field = f"{search_field}_embedding" if search_field else "details_embedding"
+                    
+                    results = redis_client.search_vector_by_org(
+                        index_name=redis_client.EPISODIC_INDEX,
+                        embedding=embedded_text,
+                        vector_field=vector_field,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    if results:
+                        logger.debug("✅ Redis vector search HIT: %d results for org %s", len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticEpisodicEvent(**item) for item in results]
+                
+                # Case 3: Text search (BM25, string match, etc.)
+                else:
+                    results = redis_client.search_text_by_org(
+                        index_name=redis_client.EPISODIC_INDEX,
+                        query_text=query,
+                        search_field=search_field or "details",
+                        search_method=search_method,
+                        limit=limit or 50,
+                        organization_id=organization_id,
+                        filter_tags=filter_tags,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    if results:
+                        logger.debug("✅ Redis text search HIT: %d results for org %s", len(results), organization_id)
+                        results = redis_client.clean_redis_fields(results)
+                        return [PydanticEpisodicEvent(**item) for item in results]
+            
+            except Exception as e:
+                logger.warning("Redis search failed for org %s: %s", organization_id, e)
+        
+        # Fallback to PostgreSQL
+        logger.debug("⚠️ Redis cache MISS or disabled - falling back to PostgreSQL for org %s", organization_id)
+        
+        with self.session_maker() as session:
+            # Base query filtering by organization_id instead of user_id
+            # Return full EpisodicEvent objects, not individual columns
+            base_query = select(EpisodicEvent).where(
+                EpisodicEvent.organization_id == organization_id
+            )
+            
+            # Apply filter_tags (INCLUDING SCOPE)
+            # For scope: check if input value is contained in memory's scope
+            # For other keys: exact match
+            if filter_tags:
+                from sqlalchemy import func, or_
+                for key, value in filter_tags.items():
+                    if key == "scope":
+                        # Scope matching: input value must be in memory's scope field
+                        base_query = base_query.where(
+                            or_(
+                                func.lower(EpisodicEvent.filter_tags[key].as_string()).contains(str(value).lower()),
+                                EpisodicEvent.filter_tags[key].as_string() == str(value)
+                            )
+                        )
+                    else:
+                        # Other keys: exact match
+                        base_query = base_query.where(EpisodicEvent.filter_tags[key].as_string() == str(value))
+            
+            # Apply temporal filtering if provided
+            if start_date is not None:
+                base_query = base_query.where(EpisodicEvent.occurred_at >= start_date)
+            if end_date is not None:
+                base_query = base_query.where(EpisodicEvent.occurred_at <= end_date)
+
+            # Handle empty query - fall back to recent sort
+            if not query or query == "":
+                base_query = base_query.order_by(EpisodicEvent.occurred_at.desc())
+                if limit:
+                    base_query = base_query.limit(limit)
+                result = session.execute(base_query)
+                episodic_memory = result.scalars().all()
+                return [event.to_pydantic() for event in episodic_memory]
+
+            if search_method == "embedding":
+                embed_query = True
+                embedding_config = agent_state.embedding_config
+
+                # Use provided embedding or generate it
+                if embedded_text is None:
+                    from mirix.embeddings import embedding_model
+                    import numpy as np
+                    from mirix.constants import MAX_EMBEDDING_DIM
+                    
+                    embedded_text = embedding_model(embedding_config).get_text_embedding(query)
+                    embedded_text = np.array(embedded_text)
+                    embedded_text = np.pad(
+                        embedded_text,
+                        (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                        mode="constant",
+                    ).tolist()
+
+                # Determine which embedding field to search
+                if not search_field or search_field == "details":
+                    embedding_field = EpisodicEvent.details_embedding
+                elif search_field == "summary":
+                    embedding_field = EpisodicEvent.summary_embedding
+                else:
+                    embedding_field = EpisodicEvent.details_embedding
+
+                embedding_query_field = (
+                    embedding_field.cosine_distance(embedded_text).label("distance")
+                )
+                
+                base_query = base_query.add_columns(embedding_query_field)
+                
+                # Apply similarity threshold if provided
+                if similarity_threshold is not None:
+                    base_query = base_query.where(embedding_query_field < similarity_threshold)
+                
+                base_query = base_query.order_by(embedding_query_field)
+            elif search_method == "bm25":
+                # Use PostgreSQL native full-text search if available
+                from sqlalchemy import text, func
+                
+                # Determine search field
+                if not search_field or search_field == "details":
+                    text_field = EpisodicEvent.details
+                elif search_field == "summary":
+                    text_field = EpisodicEvent.summary
+                else:
+                    text_field = EpisodicEvent.details
+                
+                # Use ts_rank_cd for BM25-like scoring
+                tsquery = func.plainto_tsquery("english", query)
+                tsvector = func.to_tsvector("english", text_field)
+                rank = func.ts_rank_cd(tsvector, tsquery).label("rank")
+                
+                base_query = (
+                    base_query
+                    .add_columns(rank)
+                    .where(tsvector.op("@@")(tsquery))
+                    .order_by(rank.desc())
+                )
+            
+            if limit:
+                base_query = base_query.limit(limit)
+            
+            result = session.execute(base_query)
+            episodic_memory = result.scalars().all()
+            return [event.to_pydantic() for event in episodic_memory]
+

@@ -1432,10 +1432,15 @@ class MirixClient(AbstractClient):
         search_field: str = "null",
         search_method: str = "bm25",
         limit: int = 10,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        similarity_threshold: Optional[float] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
-        Search for memories using various search methods.
+        Search for memories using various search methods with optional temporal filtering.
         Similar to the search_in_memory tool function.
         
         This method performs a search across specified memory types and returns
@@ -1457,6 +1462,22 @@ class MirixClient(AbstractClient):
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
             limit: Maximum number of results per memory type (default: 10)
+            filter_tags: Optional filter tags for additional filtering (scope added automatically)
+            similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                                 Only results with cosine distance < threshold are returned.
+                                 Recommended values:
+                                 - 0.5 (strict: only highly relevant results)
+                                 - 0.7 (moderate: reasonably relevant results)
+                                 - 0.9 (loose: loosely related results)
+                                 - None (no filtering, returns all top N results)
+                                 Only applies when search_method="embedding". Default: None
+            start_date: Optional start date/time for filtering episodic memories (ISO 8601 format).
+                       Only episodic memories with occurred_at >= start_date will be returned.
+                       Examples: "2025-12-05T00:00:00" or "2025-12-05T00:00:00Z"
+            end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
+                     Only episodic memories with occurred_at <= end_date will be returned.
+                     Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
+            org_id: Optional organization scope override (defaults to client's org)
         
         Returns:
             Dict containing:
@@ -1465,6 +1486,7 @@ class MirixClient(AbstractClient):
                 - memory_type: str (the memory type searched)
                 - search_field: str (the field searched)
                 - search_method: str (the search method used)
+                - date_range: dict (applied date range, if any)
                 - results: List[Dict] (flat list of results from all memory types)
                 - count: int (total number of results)
             
@@ -1485,6 +1507,29 @@ class MirixClient(AbstractClient):
             ...     search_field="details",
             ...     limit=10
             ... )
+            >>> 
+            >>> # Search with additional filter tags
+            >>> filtered_results = client.search(
+            ...     user_id='user_123',
+            ...     query="QuickBooks",
+            ...     filter_tags={"project": "alpha", "expert_id": "expert-123"}
+            ... )
+            >>> 
+            >>> # Search with temporal filtering (episodic memories only)
+            >>> temporal_results = client.search(
+            ...     user_id='user_123',
+            ...     query="meetings",
+            ...     start_date="2025-12-01T00:00:00",
+            ...     end_date="2025-12-05T23:59:59"
+            ... )
+            >>> 
+            >>> # Search with similarity threshold (embedding only)
+            >>> relevant_results = client.search(
+            ...     user_id='user_123',
+            ...     query="database optimization",
+            ...     search_method="embedding",
+            ...     similarity_threshold=0.7
+            ... )
         """
         if not self._meta_agent:
             raise ValueError(
@@ -1503,7 +1548,160 @@ class MirixClient(AbstractClient):
             "limit": limit,
         }
         
+        # Add filter_tags if provided
+        if filter_tags:
+            import json
+            params["filter_tags"] = json.dumps(filter_tags)
+        
+        # Add similarity threshold if provided
+        if similarity_threshold is not None:
+            params["similarity_threshold"] = similarity_threshold
+        
+        # Add temporal filtering parameters
+        if start_date is not None:
+            params["start_date"] = start_date
+        if end_date is not None:
+            params["end_date"] = end_date
+        
         return self._request("GET", "/memory/search", params=params, headers=headers)
+
+    def search_all_users(
+        self,
+        query: str,
+        memory_type: str = "all",
+        search_field: str = "null",
+        search_method: str = "bm25",
+        limit: int = 10,
+        client_id: Optional[str] = None,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        similarity_threshold: Optional[float] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org_id: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Search for memories across ALL users in the organization with optional temporal filtering.
+        Results are automatically filtered by client scope.
+        
+        If client_id is provided, uses that client's organization.
+        
+        Args:
+            query: Search query
+            memory_type: Type of memory to search. Options: "episodic", "resource", 
+                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+            search_field: Field to search in. Options vary by memory type:
+                         - episodic: "summary", "details"
+                         - resource: "summary", "content"
+                         - procedural: "summary", "steps"
+                         - knowledge_vault: "caption", "secret_value"
+                         - semantic: "name", "summary", "details"
+                         - For "all": use "null" (default)
+            search_method: Search method. Options: "bm25" (default), "embedding"
+            limit: Maximum results per memory type (total across all users)
+            client_id: Optional client ID (uses its org_id and scope for filtering)
+            filter_tags: Optional additional filter tags (scope added automatically)
+            similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                                 Only results with cosine distance < threshold are returned.
+                                 Recommended: 0.5 (strict), 0.7 (moderate), 0.9 (loose), None (no filter).
+                                 Only applies when search_method="embedding". Default: None
+            start_date: Optional start date/time for filtering episodic memories (ISO 8601 format).
+                       Only episodic memories with occurred_at >= start_date will be returned.
+                       Examples: "2025-12-05T00:00:00" or "2025-12-05T00:00:00Z"
+            end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
+                     Only episodic memories with occurred_at <= end_date will be returned.
+                     Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
+            org_id: Optional organization scope (overridden by client's org if client_id provided)
+        
+        Returns:
+            Dict containing:
+                - success: bool
+                - query: str (the search query)
+                - memory_type: str (the memory type searched)
+                - search_field: str (the field searched)
+                - search_method: str (the search method used)
+                - date_range: dict (applied date range, if any)
+                - results: List[Dict] (flat list of results with user_id for each)
+                - count: int (total number of results)
+                - client_id: str (which client was used)
+                - organization_id: str (which org was searched)
+                - client_scope: str (scope used for filtering)
+                - filter_tags: dict (applied filter tags)
+            
+        Example:
+            >>> # Search all users' episodic memories
+            >>> results = client.search_all_users(
+            ...     query="meeting notes",
+            ...     memory_type="episodic",
+            ...     limit=20
+            ... )
+            >>> print(f"Found {results['count']} memories across users")
+            >>> 
+            >>> # Search with specific client and additional filters
+            >>> results = client.search_all_users(
+            ...     query="project documentation",
+            ...     client_id="client-123",
+            ...     filter_tags={"project": "alpha"},
+            ...     memory_type="resource"
+            ... )
+            >>> 
+            >>> # Search across all users with temporal filtering
+            >>> results = client.search_all_users(
+            ...     query="project updates",
+            ...     client_id="client-123",
+            ...     start_date="2025-12-01T00:00:00",
+            ...     end_date="2025-12-05T23:59:59"
+            ... )
+            >>> 
+            >>> # Search across all users with similarity threshold
+            >>> results = client.search_all_users(
+            ...     query="QuickBooks troubleshooting",
+            ...     client_id="client-123",
+            ...     search_method="embedding",
+            ...     similarity_threshold=0.7,
+            ...     limit=20
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError(
+                "Meta agent not initialized. Call initialize_meta_agent() first."
+            )
+        
+        params = {
+            "query": query,
+            "memory_type": memory_type,
+            "search_field": search_field,
+            "search_method": search_method,
+            "limit": limit,
+        }
+        
+        # Add client_id if provided (server will use this client's org_id)
+        if client_id:
+            params["client_id"] = client_id
+        
+        # Add org_id if provided (used only if no client_id specified)
+        if org_id:
+            params["org_id"] = org_id
+        elif not client_id:
+            # Use current client's org_id if neither client_id nor org_id provided
+            params["org_id"] = self.org_id
+        
+        # Add filter_tags if provided
+        if filter_tags:
+            import json
+            params["filter_tags"] = json.dumps(filter_tags)
+        
+        # Add similarity threshold if provided
+        if similarity_threshold is not None:
+            params["similarity_threshold"] = similarity_threshold
+        
+        # Add temporal filtering parameters
+        if start_date is not None:
+            params["start_date"] = start_date
+        if end_date is not None:
+            params["end_date"] = end_date
+        
+        return self._request("GET", "/memory/search_all_users", params=params, headers=headers)
 
     # ========================================================================
     # LangChain/Composio/CrewAI Integration (Not Supported)

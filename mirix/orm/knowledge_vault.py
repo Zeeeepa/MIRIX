@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import JSON, Column, ForeignKey, String
+from sqlalchemy import JSON, Column, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
 from mirix.constants import MAX_EMBEDDING_DIM
@@ -115,6 +115,46 @@ class KnowledgeVaultItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         caption_embedding = mapped_column(Vector(MAX_EMBEDDING_DIM), nullable=True)
     else:
         caption_embedding = Column(CommonVector, nullable=True)
+
+    # Database indexes for efficient querying
+    __table_args__ = tuple(
+        filter(
+            None,
+            [
+                # Organization-level query optimization indexes
+                Index("ix_knowledge_vault_organization_id", "organization_id")
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_knowledge_vault_org_created_at",
+                    "organization_id",
+                    "created_at",
+                    postgresql_using="btree",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_knowledge_vault_filter_tags_gin",
+                    text("(filter_tags::jsonb)"),
+                    postgresql_using="gin",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_knowledge_vault_org_filter_scope",
+                    "organization_id",
+                    text("((filter_tags->>'scope')::text)"),
+                    postgresql_using="btree",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
+                # SQLite indexes
+                Index("ix_knowledge_vault_organization_id_sqlite", "organization_id")
+                if not settings.mirix_pg_uri_no_default
+                else None,
+            ],
+        )
+    )
 
     @declared_attr
     def agent(cls) -> Mapped[Optional["Agent"]]:
