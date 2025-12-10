@@ -247,7 +247,7 @@ def test_retrieve_with_conversation(client, user_id):
                     "role": "user",
                     "content": [{
                         "type": "text",
-                        "text": "What did we discuss on MirixDB in last 4 days?"
+                        "text": "What did we discuss on QuickBooks in last 4 days?"
                     }]
                 }
             ],
@@ -317,7 +317,7 @@ def test_search_all_users(client):
     try:
         # Search all memory types across all users
         results = client.search_all_users(
-            query="Music",
+            query="music",
             memory_type="all",
             search_method="embedding",
             limit=20,  # Total results across all users
@@ -373,9 +373,10 @@ def main():
     org_id = 'demo-org'
     
     client = MirixClient(
-        api_key=api_key,
-        client_name="Demo Client Application",
+        #api_key=api_key,
+        client_id="sales-loader-client",
         client_scope="Sales",
+        org_id="demo-org",
         debug=True,
     )
 
@@ -384,7 +385,8 @@ def main():
         # Alternative: config_path=str(project_root / "mirix/configs/examples/mirix_openai.yaml"),
         update_agents=False,
     )
-
+    
+    """
     result = client.add(
        user_id=user_id,  # Optional - uses admin user if None
        messages=[
@@ -411,15 +413,16 @@ def main():
        chaining=False
     )
     print(f"[OK] Memory added successfully: {result.get('success', False)}")
+    """
 
     # 4. Example: Retrieve memories using new API
-    # test_retrieve_with_conversation(client, user_id)
+    test_retrieve_with_conversation(client, user_id)
 
     # 5. Example: Search memories using BM25
     #test_search(client, user_id)
 
     # 6. Example: Search across all users in organization
-    test_search_all_users(client)
+    #test_search_all_users(client)
 
     # 7. Example: Retrieve by topic
     # print("Step 5: Retrieving by topic...")

@@ -623,6 +623,9 @@ class SemanticMemoryManager:
         query = query.strip() if query else ""
         is_empty_query = not query or query == ""
         
+        # Extract organization_id from user for multi-tenant isolation
+        organization_id = user.organization_id
+        
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
@@ -636,6 +639,7 @@ class SemanticMemoryManager:
                         index_name=redis_client.SEMANTIC_INDEX,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         sort_by="created_at_ts",
                         filter_tags=filter_tags
                     )
@@ -663,6 +667,7 @@ class SemanticMemoryManager:
                         vector_field=vector_field,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -681,6 +686,7 @@ class SemanticMemoryManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -710,6 +716,7 @@ class SemanticMemoryManager:
                 query_stmt = (
                     select(SemanticMemoryItem)
                     .where(SemanticMemoryItem.user_id == user.id)
+                    .where(SemanticMemoryItem.organization_id == organization_id)
                     .order_by(
                         cast(
                             text("semantic_memory.last_modify ->> 'timestamp'"),
@@ -746,7 +753,11 @@ class SemanticMemoryManager:
                     SemanticMemoryItem.last_modify.label("last_modify"),
                     SemanticMemoryItem.user_id.label("user_id"),
                     SemanticMemoryItem.agent_id.label("agent_id"),
-                ).where(SemanticMemoryItem.user_id == user.id)
+                ).where(
+                    SemanticMemoryItem.user_id == user.id
+                ).where(
+                    SemanticMemoryItem.organization_id == organization_id
+                )
                 
                 # Apply filter_tags if provided
                 if filter_tags:

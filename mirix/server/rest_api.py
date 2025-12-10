@@ -778,11 +778,11 @@ async def update_agent_system_prompt(
     2. Updates the agent.system field in Redis cache
     3. Creates a new system message
     4. Updates message_ids[0] to reference the new system message
-    
+
     Args:
         agent_id: ID of the agent to update (e.g., "agent-123")
         request: UpdateSystemPromptRequest with the new system prompt
-        
+    
     Returns:
         AgentState: The updated agent state
         
@@ -811,10 +811,11 @@ class SendMessageRequest(BaseModel):
     """Request to send a message to an agent."""
     message: str
     role: str
+    user_id: Optional[str] = None  # End-user ID for message attribution
     name: Optional[str] = None
     stream_steps: bool = False
     stream_tokens: bool = False
-    filter_tags: Optional[Dict[str, Any]] = None  # NEW: filter tags support
+    filter_tags: Optional[Dict[str, Any]] = None  # Filter tags support
     use_cache: bool = True  # Control Redis cache behavior
 
 
@@ -832,12 +833,16 @@ async def send_message_to_agent(
     
     Args:
         agent_id: The ID of the agent to send the message to
-        request: The message request containing text, role, and optional filter_tags
-        x_user_id: User ID from header
+        request: The message request containing text, role, user_id, and optional filter_tags
+        x_client_id: Client ID from header (identifies the client application)
         x_org_id: Organization ID from header
     
     Returns:
         MirixResponse: The agent's response including messages and usage statistics
+        
+    Note:
+        If user_id is not provided in the request, messages will be associated with
+        the default user (DEFAULT_USER_ID).
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
@@ -857,6 +862,7 @@ async def send_message_to_agent(
             agent_id=agent_id,
             input_messages=[message_create],
             chaining=True,
+            user_id=request.user_id,  # Pass user_id to queue
             filter_tags=request.filter_tags,  # Pass filter_tags to queue
             use_cache=request.use_cache,  # Pass use_cache to queue
         )
@@ -1158,6 +1164,9 @@ async def create_or_get_user(
     client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Extract client_id and org_id from client object
+    client_id = client.id
     org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
 
     # Use provided user_id or generate a new one
@@ -1188,7 +1197,7 @@ async def create_or_get_user(
             status="active"
         ),
         client_id=client_id,  # Associate user with client
-    )
+        )
     logger.debug("Created new user: %s for client: %s", user_id, client_id)
     return user
 

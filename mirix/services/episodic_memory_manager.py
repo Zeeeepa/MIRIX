@@ -706,6 +706,9 @@ class EpisodicMemoryManager:
             queries like "What happened today?" or "Show me last week's events".
         """
         
+        # Extract organization_id from user for multi-tenant isolation
+        organization_id = user.organization_id
+        
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
@@ -718,6 +721,7 @@ class EpisodicMemoryManager:
                         index_name=redis_client.EPISODIC_INDEX,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         sort_by="occurred_at_ts",  # Sort by occurred_at for episodic
                         filter_tags=filter_tags,
                         start_date=start_date,
@@ -754,6 +758,7 @@ class EpisodicMemoryManager:
                         vector_field=vector_field,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags,
                         start_date=start_date,
                         end_date=end_date
@@ -775,6 +780,7 @@ class EpisodicMemoryManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags,
                         start_date=start_date,
                         end_date=end_date
@@ -803,6 +809,7 @@ class EpisodicMemoryManager:
                 query_stmt = (
                     select(EpisodicEvent)
                     .where(EpisodicEvent.user_id == user.id)
+                    .where(EpisodicEvent.organization_id == organization_id)
                     .order_by(EpisodicEvent.occurred_at.desc())
                 )
                 
@@ -839,7 +846,11 @@ class EpisodicMemoryManager:
                     EpisodicEvent.last_modify.label("last_modify"),
                     EpisodicEvent.user_id.label("user_id"),
                     EpisodicEvent.agent_id.label("agent_id"),
-                ).where(EpisodicEvent.user_id == user.id)
+                ).where(
+                    EpisodicEvent.user_id == user.id
+                ).where(
+                    EpisodicEvent.organization_id == organization_id
+                )
                 
                 # Apply filter_tags if provided
                 if filter_tags:

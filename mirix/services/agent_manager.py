@@ -211,25 +211,36 @@ class AgentManager:
         if not meta_agent_create.llm_config or not meta_agent_create.embedding_config:
             raise ValueError("llm_config and embedding_config are required")
 
-        # Use default user_id if not provided (for system blocks)
-        # Initialize user from user_id
-        user = None
+        # ✅ NEW: Get or create organization-specific default user for block templates
+        user_manager = UserManager()
 
         if user_id:
-            user_manager = UserManager()
+            # Specific user_id provided - use it
             try:
                 user = user_manager.get_user_by_id(user_id)
             except Exception as e:
                 logger.warning(
-                    "Failed to load user with id=%s, falling back to default user: %s",
+                    "Failed to load user with id=%s, falling back to org default user: %s",
                     user_id,
                     e,
                 )
-                user = user_manager.get_admin_user()
+                # Fall back to organization's default user (not global admin)
+                user = user_manager.get_or_create_org_default_user(
+                    org_id=actor.organization_id,
+                    client_id=actor.id
+                )
         else:
-            # If no user_id provided, use admin user
-            user_manager = UserManager()
-            user = user_manager.get_admin_user()
+            # No user_id provided - use organization's default template user
+            # This user will serve as the template for copying blocks to new users
+            user = user_manager.get_or_create_org_default_user(
+                org_id=actor.organization_id,
+                client_id=actor.id
+            )
+            logger.debug(
+                "Using organization default user %s for block templates in org %s",
+                user.id,
+                actor.organization_id
+            )
 
         # Ensure base tools are available in the database for this organization
         self.tool_manager.upsert_base_tools(actor=actor)
@@ -368,6 +379,14 @@ class AgentManager:
                 logger.debug(
                     f"Created {len(memory_block_configs)} memory blocks for {agent_name} (agent_id: {agent_state.id})"
                 )
+                
+                # ✅ Ensure blocks are committed to database before proceeding
+                # This is critical for template block copying to work correctly
+                logger.debug(
+                    f"Flushing database session to ensure blocks are committed for agent {agent_state.id}"
+                )
+                with self.block_manager.session_maker() as session:
+                    session.commit()  # Explicit commit to ensure blocks are visible to other sessions
 
             # Future: Add handling for other agent-specific configs here if needed
             # E.g., if 'initial_data' in agent_config: ...

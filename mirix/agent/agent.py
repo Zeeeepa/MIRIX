@@ -291,7 +291,10 @@ class Agent(BaseAgent):
             self.agent_state.memory = Memory(
                 blocks=[
                     self.block_manager.get_block_by_id(block.id, user=self.user)
-                    for block in self.block_manager.get_blocks(user=self.user)
+                    for block in self.block_manager.get_blocks(
+                        user=self.user, 
+                        auto_create_from_default=False  # Don't auto-create here, only in step()
+                    )
                 ]
             )
 
@@ -386,7 +389,9 @@ class Agent(BaseAgent):
             blocks=[
                 self.block_manager.get_block_by_id(block.id, user=self.user)
                 for block in self.block_manager.get_blocks(
-                    user=self.user, agent_id=self.agent_state.id
+                    user=self.user, 
+                    agent_id=self.agent_state.id,
+                    auto_create_from_default=False  # Don't auto-create here, only in step()
                 )
             ]
         )
@@ -1450,101 +1455,35 @@ class Agent(BaseAgent):
         if user:
             self.user = user
 
-            # Load existing blocks for this user
-            existing_blocks = self.block_manager.get_blocks(
-                user=self.user, agent_id=self.agent_state.id
-            )
-
-            # Special handling for core_memory_agent: ensure required blocks exist
-            # This automatically creates blocks on first use for each user
+            # Only load blocks for core_memory_agent (other agent types don't use blocks)
             from mirix.schemas.agent import AgentType
-
+            
             if self.agent_state.agent_type == AgentType.core_memory_agent:
-                if not existing_blocks:
-                    # No blocks exist for this user - auto-create from ADMIN_USER_ID template
-                    logger.debug(
-                        "Core memory blocks missing for user '%s', auto-creating from template. Agent ID: %s",
-                        user.id,
-                        self.agent_state.id,
-                    )
-
-                    # Query template blocks from ADMIN_USER_ID
-                    # Get the admin user from the database (has all required fields)
-                    from mirix.services.user_manager import UserManager
-
-                    user_manager = UserManager()
-                    try:
-                        admin_user = user_manager.get_user_by_id(
-                            UserManager.ADMIN_USER_ID
-                        )
-                        # Override organization_id to match the current user's organization
-                        # This ensures we query blocks from the correct organization
-                        admin_user.organization_id = user.organization_id
-                    except Exception as e:
-                        logger.error(
-                            "Failed to get ADMIN_USER (id: %s): %s. Cannot auto-create blocks.",
-                            UserManager.ADMIN_USER_ID,
-                            e,
-                        )
-                        admin_user = None
-
-                    if admin_user:
-                        template_blocks = self.block_manager.get_blocks(
-                            user=admin_user, agent_id=self.agent_state.id
-                        )
-
-                        if template_blocks:
-                            # Create blocks for this user using template
-                            from mirix.schemas.block import Block
-
-                            for template_block in template_blocks:
-                                try:
-                                    self.block_manager.create_or_update_block(
-                                        block=Block(
-                                            label=template_block.label,
-                                            value=template_block.value,
-                                            limit=template_block.limit,
-                                        ),
-                                        actor=self.actor,
-                                        user=self.user,
-                                        agent_id=self.agent_state.id,
-                                    )
-                                    logger.info(
-                                        "✓ Auto-created '%s' block for user %s (template: %s)",
-                                        template_block.label,
-                                        user.id,
-                                        template_block.id,
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        "Failed to auto-create '%s' block: %s",
-                                        template_block.label,
-                                        e,
-                                    )
-
-                            # Reload blocks after creation
-                            existing_blocks = self.block_manager.get_blocks(
-                                user=self.user, agent_id=self.agent_state.id
+                # Load existing blocks for this user
+                # Note: auto_create_from_default=True will create blocks if they don't exist
+                existing_blocks = self.block_manager.get_blocks(
+                    user=self.user, 
+                    agent_id=self.agent_state.id
+                )
+                
+                # Special handling for core_memory_agent: ensure required blocks exist
+                # This automatically creates blocks on first use for each user
+                # NOTE: Block creation now happens automatically in BlockManager.get_blocks()
+                # via the auto_create_from_default parameter, so no need for manual creation here
+                
+                # Load blocks into memory for core_memory_agent
+                self.agent_state.memory = Memory(
+                    blocks=[
+                        b
+                        for block in existing_blocks
+                        if (
+                            b := self.block_manager.get_block_by_id(
+                                block.id, user=self.user
                             )
-                        else:
-                            logger.warning(
-                                "No template blocks found for ADMIN_USER_ID (agent_id: %s). Cannot auto-create blocks.",
-                                self.agent_state.id,
-                            )
-
-            # Load blocks into memory
-            self.agent_state.memory = Memory(
-                blocks=[
-                    b
-                    for block in existing_blocks
-                    if (
-                        b := self.block_manager.get_block_by_id(
-                            block.id, user=self.user
                         )
-                    )
-                    is not None
-                ]
-            )
+                        is not None
+                    ]
+                )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
@@ -1781,7 +1720,10 @@ class Agent(BaseAgent):
             current_persisted_memory = Memory(
                 blocks=[
                     b
-                    for block in self.block_manager.get_blocks(user=self.user)
+                    for block in self.block_manager.get_blocks(
+                        user=self.user,
+                        auto_create_from_default=False  # Don't auto-create here, only in step()
+                    )
                     if (
                         b := self.block_manager.get_block_by_id(
                             block.id, user=self.user
