@@ -925,7 +925,7 @@ class ProceduralMemoryManager:
             
             client_id = actor.id  # Always derive from actor
             if user_id is None:
-                user_id = UserManager.DEFAULT_USER_ID  # Use DEFAULT_USER_ID instead of actor.id
+                user_id = UserManager.ADMIN_USER_ID
 
             procedure = self.create_item(
                 item_data=PydanticProceduralMemoryItem(

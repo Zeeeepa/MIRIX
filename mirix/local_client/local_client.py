@@ -154,8 +154,8 @@ class LocalClient(AbstractClient):
         if user_id:
             self.user_id = user_id
         else:
-            # get default user
-            self.user_id = self.server.user_manager.DEFAULT_USER_ID
+            # get default admin user
+            self.user_id = self.server.user_manager.ADMIN_USER_ID
         # save client_id that `LocalClient` is associated with
         if client_id:
             self.client_id = client_id

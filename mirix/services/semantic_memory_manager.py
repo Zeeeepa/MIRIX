@@ -920,7 +920,7 @@ class SemanticMemoryManager:
             if client_id is None:
                 client_id = actor.id
             if user_id is None:
-                user_id = UserManager.DEFAULT_USER_ID
+                user_id = UserManager.ADMIN_USER_ID
                 logger.debug("user_id not provided, using DEFAULT_USER_ID: %s", user_id)
             
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag

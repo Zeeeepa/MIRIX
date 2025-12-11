@@ -2403,7 +2403,8 @@ async def search_memory(
     # Support both dashboard JWTs and programmatic API key access
     if authorization:
         client, _ = get_client_from_jwt_or_api_key(authorization)
-    else:
+    
+    if not client:
         client_id, org_id = get_client_and_org(x_client_id, x_org_id)
         client = server.client_manager.get_client_by_id(client_id)
 
