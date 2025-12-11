@@ -53,6 +53,15 @@ CLIENT_VERSION = "0.1.0"
 with open(os.path.join(project_root, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
+def load_requirements(filename: str) -> list[str]:
+    """Load dependency list from a requirements file, ignoring comments/blanks."""
+    req_path = os.path.join(this_directory, filename)
+    with open(req_path, encoding="utf-8") as req_file:
+        return [
+            line.strip()
+            for line in req_file.readlines()
+            if line.strip() and not line.startswith("#")
+        ]
 
 # Get version from command line or __init__.py
 def get_version():

@@ -187,8 +187,8 @@ class QueueWorker:
                             "Failed to auto-create user with id=%s: %s. Falling back to admin user.",
                             user_id,
                             create_error
-                    )
-                    user = user_manager.get_admin_user()
+                        )
+                        user = user_manager.get_admin_user()
             else:
                 # If no user_id provided, use admin user
                 user_manager = UserManager()

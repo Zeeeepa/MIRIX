@@ -2423,13 +2423,13 @@ These keywords have been used to retrieve relevant memories from the database.
 
                 if failed_messages:
                     printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: One or more functions failed:\n"
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: One or more functions failed:\n"
                         + "\n".join(failed_messages)
                     )
                 else:
                     # Fallback if we can't parse the messages
                     printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Function execution encountered errors (see logs above for details)"
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Function execution encountered errors (see logs above for details)"
                     )
 
             # if function_failed:
