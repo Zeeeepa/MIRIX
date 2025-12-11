@@ -2400,13 +2400,26 @@ async def search_memory(
     """
     server = get_server()
 
+    client = None
+
     # Support both dashboard JWTs and programmatic API key access
     if authorization:
-        client, _ = get_client_from_jwt_or_api_key(authorization)
+        try:
+            client, _ = get_client_from_jwt_or_api_key(authorization)
+        except HTTPException:
+            # If JWT/API key auth fails, fall through to use x_client_id
+            pass
     
-    if not client:
-        client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    # Fallback to use the client_id and org_id passed in the method parameters.
+    if not client and x_client_id:
+        client_id = x_client_id
         client = server.client_manager.get_client_by_id(client_id)
+    else:
+        if not client:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. Provide either Authorization (Bearer JWT) or X-API-Key header, or x-client-id and x-org-id headers.",
+            )
 
     # If user_id is not provided, use the admin user for this client
     if not user_id:
