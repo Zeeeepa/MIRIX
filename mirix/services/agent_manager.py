@@ -226,20 +226,18 @@ class AgentManager:
                 )
                 # Fall back to organization's default user (not global admin)
                 user = user_manager.get_or_create_org_default_user(
-                    org_id=actor.organization_id,
-                    client_id=actor.id
+                    org_id=actor.organization_id, client_id=actor.id
                 )
         else:
             # No user_id provided - use organization's default template user
             # This user will serve as the template for copying blocks to new users
             user = user_manager.get_or_create_org_default_user(
-                org_id=actor.organization_id,
-                client_id=actor.id
+                org_id=actor.organization_id, client_id=actor.id
             )
             logger.debug(
                 "Using organization default user %s for block templates in org %s",
                 user.id,
-                actor.organization_id
+                actor.organization_id,
             )
 
         # Ensure base tools are available in the database for this organization
@@ -379,7 +377,7 @@ class AgentManager:
                 logger.debug(
                     f"Created {len(memory_block_configs)} memory blocks for {agent_name} (agent_id: {agent_state.id})"
                 )
-                
+
                 # ✅ Ensure blocks are committed to database before proceeding
                 # This is critical for template block copying to work correctly
                 logger.debug(
@@ -841,19 +839,23 @@ class AgentManager:
         old_agent_state = None
         if agent_update.system:
             old_agent_state = self.get_agent_by_id(agent_id=agent_id, actor=actor)
-        
+
         # Update agent (including system field in database)
         agent_state = self._update_agent(
             agent_id=agent_id, agent_update=agent_update, actor=actor
         )
 
         # Rebuild the system prompt if it changed
-        if agent_update.system and old_agent_state and agent_update.system != old_agent_state.system:
+        if (
+            agent_update.system
+            and old_agent_state
+            and agent_update.system != old_agent_state.system
+        ):
             agent_state = self.rebuild_system_prompt(
                 agent_id=agent_state.id,
                 system_prompt=agent_update.system,  # Pass the new system prompt
                 actor=actor,
-                force=True
+                force=True,
             )
 
         return agent_state
@@ -1596,15 +1598,16 @@ class AgentManager:
                     cached_data.pop("memory_prompt_template", None)
 
                     agent_state = PydanticAgentState(**cached_data)
-                    
+
                     # SECURITY CHECK: Verify agent belongs to this client
                     # Prevents cross-client access via Redis cache
                     if agent_state.created_by_id != actor.id:
                         from sqlalchemy.exc import NoResultFound
+
                         raise NoResultFound(
                             f"Agent {agent_id} not found or not accessible to client {actor.id}"
                         )
-                    
+
                     return agent_state  # Cache HIT (agent + tools + memory)
         except Exception as e:
             # Log but continue to PostgreSQL on Redis error
@@ -1620,7 +1623,7 @@ class AgentManager:
             agent = AgentModel.read(
                 db_session=session,
                 identifier=agent_id,
-                actor=actor  # Triggers client-level filtering via apply_access_predicate
+                actor=actor,  # Triggers client-level filtering via apply_access_predicate
             )
             pydantic_agent = agent.to_pydantic()
 
@@ -1799,7 +1802,10 @@ class AgentManager:
     #     return messages
     @enforce_types
     def get_in_context_messages(
-        self, agent_state: PydanticAgentState, actor: PydanticClient
+        self,
+        agent_state: PydanticAgentState,
+        actor: PydanticClient,
+        user: Optional[PydanticUser] = None,
     ) -> List[PydanticMessage]:
         message_ids = agent_state.message_ids
         messages = self.message_manager.get_messages_by_ids(
@@ -1808,11 +1814,12 @@ class AgentManager:
         # Handle empty message list (e.g., after deletion)
         if not messages:
             return []
-        
+
         # Keep first message (system message) and filter rest by user_id
-        messages = [messages[0]] + [
-            message for message in messages[1:] if message.user_id == actor.id
-        ]
+        if user:
+            messages = [messages[0]] + [
+                message for message in messages[1:] if message.user_id == user.id
+            ]
         return messages
 
     @enforce_types
@@ -1821,11 +1828,11 @@ class AgentManager:
     ) -> PydanticMessage:
         agent_state = self.get_agent_by_id(agent_id=agent_id, actor=actor)
         message_ids = agent_state.message_ids
-        
+
         # Handle empty message_ids (e.g., after deletion)
         if not message_ids:
             return None
-        
+
         return self.message_manager.get_message_by_id(
             message_id=message_ids[0], actor=actor
         )
