@@ -32,10 +32,29 @@ from mirix.queue.worker import QueueWorker
 from mirix.schemas.client import Client
 from mirix.schemas.enums import MessageRole
 from mirix.schemas.message import MessageCreate
+from mirix.schemas.organization import Organization as PydanticOrganization
+from mirix.services.organization_manager import OrganizationManager
+
+# Test organization ID used by fixtures
+TEST_QUEUE_ORG_ID = "org-456"
 
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+
+@pytest.fixture
+def ensure_organization():
+    """Ensure the test organization exists in the database"""
+    org_mgr = OrganizationManager()
+    try:
+        org_mgr.get_organization_by_id(TEST_QUEUE_ORG_ID)
+    except Exception:
+        org_mgr.create_organization(
+            PydanticOrganization(id=TEST_QUEUE_ORG_ID, name="Test Queue Org")
+        )
+    return TEST_QUEUE_ORG_ID
+
 
 @pytest.fixture
 def mock_server():
@@ -51,11 +70,11 @@ def mock_server():
 
 
 @pytest.fixture
-def sample_client():
+def sample_client(ensure_organization):
     """Create a sample Client (represents a client application)"""
     return Client(
         id="client-123",
-        organization_id="org-456",
+        organization_id=ensure_organization,
         name="Test Client App",
         status="active",
         scope="read_write",
