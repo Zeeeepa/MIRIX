@@ -244,7 +244,7 @@ class Agent(BaseAgent):
             return None
 
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         for i in range(len(in_context_messages) - 1, -1, -1):
             msg = in_context_messages[i]
@@ -1135,7 +1135,7 @@ class Agent(BaseAgent):
                     continue_chaining = False
 
                     in_context_messages = self.agent_manager.get_in_context_messages(
-                        agent_state=self.agent_state, actor=self.actor
+                        agent_state=self.agent_state, actor=self.actor, user=self.user
                     )
                     message_ids = [message.id for message in in_context_messages]
                     message_ids = [message_ids[0]]
@@ -1528,14 +1528,14 @@ class Agent(BaseAgent):
 
         initial_message_count = len(
             self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
         )
 
         if self.agent_state.name == "reflexion_agent":
             # clear previous messages
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
             in_context_messages = in_context_messages[:1]
             self.agent_manager.set_in_context_messages(
@@ -2251,7 +2251,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Step 2: build system prompt with topic
         # Get the raw system prompt
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         raw_system = (
             in_context_messages[0].content[0].text
@@ -2308,7 +2308,7 @@ These keywords have been used to retrieve relevant memories from the database.
 
             # Step 0: get in-context messages and get the raw system prompt
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
 
             assert in_context_messages[0].role == MessageRole.system
@@ -2550,7 +2550,7 @@ These keywords have been used to retrieve relevant memories from the database.
             # If we got a context alert, try trimming the messages length, then try again
             if is_context_overflow_error(e):
                 in_context_messages = self.agent_manager.get_in_context_messages(
-                    agent_state=self.agent_state, actor=self.actor
+                    agent_state=self.agent_state, actor=self.actor, user=self.user
                 )
 
                 if (
@@ -2660,7 +2660,7 @@ These keywords have been used to retrieve relevant memories from the database.
         self, existing_file_uris: Optional[List[str]] = None
     ):
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
         in_context_messages_openai_no_system = in_context_messages_openai[1:]
@@ -2751,7 +2751,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # reset alert
         self.agent_alerted_about_memory_pressure = False
         curr_in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
 
         self.logger.info(
@@ -2789,7 +2789,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Grab the in-context messages
         # conversion of messages to OpenAI dict format, which is passed to the token counter
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
 
