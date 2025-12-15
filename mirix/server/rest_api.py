@@ -22,6 +22,7 @@ from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import MessageRole
 from mirix.schemas.environment_variables import (
@@ -48,9 +49,8 @@ from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
-from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.server.server import SyncServer
-from mirix.settings import model_settings
+from mirix.settings import model_settings, settings
 from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
@@ -73,10 +73,14 @@ def get_server() -> SyncServer:
     return _server
 
 
-async def initialize():
+async def initialize(num_workers: Optional[int] = None):
     """
     Initialize the Mirix server and queue services.
     This function can be called by external applications to initialize the server.
+
+    Args:
+        num_workers: Optional number of queue workers. If not provided,
+                    uses settings.memory_queue_num_workers.
     """
     logger.info("Starting Mirix REST API server")
 
@@ -84,9 +88,17 @@ async def initialize():
     server = get_server()
     logger.info("SyncServer initialized")
 
+    # Use provided num_workers or fall back to settings
+    effective_num_workers = (
+        num_workers if num_workers is not None else settings.memory_queue_num_workers
+    )
+
     # Initialize queue with server reference
-    initialize_queue(server)
-    logger.info("Queue service started with SyncServer integration")
+    initialize_queue(server, num_workers=effective_num_workers)
+    logger.info(
+        "Queue service started with SyncServer integration (num_workers=%d)",
+        effective_num_workers,
+    )
 
 
 async def cleanup():
@@ -2148,7 +2160,7 @@ async def retrieve_memory_with_conversation(
     else:
         # Create new filter_tags if not provided
         filter_tags = {}
-    
+
     # Add or update the "scope" key with the client's scope
     filter_tags["scope"] = client.scope
 
@@ -2180,7 +2192,7 @@ async def retrieve_memory_with_conversation(
 
     topics: Optional[str] = None
     temporal_expr: Optional[str] = None
-    
+
     if has_content:
         # Prefer local model for topic extraction when explicitly requested
         if request.local_model_for_retrieval:
@@ -2209,7 +2221,7 @@ async def retrieve_memory_with_conversation(
     # NEW: Parse temporal expression to date range
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    
+
     # Priority: explicit request parameters > LLM-extracted temporal expression
     if request.start_date or request.end_date:
         # Use explicit date range from request
@@ -2224,7 +2236,7 @@ async def retrieve_memory_with_conversation(
     elif temporal_expr:
         # Parse LLM-extracted temporal expression
         from mirix.temporal.temporal_parser import parse_temporal_expression
-        
+
         # Get user's timezone for accurate "today" interpretation
         try:
             user = server.user_manager.get_user_by_id(user_id)
@@ -2234,7 +2246,7 @@ async def retrieve_memory_with_conversation(
         except Exception:
             # Fallback to UTC if user timezone not available
             reference_time = datetime.now()
-        
+
         temporal_range = parse_temporal_expression(temporal_expr, reference_time)
         if temporal_range:
             start_date = temporal_range.start
