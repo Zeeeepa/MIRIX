@@ -22,6 +22,7 @@ from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import MessageRole
 from mirix.schemas.environment_variables import (
@@ -48,9 +49,8 @@ from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
-from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.server.server import SyncServer
-from mirix.settings import model_settings
+from mirix.settings import model_settings, settings
 from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
@@ -73,10 +73,14 @@ def get_server() -> SyncServer:
     return _server
 
 
-async def initialize():
+async def initialize(num_workers: Optional[int] = None):
     """
     Initialize the Mirix server and queue services.
     This function can be called by external applications to initialize the server.
+
+    Args:
+        num_workers: Optional number of queue workers. If not provided,
+                    uses settings.memory_queue_num_workers.
     """
     logger.info("Starting Mirix REST API server")
 
@@ -84,9 +88,17 @@ async def initialize():
     server = get_server()
     logger.info("SyncServer initialized")
 
+    # Use provided num_workers or fall back to settings
+    effective_num_workers = (
+        num_workers if num_workers is not None else settings.memory_queue_num_workers
+    )
+
     # Initialize queue with server reference
-    initialize_queue(server)
-    logger.info("Queue service started with SyncServer integration")
+    initialize_queue(server, num_workers=effective_num_workers)
+    logger.info(
+        "Queue service started with SyncServer integration (num_workers=%d)",
+        effective_num_workers,
+    )
 
 
 async def cleanup():
@@ -778,11 +790,11 @@ async def update_agent_system_prompt(
     2. Updates the agent.system field in Redis cache
     3. Creates a new system message
     4. Updates message_ids[0] to reference the new system message
-    
+
     Args:
         agent_id: ID of the agent to update (e.g., "agent-123")
         request: UpdateSystemPromptRequest with the new system prompt
-        
+    
     Returns:
         AgentState: The updated agent state
         
@@ -811,10 +823,11 @@ class SendMessageRequest(BaseModel):
     """Request to send a message to an agent."""
     message: str
     role: str
+    user_id: Optional[str] = None  # End-user ID for message attribution
     name: Optional[str] = None
     stream_steps: bool = False
     stream_tokens: bool = False
-    filter_tags: Optional[Dict[str, Any]] = None  # NEW: filter tags support
+    filter_tags: Optional[Dict[str, Any]] = None  # Filter tags support
     use_cache: bool = True  # Control Redis cache behavior
 
 
@@ -832,12 +845,16 @@ async def send_message_to_agent(
     
     Args:
         agent_id: The ID of the agent to send the message to
-        request: The message request containing text, role, and optional filter_tags
-        x_user_id: User ID from header
+        request: The message request containing text, role, user_id, and optional filter_tags
+        x_client_id: Client ID from header (identifies the client application)
         x_org_id: Organization ID from header
     
     Returns:
         MirixResponse: The agent's response including messages and usage statistics
+        
+    Note:
+        If user_id is not provided in the request, messages will be associated with
+        the default user (DEFAULT_USER_ID).
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
@@ -857,6 +874,7 @@ async def send_message_to_agent(
             agent_id=agent_id,
             input_messages=[message_create],
             chaining=True,
+            user_id=request.user_id,  # Pass user_id to queue
             filter_tags=request.filter_tags,  # Pass filter_tags to queue
             use_cache=request.use_cache,  # Pass use_cache to queue
         )
@@ -1158,6 +1176,9 @@ async def create_or_get_user(
     client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Extract client_id and org_id from client object
+    client_id = client.id
     org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
 
     # Use provided user_id or generate a new one
@@ -1188,7 +1209,7 @@ async def create_or_get_user(
             status="active"
         ),
         client_id=client_id,  # Associate user with client
-    )
+        )
     logger.debug("Created new user: %s for client: %s", user_id, client_id)
     return user
 
@@ -2139,7 +2160,7 @@ async def retrieve_memory_with_conversation(
     else:
         # Create new filter_tags if not provided
         filter_tags = {}
-    
+
     # Add or update the "scope" key with the client's scope
     filter_tags["scope"] = client.scope
 
@@ -2171,7 +2192,7 @@ async def retrieve_memory_with_conversation(
 
     topics: Optional[str] = None
     temporal_expr: Optional[str] = None
-    
+
     if has_content:
         # Prefer local model for topic extraction when explicitly requested
         if request.local_model_for_retrieval:
@@ -2200,7 +2221,7 @@ async def retrieve_memory_with_conversation(
     # NEW: Parse temporal expression to date range
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    
+
     # Priority: explicit request parameters > LLM-extracted temporal expression
     if request.start_date or request.end_date:
         # Use explicit date range from request
@@ -2215,7 +2236,7 @@ async def retrieve_memory_with_conversation(
     elif temporal_expr:
         # Parse LLM-extracted temporal expression
         from mirix.temporal.temporal_parser import parse_temporal_expression
-        
+
         # Get user's timezone for accurate "today" interpretation
         try:
             user = server.user_manager.get_user_by_id(user_id)
@@ -2225,7 +2246,7 @@ async def retrieve_memory_with_conversation(
         except Exception:
             # Fallback to UTC if user timezone not available
             reference_time = datetime.now()
-        
+
         temporal_range = parse_temporal_expression(temporal_expr, reference_time)
         if temporal_range:
             start_date = temporal_range.start
@@ -2391,12 +2412,26 @@ async def search_memory(
     """
     server = get_server()
 
+    client = None
+
     # Support both dashboard JWTs and programmatic API key access
     if authorization:
-        client, _ = get_client_from_jwt_or_api_key(authorization)
-    else:
-        client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+        try:
+            client, _ = get_client_from_jwt_or_api_key(authorization)
+        except HTTPException:
+            # If JWT/API key auth fails, fall through to use x_client_id
+            pass
+    
+    # Fallback to use the client_id and org_id passed in the method parameters.
+    if not client and x_client_id:
+        client_id = x_client_id
         client = server.client_manager.get_client_by_id(client_id)
+    else:
+        if not client:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. Provide either Authorization (Bearer JWT) or X-API-Key header, or x-client-id and x-org-id headers.",
+            )
 
     # If user_id is not provided, use the admin user for this client
     if not user_id:

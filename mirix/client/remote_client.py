@@ -113,6 +113,9 @@ class MirixClient(AbstractClient):
         base_url: Optional[str] = None,
         client_name: Optional[str] = None,
         client_scope: str = "",
+        client_id: Optional[str] = None,
+        org_name: Optional[str] = None,           
+        org_id: Optional[str] = None,
         debug: bool = False,
         timeout: int = 60,
         max_retries: int = 3,
@@ -143,19 +146,47 @@ class MirixClient(AbstractClient):
             base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8531")
         ).rstrip("/")
 
-        self.client_name = client_name or "mirix-client"
         self.client_scope = client_scope            
         self.timeout = timeout
         self._known_users: Set[str] = set()
         self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
-        if not self.api_key:
-            raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
-        
-        # Track initialized meta agent for this project
-        self._meta_agent: Optional[AgentState] = None
-        
+
         # Create session with retry logic
         self.session = requests.Session()
+
+        # If no api_key, check for client_id and org_id for backwards compatibility with older versions of the client
+        
+        #if not self.api_key:
+        #    raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
+
+        if self.api_key:
+            # Set headers - API key identifies client and org
+            self.session.headers.update({"X-API-Key": self.api_key}) 
+        else:
+            # Generate IDs if not provided
+            # Using client_id and org_id for backwards compatibility with older versions of the client
+            if not client_id:
+                import uuid
+
+                client_id = f"client-{uuid.uuid4().hex[:8]}"
+
+            if not org_id:
+                import uuid
+
+                org_id = f"org-{uuid.uuid4().hex[:8]}"
+
+        self.client_id = client_id
+        self.client_name = client_name or client_id
+        self.session.headers.update({"X-Client-ID": self.client_id})                
+        self.org_id = org_id
+        self.org_name = org_name or self.org_id
+        self.session.headers.update({"X-Org-ID": self.org_id})
+
+        # Create organization and client if they don't exist
+        self._ensure_org_and_client_exist(headers=headers)
+
+        # Track initialized meta agent for this project
+        self._meta_agent: Optional[AgentState] = None
         
         # Configure retries
         retry_strategy = Retry(
@@ -176,14 +207,69 @@ class MirixClient(AbstractClient):
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Set headers - API key identifies client and org
-        self.session.headers.update({"X-API-Key": self.api_key})
         self.session.headers.update({"Content-Type": "application/json"})
+
+    def _ensure_org_and_client_exist(self, headers: Optional[Dict[str, str]] = None):
+        """
+        Ensure that the organization and client exist on the server.
+        Creates them if they don't exist.
+        
+        Note: This method does NOT create users. Users are created per-request
+        based on the user_id parameter in add() and other methods.
+
+        Args:
+            headers: Optional headers to include in the request
+        """
+        try:
+            # Create or get organization first
+            org_response = self._request(
+                "POST",
+                "/organizations/create_or_get",
+                json={"org_id": self.org_id, "name": self.org_name},
+                headers=headers,
+            )
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Organization initialized: %s (name: %s)",
+                    self.org_id,
+                    self.org_name,
+                )
+
+            # Create or get client
+            client_response = self._request(
+                "POST",
+                "/clients/create_or_get",
+                json={
+                    "client_id": self.client_id,
+                    "name": self.client_name,
+                    "org_id": self.org_id,
+                    "scope": self.client_scope,
+                    "status": "active",
+                },
+                headers=headers,
+            )
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Client initialized: %s (name: %s, scope: %s)",
+                    self.client_id,
+                    self.client_name,
+                    self.client_scope,
+                )
+        except Exception as e:
+            # Don't fail initialization if this fails - the server might handle it
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Note: Could not pre-create org/client: %s", e
+                )
+                logger.debug(
+                    "[MirixClient] Server will create them on first request if needed"
+                )
 
     def create_or_get_user(
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
+        org_id: Optional[str] = None,   # For backwards compatibility with older versions of the client
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -198,6 +284,7 @@ class MirixClient(AbstractClient):
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
+            org_id: Optional organization ID. Defaults to client's org_id if not provided. For backwards compatibility with older versions of the client.
             
         Returns:
             str: The user_id (either existing or newly created)
@@ -227,7 +314,19 @@ class MirixClient(AbstractClient):
             "user_id": user_id,
             "name": user_name,
         }
+
+        # Check if X-API-Key is set in headers
+        has_api_key = False
+        if headers and "X-API-Key" in headers:
+            has_api_key = True
         
+        # If no X-API-Key, include org_id in request data
+        if not has_api_key:
+            # Use passed in org_id, or fall back to self.org_id
+            effective_org_id = org_id if org_id else getattr(self, 'org_id', None)
+            if effective_org_id:
+                request_data["org_id"] = effective_org_id
+
         # Make API request
         response = self._request(
             "POST", "/users/create_or_get", json=request_data, headers=headers
@@ -639,6 +738,7 @@ class MirixClient(AbstractClient):
         message: str,
         role: str,
         agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,  # End-user ID for message attribution
         name: Optional[str] = None,
         stream: Optional[bool] = False,
         stream_steps: bool = False,
@@ -653,6 +753,9 @@ class MirixClient(AbstractClient):
             message: The message text to send
             role: The role of the message sender (user/system)
             agent_id: The ID of the agent to send the message to
+            user_id: Optional end-user ID for message attribution. If not provided,
+                    messages will be associated with the default user. This is critical
+                    for multi-tenant applications to properly isolate user conversations.
             name: Optional name of the message sender
             stream: Enable streaming (not yet implemented)
             stream_steps: Stream intermediate steps
@@ -660,6 +763,7 @@ class MirixClient(AbstractClient):
             filter_tags: Optional filter tags for categorization and filtering.
                 Example: {"project_id": "proj-alpha", "session_id": "sess-123"}
             use_cache: Control Redis cache behavior (default: True)
+            headers: Optional headers to include in the request
         
         Returns:
             MirixResponse: The response from the agent
@@ -669,6 +773,7 @@ class MirixClient(AbstractClient):
             ...     message="What's the status?",
             ...     role="user",
             ...     agent_id="agent123",
+            ...     user_id="user-456",
             ...     filter_tags={"project": "alpha", "priority": "high"}
             ... )
         """
@@ -682,6 +787,10 @@ class MirixClient(AbstractClient):
             "stream_steps": stream_steps,
             "stream_tokens": stream_tokens,
         }
+        
+        # Include user_id if provided
+        if user_id is not None:
+            request_data["user_id"] = user_id
         
         # Include filter_tags if provided
         if filter_tags is not None:
@@ -697,11 +806,29 @@ class MirixClient(AbstractClient):
         return MirixResponse(**data)
 
     def user_message(
-        self, agent_id: str, message: str, headers: Optional[Dict[str, str]] = None
+        self, 
+        agent_id: str, 
+        message: str, 
+        user_id: Optional[str] = None,  # End-user ID
+        headers: Optional[Dict[str, str]] = None
     ) -> MirixResponse:
-        """Send a user message to an agent."""
+        """Send a user message to an agent.
+        
+        Args:
+            agent_id: The ID of the agent to send the message to
+            message: The message text to send
+            user_id: Optional end-user ID for message attribution
+            headers: Optional headers to include in the request
+            
+        Returns:
+            MirixResponse: The response from the agent
+        """
         return self.send_message(
-            message=message, role="user", agent_id=agent_id, headers=headers
+            message=message, 
+            role="user", 
+            agent_id=agent_id, 
+            user_id=user_id,  # Pass user_id
+            headers=headers
         )
 
     def get_messages(

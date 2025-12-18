@@ -54,6 +54,17 @@ with open(os.path.join(project_root, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 
+def load_requirements(filename: str) -> list[str]:
+    """Load dependency list from a requirements file, ignoring comments/blanks."""
+    req_path = os.path.join(this_directory, filename)
+    with open(req_path, encoding="utf-8") as req_file:
+        return [
+            line.strip()
+            for line in req_file.readlines()
+            if line.strip() and not line.startswith("#")
+        ]
+
+
 # Get version from command line or __init__.py
 def get_version():
     # If version was provided via command line, use that
@@ -71,7 +82,6 @@ def get_version():
         if version_match:
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
-
 
 # Client-specific dependencies (minimal)
 client_dependencies = load_requirements("requirements_client.txt")

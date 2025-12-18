@@ -683,6 +683,9 @@ class KnowledgeVaultManager:
               proper BM25 ranking
         """
         
+        # Extract organization_id from user for multi-tenant isolation
+        organization_id = user.organization_id
+        
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         
@@ -698,6 +701,7 @@ class KnowledgeVaultManager:
                         index_name=redis_client.KNOWLEDGE_INDEX,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -721,6 +725,7 @@ class KnowledgeVaultManager:
                         vector_field="caption_embedding",
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -738,6 +743,7 @@ class KnowledgeVaultManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -763,6 +769,7 @@ class KnowledgeVaultManager:
                 query_stmt = (
                     select(KnowledgeVaultItem)
                     .where(KnowledgeVaultItem.user_id == user.id)
+                    .where(KnowledgeVaultItem.organization_id == organization_id)
                     .order_by(
                         cast(
                             text("knowledge_vault.last_modify ->> 'timestamp'"),
@@ -800,7 +807,11 @@ class KnowledgeVaultManager:
                     KnowledgeVaultItem.last_modify.label("last_modify"),
                     KnowledgeVaultItem.user_id.label("user_id"),
                     KnowledgeVaultItem.agent_id.label("agent_id"),
-                ).where(KnowledgeVaultItem.user_id == user.id)
+                ).where(
+                    KnowledgeVaultItem.user_id == user.id
+                ).where(
+                    KnowledgeVaultItem.organization_id == organization_id
+                )
 
                 # Add sensitivity filter to base query if provided
                 if sensitivity is not None:

@@ -30,8 +30,12 @@ class User(UserBase):
         created_at (datetime): The creation date of the user.
     """
 
+    # ID is now a REQUIRED field (no default_factory) to prevent ID overwrite bugs.
+    # Previously, default_factory=_generate_user_id would regenerate IDs when
+    # existing users were loaded from DB and re-validated through Pydantic,
+    # causing user IDs to be overwritten in the queue worker.
     id: str = Field(
-        default_factory=_generate_user_id,
+        ...,
         description="The unique identifier of the user.",
     )
     organization_id: Optional[str] = Field(

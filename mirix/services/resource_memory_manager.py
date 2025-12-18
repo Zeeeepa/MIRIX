@@ -559,6 +559,9 @@ class ResourceMemoryManager:
               proper BM25 ranking
         """
         
+        # Extract organization_id from user for multi-tenant isolation
+        organization_id = user.organization_id
+        
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         
@@ -574,6 +577,7 @@ class ResourceMemoryManager:
                         index_name=redis_client.RESOURCE_INDEX,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -597,6 +601,7 @@ class ResourceMemoryManager:
                         vector_field="summary_embedding",
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -614,6 +619,7 @@ class ResourceMemoryManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags
                     )
                     if results:
@@ -639,6 +645,7 @@ class ResourceMemoryManager:
                 query_stmt = (
                     select(ResourceMemoryItem)
                     .where(ResourceMemoryItem.user_id == user.id)
+                    .where(ResourceMemoryItem.organization_id == organization_id)
                     .order_by(
                         cast(
                             text("resource_memory.last_modify ->> 'timestamp'"),
@@ -671,7 +678,11 @@ class ResourceMemoryManager:
                 ResourceMemoryItem.last_modify.label("last_modify"),
                 ResourceMemoryItem.user_id.label("user_id"),
                 ResourceMemoryItem.agent_id.label("agent_id"),
-            ).where(ResourceMemoryItem.user_id == user.id)
+            ).where(
+                ResourceMemoryItem.user_id == user.id
+            ).where(
+                ResourceMemoryItem.organization_id == organization_id
+            )
             
             # Apply filter_tags if provided
             if filter_tags:
@@ -817,7 +828,7 @@ class ResourceMemoryManager:
             
             client_id = actor.id  # Always derive from actor
             if user_id is None:
-                user_id = UserManager.DEFAULT_USER_ID
+                user_id = UserManager.ADMIN_USER_ID
 
             resource = self.create_item(
                 item_data=PydanticResourceMemoryItem(

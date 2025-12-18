@@ -244,7 +244,7 @@ class Agent(BaseAgent):
             return None
 
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         for i in range(len(in_context_messages) - 1, -1, -1):
             msg = in_context_messages[i]
@@ -291,7 +291,10 @@ class Agent(BaseAgent):
             self.agent_state.memory = Memory(
                 blocks=[
                     self.block_manager.get_block_by_id(block.id, user=self.user)
-                    for block in self.block_manager.get_blocks(user=self.user)
+                    for block in self.block_manager.get_blocks(
+                        user=self.user, 
+                        auto_create_from_default=False  # Don't auto-create here, only in step()
+                    )
                 ]
             )
 
@@ -386,7 +389,9 @@ class Agent(BaseAgent):
             blocks=[
                 self.block_manager.get_block_by_id(block.id, user=self.user)
                 for block in self.block_manager.get_blocks(
-                    user=self.user, agent_id=self.agent_state.id
+                    user=self.user, 
+                    agent_id=self.agent_state.id,
+                    auto_create_from_default=False  # Don't auto-create here, only in step()
                 )
             ]
         )
@@ -1130,7 +1135,7 @@ class Agent(BaseAgent):
                     continue_chaining = False
 
                     in_context_messages = self.agent_manager.get_in_context_messages(
-                        agent_state=self.agent_state, actor=self.actor
+                        agent_state=self.agent_state, actor=self.actor, user=self.user
                     )
                     message_ids = [message.id for message in in_context_messages]
                     message_ids = [message_ids[0]]
@@ -1450,101 +1455,35 @@ class Agent(BaseAgent):
         if user:
             self.user = user
 
-            # Load existing blocks for this user
-            existing_blocks = self.block_manager.get_blocks(
-                user=self.user, agent_id=self.agent_state.id
-            )
-
-            # Special handling for core_memory_agent: ensure required blocks exist
-            # This automatically creates blocks on first use for each user
+            # Only load blocks for core_memory_agent (other agent types don't use blocks)
             from mirix.schemas.agent import AgentType
-
+            
             if self.agent_state.agent_type == AgentType.core_memory_agent:
-                if not existing_blocks:
-                    # No blocks exist for this user - auto-create from ADMIN_USER_ID template
-                    logger.debug(
-                        "Core memory blocks missing for user '%s', auto-creating from template. Agent ID: %s",
-                        user.id,
-                        self.agent_state.id,
-                    )
-
-                    # Query template blocks from ADMIN_USER_ID
-                    # Get the admin user from the database (has all required fields)
-                    from mirix.services.user_manager import UserManager
-
-                    user_manager = UserManager()
-                    try:
-                        admin_user = user_manager.get_user_by_id(
-                            UserManager.ADMIN_USER_ID
-                        )
-                        # Override organization_id to match the current user's organization
-                        # This ensures we query blocks from the correct organization
-                        admin_user.organization_id = user.organization_id
-                    except Exception as e:
-                        logger.error(
-                            "Failed to get ADMIN_USER (id: %s): %s. Cannot auto-create blocks.",
-                            UserManager.ADMIN_USER_ID,
-                            e,
-                        )
-                        admin_user = None
-
-                    if admin_user:
-                        template_blocks = self.block_manager.get_blocks(
-                            user=admin_user, agent_id=self.agent_state.id
-                        )
-
-                        if template_blocks:
-                            # Create blocks for this user using template
-                            from mirix.schemas.block import Block
-
-                            for template_block in template_blocks:
-                                try:
-                                    self.block_manager.create_or_update_block(
-                                        block=Block(
-                                            label=template_block.label,
-                                            value=template_block.value,
-                                            limit=template_block.limit,
-                                        ),
-                                        actor=self.actor,
-                                        user=self.user,
-                                        agent_id=self.agent_state.id,
-                                    )
-                                    logger.info(
-                                        "✓ Auto-created '%s' block for user %s (template: %s)",
-                                        template_block.label,
-                                        user.id,
-                                        template_block.id,
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        "Failed to auto-create '%s' block: %s",
-                                        template_block.label,
-                                        e,
-                                    )
-
-                            # Reload blocks after creation
-                            existing_blocks = self.block_manager.get_blocks(
-                                user=self.user, agent_id=self.agent_state.id
+                # Load existing blocks for this user
+                # Note: auto_create_from_default=True will create blocks if they don't exist
+                existing_blocks = self.block_manager.get_blocks(
+                    user=self.user, 
+                    agent_id=self.agent_state.id
+                )
+                
+                # Special handling for core_memory_agent: ensure required blocks exist
+                # This automatically creates blocks on first use for each user
+                # NOTE: Block creation now happens automatically in BlockManager.get_blocks()
+                # via the auto_create_from_default parameter, so no need for manual creation here
+                
+                # Load blocks into memory for core_memory_agent
+                self.agent_state.memory = Memory(
+                    blocks=[
+                        b
+                        for block in existing_blocks
+                        if (
+                            b := self.block_manager.get_block_by_id(
+                                block.id, user=self.user
                             )
-                        else:
-                            logger.warning(
-                                "No template blocks found for ADMIN_USER_ID (agent_id: %s). Cannot auto-create blocks.",
-                                self.agent_state.id,
-                            )
-
-            # Load blocks into memory
-            self.agent_state.memory = Memory(
-                blocks=[
-                    b
-                    for block in existing_blocks
-                    if (
-                        b := self.block_manager.get_block_by_id(
-                            block.id, user=self.user
                         )
-                    )
-                    is not None
-                ]
-            )
+                        is not None
+                    ]
+                )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 
@@ -1589,14 +1528,14 @@ class Agent(BaseAgent):
 
         initial_message_count = len(
             self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
         )
 
         if self.agent_state.name == "reflexion_agent":
             # clear previous messages
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
             in_context_messages = in_context_messages[:1]
             self.agent_manager.set_in_context_messages(
@@ -1781,7 +1720,10 @@ class Agent(BaseAgent):
             current_persisted_memory = Memory(
                 blocks=[
                     b
-                    for block in self.block_manager.get_blocks(user=self.user)
+                    for block in self.block_manager.get_blocks(
+                        user=self.user,
+                        auto_create_from_default=False  # Don't auto-create here, only in step()
+                    )
                     if (
                         b := self.block_manager.get_block_by_id(
                             block.id, user=self.user
@@ -2309,7 +2251,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Step 2: build system prompt with topic
         # Get the raw system prompt
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         raw_system = (
             in_context_messages[0].content[0].text
@@ -2366,7 +2308,7 @@ These keywords have been used to retrieve relevant memories from the database.
 
             # Step 0: get in-context messages and get the raw system prompt
             in_context_messages = self.agent_manager.get_in_context_messages(
-                agent_state=self.agent_state, actor=self.actor
+                agent_state=self.agent_state, actor=self.actor, user=self.user
             )
 
             assert in_context_messages[0].role == MessageRole.system
@@ -2481,13 +2423,13 @@ These keywords have been used to retrieve relevant memories from the database.
 
                 if failed_messages:
                     printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: One or more functions failed:\n"
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: One or more functions failed:\n"
                         + "\n".join(failed_messages)
                     )
                 else:
                     # Fallback if we can't parse the messages
                     printv(
-                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Function execution encountered errors (see logs above for details)"
+                        f"[Mirix.Agent.{self.agent_state.name}] ERROR: Function execution encountered errors (see logs above for details)"
                     )
 
             # if function_failed:
@@ -2608,7 +2550,7 @@ These keywords have been used to retrieve relevant memories from the database.
             # If we got a context alert, try trimming the messages length, then try again
             if is_context_overflow_error(e):
                 in_context_messages = self.agent_manager.get_in_context_messages(
-                    agent_state=self.agent_state, actor=self.actor
+                    agent_state=self.agent_state, actor=self.actor, user=self.user
                 )
 
                 if (
@@ -2718,7 +2660,7 @@ These keywords have been used to retrieve relevant memories from the database.
         self, existing_file_uris: Optional[List[str]] = None
     ):
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
         in_context_messages_openai_no_system = in_context_messages_openai[1:]
@@ -2809,7 +2751,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # reset alert
         self.agent_alerted_about_memory_pressure = False
         curr_in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
 
         self.logger.info(
@@ -2847,7 +2789,7 @@ These keywords have been used to retrieve relevant memories from the database.
         # Grab the in-context messages
         # conversion of messages to OpenAI dict format, which is passed to the token counter
         in_context_messages = self.agent_manager.get_in_context_messages(
-            agent_state=self.agent_state, actor=self.actor
+            agent_state=self.agent_state, actor=self.actor, user=self.user
         )
         in_context_messages_openai = [m.to_openai_dict() for m in in_context_messages]
 

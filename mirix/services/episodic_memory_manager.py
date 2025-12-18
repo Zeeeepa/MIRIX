@@ -706,6 +706,9 @@ class EpisodicMemoryManager:
             queries like "What happened today?" or "Show me last week's events".
         """
         
+        # Extract organization_id from user for multi-tenant isolation
+        organization_id = user.organization_id
+        
         # ⭐ Try Redis Search first (if cache enabled and Redis is available)
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
@@ -718,6 +721,7 @@ class EpisodicMemoryManager:
                         index_name=redis_client.EPISODIC_INDEX,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         sort_by="occurred_at_ts",  # Sort by occurred_at for episodic
                         filter_tags=filter_tags,
                         start_date=start_date,
@@ -754,6 +758,7 @@ class EpisodicMemoryManager:
                         vector_field=vector_field,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags,
                         start_date=start_date,
                         end_date=end_date
@@ -775,6 +780,7 @@ class EpisodicMemoryManager:
                         search_fields=fields,
                         limit=limit or 50,
                         user_id=user.id,
+                        organization_id=organization_id,
                         filter_tags=filter_tags,
                         start_date=start_date,
                         end_date=end_date
@@ -803,10 +809,12 @@ class EpisodicMemoryManager:
                 query_stmt = (
                     select(EpisodicEvent)
                     .where(EpisodicEvent.user_id == user.id)
+                    .where(EpisodicEvent.organization_id == organization_id)
                     .order_by(EpisodicEvent.occurred_at.desc())
                 )
                 
-                # Apply filter_tags if provided
+                # Apply filter_tags if provided (e.g., {"scope": "CARE"})
+                # This allows clients to filter memories by custom tags for access control
                 if filter_tags:
                     for key, value in filter_tags.items():
                         query_stmt = query_stmt.where(EpisodicEvent.filter_tags[key].as_string() == str(value))
@@ -839,9 +847,14 @@ class EpisodicMemoryManager:
                     EpisodicEvent.last_modify.label("last_modify"),
                     EpisodicEvent.user_id.label("user_id"),
                     EpisodicEvent.agent_id.label("agent_id"),
-                ).where(EpisodicEvent.user_id == user.id)
+                ).where(
+                    EpisodicEvent.user_id == user.id
+                ).where(
+                    EpisodicEvent.organization_id == organization_id
+                )
                 
-                # Apply filter_tags if provided
+                # Apply filter_tags if provided (e.g., {"scope": "CARE"})
+                # This allows clients to filter memories by custom tags for access control
                 if filter_tags:
                     for key, value in filter_tags.items():
                         base_query = base_query.where(EpisodicEvent.filter_tags[key].as_string() == str(value))
@@ -881,6 +894,7 @@ class EpisodicMemoryManager:
                         # Use PostgreSQL's native full-text search with ts_rank for BM25-like functionality
                         return self._postgresql_fulltext_search(
                             session, base_query, query, search_field, limit, user,
+                            filter_tags=filter_tags,
                             start_date=start_date, end_date=end_date
                         )
                     else:
@@ -996,7 +1010,7 @@ class EpisodicMemoryManager:
 
     def _postgresql_fulltext_search(
         self, session, base_query, query_text, search_field, limit, user,
-        start_date=None, end_date=None
+        filter_tags=None, start_date=None, end_date=None
     ):
         """
         Efficient PostgreSQL-native full-text search using ts_rank for BM25-like functionality.
@@ -1004,16 +1018,22 @@ class EpisodicMemoryManager:
 
         Args:
             session: Database session
-            base_query: Base SQLAlchemy query
+            base_query: Base SQLAlchemy query (not used in raw SQL, but kept for API compatibility)
             query_text: Search query string
             search_field: Field to search in ('summary', 'details', 'actor', 'event_type', etc.)
             limit: Maximum number of results to return
             user: User who owns the memories
+            filter_tags: Optional dict of tag key-value pairs to filter by (e.g., {"scope": "CARE"})
             start_date: Optional start datetime for temporal filtering
             end_date: Optional end datetime for temporal filtering
 
         Returns:
             List of EpisodicEvent objects ranked by relevance
+
+        Note:
+            This function builds raw SQL queries for performance. It must explicitly include
+            filter_tags in the WHERE clause to ensure proper tag-based filtering, as these
+            filters are not applied from base_query.
         """
         from sqlalchemy import func
 
@@ -1089,6 +1109,8 @@ class EpisodicMemoryManager:
                 to_tsquery('english', :tsquery), 32)"""
 
         # Build WHERE clause with temporal filtering
+        # Note: Must explicitly include all filters here since we're building raw SQL
+        # The base_query parameter is not used, but kept for API compatibility
         where_clauses = [
             f"{tsvector_sql} @@ to_tsquery('english', :tsquery)",
             "user_id = :user_id"
@@ -1098,6 +1120,15 @@ class EpisodicMemoryManager:
             "user_id": user.id,
             "limit_val": limit or 50,
         }
+        
+        # Add filter_tags filtering (e.g., {"scope": "CARE"})
+        # This allows clients to filter memories by custom tags for access control
+        # CRITICAL: Without this filter, searches return 0 results when filter_tags are provided
+        if filter_tags:
+            for key, value in filter_tags.items():
+                # Use JSONB operator to filter by tag key-value pairs
+                where_clauses.append(f"filter_tags->>'{key}' = :filter_tag_{key}")
+                query_params[f"filter_tag_{key}"] = str(value)
         
         # Add temporal filtering if provided
         if start_date is not None:
