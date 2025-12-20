@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -185,6 +185,7 @@ class AgentManager:
             agent_type=agent_create.agent_type,
             llm_config=agent_create.llm_config,
             embedding_config=agent_create.embedding_config,
+            memory_config=agent_create.memory_config,
             tool_ids=tool_ids,
             tool_rules=agent_create.tool_rules,
             parent_id=agent_create.parent_id,
@@ -307,6 +308,22 @@ class AgentManager:
                 default_system_prompts["meta_memory_agent"]  # Fallback
             )
 
+        # Build memory_config dict from the MemoryConfig (if decay settings provided)
+        memory_config_dict = None
+        if meta_agent_create.memory and meta_agent_create.memory.decay:
+            decay = meta_agent_create.memory.decay
+            memory_config_dict = {
+                "decay": {
+                    "fade_after_days": decay.fade_after_days,
+                    "expire_after_days": decay.expire_after_days,
+                }
+            }
+            logger.debug(
+                "Memory decay config set: fade_after_days=%s, expire_after_days=%s",
+                decay.fade_after_days,
+                decay.expire_after_days,
+            )
+
         meta_agent_create_schema = CreateAgent(
             name=meta_agent_name,
             agent_type=AgentType.meta_memory_agent,
@@ -320,6 +337,16 @@ class AgentManager:
             agent_create=meta_agent_create_schema,
             actor=actor,
         )
+
+        # Store memory_config on the meta agent if decay settings were provided
+        if memory_config_dict:
+            self.update_agent(
+                agent_id=meta_agent_state.id,
+                agent_update=UpdateAgent(memory_config=memory_config_dict),
+                actor=actor,
+            )
+            logger.debug("Stored memory_config on meta agent %s", meta_agent_state.id)
+
         logger.debug(
             f"Created meta_memory_agent: {meta_agent_name} with id: {meta_agent_state.id}"
         )
@@ -867,6 +894,7 @@ class AgentManager:
         agent_type: AgentType,
         llm_config: LLMConfig,
         embedding_config: Optional[EmbeddingConfig],
+        memory_config: Optional[Dict[str, Any]],
         tool_ids: List[str],
         tool_rules: Optional[List[PydanticToolRule]] = None,
         parent_id: Optional[str] = None,
@@ -884,6 +912,7 @@ class AgentManager:
                 "agent_type": agent_type,
                 "llm_config": llm_config,
                 "embedding_config": embedding_config,
+                "memory_config": memory_config,
                 "organization_id": actor.organization_id,
                 "tool_rules": tool_rules,
                 "parent_id": parent_id,
@@ -1036,6 +1065,7 @@ class AgentManager:
                 "tool_rules",
                 "mcp_tools",
                 "parent_id",
+                "memory_config",
             }
             for field in scalar_fields:
                 value = getattr(agent_update, field, None)

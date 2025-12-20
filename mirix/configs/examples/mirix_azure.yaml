@@ -38,4 +38,8 @@ meta_agent_config:
         value: ""
       - label: "persona"
         value: "I am a helpful assistant."
+    # Memory decay - controls automatic aging and cleanup
+    decay:
+      fade_after_days: 30     # Memories older than this become inactive (excluded from retrieval)
+      expire_after_days: 90   # Memories older than this are permanently deleted
 

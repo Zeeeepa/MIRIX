@@ -108,6 +108,8 @@ class ProceduralMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         filter(
             None,
             [
+                # Index for memory decay filtering (updated_at for procedural memory)
+                Index("ix_procedural_memory_updated_at", "updated_at"),
                 # Organization-level query optimization indexes
                 Index("ix_procedural_memory_organization_id", "organization_id")
                 if settings.mirix_pg_uri_no_default

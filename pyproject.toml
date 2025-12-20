@@ -67,7 +67,6 @@ dependencies = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp",
     "opentelemetry-instrumentation-requests",
-    "SpeechRecognition",
     "pg8000",
     "pgvector",
     "json_repair",
@@ -98,11 +97,9 @@ dev = [
     "flake8",
 ]
 voice = [
-    "SpeechRecognition",
     "pydub",
 ]
 full = [
-    "SpeechRecognition",
     "pydub",
 ]
 

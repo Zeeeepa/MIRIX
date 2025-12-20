@@ -85,6 +85,12 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         nullable=True,
         doc="List of connected MCP server names (e.g., ['gmail-native'])",
     )
+    # Memory configuration - stores decay settings and other memory-related config
+    memory_config: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        doc="Memory configuration including decay settings (fade_after_days, expire_after_days)",
+    )
 
     # relationships
     organization: Mapped["Organization"] = relationship(
@@ -126,5 +132,6 @@ class Agent(SqlalchemyBase, OrganizationMixin):
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "mcp_tools": self.mcp_tools,
+            "memory_config": self.memory_config,
         }
         return self.__pydantic_model__(**state)

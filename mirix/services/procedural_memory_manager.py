@@ -1,6 +1,7 @@
 import json
 import re
 import string
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from rank_bm25 import BM25Okapi
@@ -570,8 +571,10 @@ class ProceduralMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        include_faded: bool = False,
+        fade_after_days: Optional[int] = None,
         similarity_threshold: Optional[float] = None,
-        ) -> List[PydanticProceduralMemoryItem]:
+    ) -> List[PydanticProceduralMemoryItem]:
         """
         List procedural memory items with various search methods.
 
@@ -589,6 +592,8 @@ class ProceduralMemoryManager:
             limit: Maximum number of results to return
             timezone_str: Timezone string for timestamp conversion
             use_cache: If True, try Redis cache first. If False, skip cache and query PostgreSQL directly.
+            include_faded: If False (default), exclude memories older than fade_after_days
+            fade_after_days: Number of days after which memories are considered faded (based on updated_at)
 
         Returns:
             List of procedural memory items matching the search criteria
@@ -604,7 +609,21 @@ class ProceduralMemoryManager:
             - PostgreSQL 'bm25': Native DB search, very fast, scales well
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
+             
+            **Memory decay**: When include_faded is False and fade_after_days is set, memories older than
+            the specified days (based on updated_at) will be excluded from results.
         """
+        # Apply memory decay filtering (fade cutoff based on updated_at)
+        fade_cutoff = None
+        if not include_faded and fade_after_days is not None:
+            from datetime import timedelta
+
+            fade_cutoff = datetime.now() - timedelta(days=fade_after_days)
+            logger.debug(
+                "Memory decay: applying fade cutoff at %s (%d days)",
+                fade_cutoff,
+                fade_after_days,
+            )
         query = query.strip() if query else ""
         is_empty_query = not query or query == ""
         
@@ -700,7 +719,11 @@ class ProceduralMemoryManager:
                 if filter_tags:
                     for key, value in filter_tags.items():
                         query_stmt = query_stmt.where(ProceduralMemoryItem.filter_tags[key].as_string() == str(value))
-                
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    query_stmt = query_stmt.where(ProceduralMemoryItem.updated_at >= fade_cutoff)
+
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
@@ -731,6 +754,10 @@ class ProceduralMemoryManager:
                 if filter_tags:
                     for key, value in filter_tags.items():
                         base_query = base_query.where(ProceduralMemoryItem.filter_tags[key].as_string() == str(value))
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    base_query = base_query.where(ProceduralMemoryItem.updated_at >= fade_cutoff)
 
                 if search_method == "embedding":
                     main_query = build_query(
@@ -1145,6 +1172,56 @@ class ProceduralMemoryManager:
                 batch = redis_keys[i:i + BATCH_SIZE]
                 redis_client.client.delete(*batch)
         
+        return count
+
+    def delete_expired_memories(
+        self,
+        user: PydanticUser,
+        expire_after_days: int,
+    ) -> int:
+        """
+        Delete procedural memories older than the specified number of days.
+
+        Args:
+            user: User who owns the memories
+            expire_after_days: Number of days after which memories are considered expired
+
+        Returns:
+            Number of deleted memories
+        """
+        from datetime import timedelta
+        from mirix.database.redis_client import get_redis_client
+
+        expire_cutoff = datetime.now() - timedelta(days=expire_after_days)
+
+        with self.session_maker() as session:
+            query = select(ProceduralMemoryItem).where(
+                ProceduralMemoryItem.user_id == user.id,
+                ProceduralMemoryItem.updated_at < expire_cutoff,
+            )
+            result = session.execute(query)
+            expired_items = result.scalars().all()
+
+            count = len(expired_items)
+            item_ids = [item.id for item in expired_items]
+
+            for item in expired_items:
+                session.delete(item)
+
+            session.commit()
+
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.PROCEDURAL_PREFIX}{item_id}" for item_id in item_ids]
+            if redis_keys:
+                redis_client.client.delete(*redis_keys)
+
+        logger.info(
+            "Deleted %d expired procedural memories for user %s (older than %d days)",
+            count,
+            user.id,
+            expire_after_days,
+        )
         return count
 
     @update_timezone

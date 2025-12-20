@@ -94,11 +94,9 @@ setup(
             "flake8",
         ],
         "voice": [
-            "SpeechRecognition",
             "pydub",
         ],
         "full": [
-            "SpeechRecognition",
             "pydub",
         ],
     },

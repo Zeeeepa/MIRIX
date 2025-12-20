@@ -96,6 +96,7 @@ def search_in_memory(
     search_field: str,
     search_method: str,
     timezone_str: str,
+    include_faded: bool = False,
 ) -> Optional[str]:
     """
     Choose which memory to search. All memory types support multiple search methods with different performance characteristics. Most of the time, you should use search over 'details' for episodic memory and semantic memory, 'content' for resource memory (but for resource memory, `embedding` is not supported for content field so you have to use other search methods), 'description' for procedural memory. This is because these fields have the richest information and is more likely to contain the keywords/query. You can always start from a thorough search over the whole memory by setting memory_type as 'all' and search_field as 'null', and then narrow down to specific fields and specific memories.
@@ -107,6 +108,8 @@ def search_in_memory(
         search_method: The method to search in the memory. Choose from:
             - 'bm25': BM25 ranking-based full-text search (fast and effective for keyword-based searches)
             - 'embedding': Vector similarity search using embeddings (most powerful, good for conceptual matches)
+        include_faded: If True, include faded (old) memories in search results. Default is False to exclude
+            memories older than the configured fade_after_days.
 
     Returns:
         str: Query result string
@@ -138,15 +141,24 @@ def search_in_memory(
             self.agent_state.memory.list_block_labels()
         )
 
+    # Extract fade_after_days from agent's memory_config
+    fade_after_days = None
+    if hasattr(self, "agent_state") and self.agent_state.memory_config:
+        decay_config = self.agent_state.memory_config.get("decay", {})
+        if decay_config:
+            fade_after_days = decay_config.get("fade_after_days")
+
     if memory_type == "episodic" or memory_type == "all":
         episodic_memory = self.episodic_memory_manager.list_episodic_memory(
-            actor=self.user,
             agent_state=self.agent_state,
+            user=self.user,
             query=query,
             search_field=search_field if search_field != "null" else "summary",
             search_method=search_method,
             limit=10,
             timezone_str=timezone_str,
+            include_faded=include_faded,
+            fade_after_days=fade_after_days,
         )
         formatted_results_from_episodic = [
             {
@@ -165,8 +177,8 @@ def search_in_memory(
 
     if memory_type == "resource" or memory_type == "all":
         resource_memories = self.resource_memory_manager.list_resources(
-            actor=self.user,
             agent_state=self.agent_state,
+            user=self.user,
             query=query,
             search_field=search_field
             if search_field != "null"
@@ -174,6 +186,8 @@ def search_in_memory(
             search_method=search_method,
             limit=10,
             timezone_str=timezone_str,
+            include_faded=include_faded,
+            fade_after_days=fade_after_days,
         )
         formatted_results_resource = [
             {
@@ -190,13 +204,15 @@ def search_in_memory(
 
     if memory_type == "procedural" or memory_type == "all":
         procedural_memories = self.procedural_memory_manager.list_procedures(
-            actor=self.user,
             agent_state=self.agent_state,
+            user=self.user,
             query=query,
             search_field=search_field if search_field != "null" else "summary",
             search_method=search_method,
             limit=10,
             timezone_str=timezone_str,
+            include_faded=include_faded,
+            fade_after_days=fade_after_days,
         )
         formatted_results_procedural = [
             {
@@ -213,13 +229,15 @@ def search_in_memory(
 
     if memory_type == "knowledge_vault" or memory_type == "all":
         knowledge_vault_memories = self.knowledge_vault_manager.list_knowledge(
-            actor=self.user,
             agent_state=self.agent_state,
+            user=self.user,
             query=query,
             search_field=search_field if search_field != "null" else "caption",
             search_method=search_method,
             limit=10,
             timezone_str=timezone_str,
+            include_faded=include_faded,
+            fade_after_days=fade_after_days,
         )
         formatted_results_knowledge_vault = [
             {
@@ -240,13 +258,15 @@ def search_in_memory(
 
     if memory_type == "semantic" or memory_type == "all":
         semantic_memories = self.semantic_memory_manager.list_semantic_items(
-            actor=self.user,
             agent_state=self.agent_state,
+            user=self.user,
             query=query,
             search_field=search_field if search_field != "null" else "summary",
             search_method=search_method,
             limit=10,
             timezone_str=timezone_str,
+            include_faded=include_faded,
+            fade_after_days=fade_after_days,
         )
         # title, summary, details, source
         formatted_results_semantic = [

@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import mirix.constants as constants
 import mirix.server.utils as server_utils
@@ -328,28 +329,40 @@ if not USE_PGLITE and settings.mirix_pg_uri_no_default:
     # Create all tables for PostgreSQL
     Base.metadata.create_all(bind=engine)
 elif not USE_PGLITE:
-    # TODO: don't rely on config storage
-    sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
+    sqlite_path = (config.recall_storage_path or "").strip()
+    sqlite_in_memory = sqlite_path.lower() == ":memory:"
 
-    logger.info("DATABASE CONNECTION: SQLite mode")
-    logger.debug("Connection String: sqlite:///%s", sqlite_db_path)
+    if sqlite_in_memory:
+        logger.info("DATABASE CONNECTION: SQLite in-memory mode")
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            echo=False,
+        )
+    else:
+        # TODO: don't rely on config storage
+        sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
 
-    # Configure SQLite engine with proper concurrency settings
-    engine = create_engine(
-        f"sqlite:///{sqlite_db_path}",
-        # Connection pooling configuration for better concurrency
-        pool_size=20,
-        max_overflow=30,
-        pool_timeout=30,
-        pool_recycle=3600,
-        pool_pre_ping=True,
-        # Enable SQLite-specific options
-        connect_args={
-            "check_same_thread": False,  # Allow sharing connections between threads
-            "timeout": 30,  # 30 second timeout for database locks
-        },
-        echo=False,
-    )
+        logger.info("DATABASE CONNECTION: SQLite mode")
+        logger.debug("Connection String: sqlite:///%s", sqlite_db_path)
+
+        # Configure SQLite engine with proper concurrency settings
+        engine = create_engine(
+            f"sqlite:///{sqlite_db_path}",
+            # Connection pooling configuration for better concurrency
+            pool_size=20,
+            max_overflow=30,
+            pool_timeout=30,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            # Enable SQLite-specific options
+            connect_args={
+                "check_same_thread": False,  # Allow sharing connections between threads
+                "timeout": 30,  # 30 second timeout for database locks
+            },
+            echo=False,
+        )
 
     # Store the original connect method
     original_connect = engine.connect

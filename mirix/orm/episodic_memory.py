@@ -113,6 +113,8 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
         filter(
             None,
             [
+                # Index for memory decay filtering (occurred_at for episodic)
+                Index("ix_episodic_memory_occurred_at", "occurred_at"),
                 # PostgreSQL full-text search indexes
                 Index(
                     "ix_episodic_memory_summary_fts",

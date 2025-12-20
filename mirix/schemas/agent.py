@@ -105,6 +105,10 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
         default_factory=list,
         description="List of connected MCP server names (e.g., ['gmail-native'])",
     )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
+    )
 
 
 class CreateAgent(BaseModel, validate_assignment=True):  #
@@ -188,6 +192,10 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     )
     mcp_tools: Optional[List[str]] = Field(
         None, description="List of MCP server names to connect to this agent."
+    )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
     )
 
     @field_validator("name")
@@ -279,6 +287,10 @@ class UpdateAgent(BaseModel):
     mcp_tools: Optional[List[str]] = Field(
         None, description="List of MCP server names to connect to this agent."
     )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
+    )
 
     class Config:
         extra = "ignore"  # Ignores extra fields
@@ -292,6 +304,19 @@ class MemoryBlockConfig(BaseModel):
     limit: Optional[int] = Field(None, description="Character limit for the block.")
 
 
+class MemoryDecayConfig(BaseModel):
+    """Configuration for memory decay/aging behavior."""
+
+    fade_after_days: Optional[int] = Field(
+        None,
+        description="Memories older than this many days become inactive (excluded from retrieval). Set to None to disable fading.",
+    )
+    expire_after_days: Optional[int] = Field(
+        None,
+        description="Memories older than this many days are permanently deleted. Set to None to disable expiration.",
+    )
+
+
 class MemoryConfig(BaseModel):
     """Configuration for memory structure."""
 
@@ -301,6 +326,10 @@ class MemoryConfig(BaseModel):
             MemoryBlockConfig(label="persona", value="I am a helpful assistant.", limit=None),
         ],
         description="List of core memory blocks to create for core_memory_agent.",
+    )
+    decay: Optional[MemoryDecayConfig] = Field(
+        None,
+        description="Memory decay configuration. Controls automatic aging and cleanup of memories.",
     )
 
 

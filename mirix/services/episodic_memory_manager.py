@@ -530,6 +530,56 @@ class EpisodicMemoryManager:
         
         return count
 
+    def delete_expired_memories(
+        self,
+        user: PydanticUser,
+        expire_after_days: int,
+    ) -> int:
+        """
+        Delete episodic memories older than the specified number of days.
+
+        Args:
+            user: User who owns the memories
+            expire_after_days: Number of days after which memories are considered expired
+
+        Returns:
+            Number of deleted memories
+        """
+        from datetime import timedelta
+        from mirix.database.redis_client import get_redis_client
+
+        expire_cutoff = datetime.now() - timedelta(days=expire_after_days)
+
+        with self.session_maker() as session:
+            query = select(EpisodicEvent).where(
+                EpisodicEvent.user_id == user.id,
+                EpisodicEvent.occurred_at < expire_cutoff,
+            )
+            result = session.execute(query)
+            expired_items = result.scalars().all()
+
+            count = len(expired_items)
+            item_ids = [item.id for item in expired_items]
+
+            for item in expired_items:
+                session.delete(item)
+
+            session.commit()
+
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.EPISODIC_PREFIX}{item_id}" for item_id in item_ids]
+            if redis_keys:
+                redis_client.client.delete(*redis_keys)
+
+        logger.info(
+            "Deleted %d expired episodic memories for user %s (older than %d days)",
+            count,
+            user.id,
+            expire_after_days,
+        )
+        return count
+
     @enforce_types
     def insert_event(
         self,
@@ -663,6 +713,8 @@ class EpisodicMemoryManager:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         similarity_threshold: Optional[float] = None,
+        include_faded: bool = False,
+        fade_after_days: Optional[int] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
         List all episodic events with various search methods and optional temporal filtering.
@@ -703,8 +755,27 @@ class EpisodicMemoryManager:
             **Temporal filtering**: When start_date and/or end_date are provided, only events with
             occurred_at within the specified range will be returned. This is particularly useful for
             queries like "What happened today?" or "Show me last week's events".
+
+            **Memory decay**: When include_faded is False (default) and fade_after_days is provided,
+            memories older than the specified days (based on occurred_at) will be excluded from results.
+            Set include_faded=True to bypass this filtering and retrieve all memories including faded ones.
         """
-        
+
+        # Apply memory decay filtering (fade cutoff)
+        # If include_faded is False and fade_after_days is set, calculate the cutoff
+        # and use it as a minimum for start_date
+        if not include_faded and fade_after_days is not None:
+            from datetime import timedelta
+
+            fade_cutoff = datetime.now() - timedelta(days=fade_after_days)
+            if start_date is None or fade_cutoff > start_date:
+                start_date = fade_cutoff
+                logger.debug(
+                    "Memory decay: applying fade cutoff at %s (%d days)",
+                    fade_cutoff,
+                    fade_after_days,
+                )
+
         # Extract organization_id from user for multi-tenant isolation
         organization_id = user.organization_id
         

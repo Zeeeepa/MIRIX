@@ -39,7 +39,7 @@ from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
 from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
 from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
-from mirix.schemas.agent import CreateMetaAgent, MemoryConfig, MemoryBlockConfig, UpdateMetaAgent
+from mirix.schemas.agent import CreateMetaAgent, MemoryConfig, MemoryBlockConfig, MemoryDecayConfig, UpdateMetaAgent
 from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
@@ -1805,6 +1805,7 @@ async def initialize_meta_agent(
         # Add memory configuration if provided
         if "memory" in meta_config and meta_config["memory"]:
             memory_dict = meta_config["memory"]
+            memory_config_kwargs = {}
             if "core" in memory_dict:
                 # Convert core blocks list to MemoryBlockConfig objects
                 core_blocks = [
@@ -1815,7 +1816,22 @@ async def initialize_meta_agent(
                     )
                     for block in memory_dict["core"]
                 ]
-                create_params["memory"] = MemoryConfig(core=core_blocks)
+                memory_config_kwargs["core"] = core_blocks
+
+            # Parse decay configuration if provided
+            if "decay" in memory_dict and memory_dict["decay"]:
+                decay_dict = memory_dict["decay"]
+                memory_config_kwargs["decay"] = MemoryDecayConfig(
+                    fade_after_days=decay_dict.get("fade_after_days"),
+                    expire_after_days=decay_dict.get("expire_after_days"),
+                )
+                logger.debug(
+                    "Memory decay config: fade_after_days=%s, expire_after_days=%s",
+                    decay_dict.get("fade_after_days"),
+                    decay_dict.get("expire_after_days"),
+                )
+
+            create_params["memory"] = MemoryConfig(**memory_config_kwargs)
 
     # Check if meta agent already exists for this client
     # list_agents now automatically filters by client (organization_id + _created_by_id)
@@ -4372,6 +4388,110 @@ async def dashboard_check_setup():
         "setup_required": is_first,
         "message": "No dashboard users exist. Please create the first account." if is_first else "Dashboard setup complete."
     }
+
+
+# ============================================================================
+# Memory Decay Cleanup Endpoint
+# ============================================================================
+
+
+class MemoryCleanupRequest(BaseModel):
+    """Request model for memory cleanup (expire) operation."""
+
+    user_id: Optional[str] = Field(
+        None,
+        description="User ID to cleanup memories for. If not provided, uses admin user.",
+    )
+
+
+class MemoryCleanupResponse(BaseModel):
+    """Response model for memory cleanup operation."""
+
+    success: bool
+    message: str
+    deleted_counts: dict
+
+
+@router.post("/memory/cleanup", response_model=MemoryCleanupResponse)
+async def cleanup_expired_memories(
+    request: MemoryCleanupRequest,
+    authorization: Optional[str] = Header(None),
+    http_request: Request = None,
+):
+    """
+    Delete memories that have exceeded the expire_after_days threshold.
+
+    This endpoint permanently removes memories that are older than the configured
+    expire_after_days in the agent's memory decay settings.
+
+    **Accepts both JWT (dashboard) and Client API Key (programmatic).**
+
+    Returns the count of deleted memories for each memory type.
+    """
+    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
+
+    server = get_server()
+
+    # Get user
+    user_id = request.user_id
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+
+    user = server.user_manager.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found")
+
+    # Find meta agent to get the expire_after_days config
+    agents = server.agent_manager.list_agents(actor=client)
+    meta_agent = None
+    for agent in agents:
+        if agent.agent_type == AgentType.meta_memory_agent:
+            meta_agent = agent
+            break
+
+    if not meta_agent or not meta_agent.memory_config:
+        raise HTTPException(
+            status_code=400,
+            detail="No meta agent found or memory decay not configured",
+        )
+
+    decay_config = meta_agent.memory_config.get("decay", {})
+    expire_after_days = decay_config.get("expire_after_days")
+
+    if not expire_after_days:
+        raise HTTPException(
+            status_code=400,
+            detail="expire_after_days not configured in memory decay settings",
+        )
+
+    # Delete expired memories from all memory types
+    deleted_counts = {
+        "episodic": server.episodic_memory_manager.delete_expired_memories(
+            user, expire_after_days
+        ),
+        "semantic": server.semantic_memory_manager.delete_expired_memories(
+            user, expire_after_days
+        ),
+        "resource": server.resource_memory_manager.delete_expired_memories(
+            user, expire_after_days
+        ),
+        "procedural": server.procedural_memory_manager.delete_expired_memories(
+            user, expire_after_days
+        ),
+        "knowledge_vault": server.knowledge_vault_manager.delete_expired_memories(
+            user, expire_after_days
+        ),
+    }
+
+    total_deleted = sum(deleted_counts.values())
+
+    return MemoryCleanupResponse(
+        success=True,
+        message=f"Deleted {total_deleted} expired memories (older than {expire_after_days} days)",
+        deleted_counts=deleted_counts,
+    )
 
 
 # ============================================================================

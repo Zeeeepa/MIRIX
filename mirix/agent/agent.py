@@ -1812,6 +1812,13 @@ class Agent(BaseAgent):
         else:
             embedded_text = None
 
+        # Extract fade_after_days from agent's memory_config
+        fade_after_days = None
+        if self.agent_state.memory_config:
+            decay_config = self.agent_state.memory_config.get("decay", {})
+            if decay_config:
+                fade_after_days = decay_config.get("fade_after_days")
+
         # Retrieve core memory
         if (
             self.agent_state.agent_type == AgentType.core_memory_agent
@@ -1852,6 +1859,7 @@ class Agent(BaseAgent):
                     search_method=search_method,
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
+                    fade_after_days=fade_after_days,
                 )
             else:
                 current_knowledge_vault = self.knowledge_vault_manager.list_knowledge(
@@ -1864,6 +1872,7 @@ class Agent(BaseAgent):
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
                     sensitivity=["low", "medium"],
+                    fade_after_days=fade_after_days,
                 )
 
             knowledge_vault_memory = ""
@@ -1888,6 +1897,7 @@ class Agent(BaseAgent):
                 user=self.user,
                 limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                 timezone_str=timezone_str,
+                fade_after_days=fade_after_days,
             )
             episodic_memory = ""
             if len(current_episodic_memory) > 0:
@@ -1915,6 +1925,7 @@ class Agent(BaseAgent):
                     search_method=search_method,
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
+                    fade_after_days=fade_after_days,
                 )
             )
             most_relevant_episodic_memory_str = ""
@@ -1955,6 +1966,7 @@ class Agent(BaseAgent):
                 search_method=search_method,
                 limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                 timezone_str=timezone_str,
+                fade_after_days=fade_after_days,
             )
             resource_memory = ""
             if len(current_resource_memory) > 0:
@@ -1989,6 +2001,7 @@ class Agent(BaseAgent):
                 search_method=search_method,
                 limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                 timezone_str=timezone_str,
+                fade_after_days=fade_after_days,
             )
             procedural_memory = ""
             if len(current_procedural_memory) > 0:
@@ -2023,6 +2036,7 @@ class Agent(BaseAgent):
                 search_method=search_method,
                 limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                 timezone_str=timezone_str,
+                fade_after_days=fade_after_days,
             )
             semantic_memory = ""
             if len(current_semantic_memory) > 0:
