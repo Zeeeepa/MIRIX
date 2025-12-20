@@ -970,8 +970,10 @@ class SyncServer(Server):
         if request.llm_config is None:
             raise ValueError("Must specify llm_config in request")
 
-        if request.embedding_config is None:
-            raise ValueError("Must specify embedding_config in request")
+        if settings.build_embeddings_for_memory and request.embedding_config is None:
+            raise ValueError(
+                "Must specify embedding_config in request when build_embeddings_for_memory is true"
+            )
 
         """Create a new agent using a config"""
         # Invoke manager

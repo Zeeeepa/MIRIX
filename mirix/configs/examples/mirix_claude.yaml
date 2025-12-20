@@ -8,6 +8,8 @@ llm_config:
   context_window: 200000
   # api_key: "your-anthropic-key"  # Or use ANTHROPIC_API_KEY env var
 
+build_embeddings_for_memory: true
+
 # Note: Anthropic doesn't provide embeddings, so we use OpenAI or Google
 embedding_config:
   embedding_model: "text-embedding-004"

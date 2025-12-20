@@ -19,6 +19,7 @@ from mirix.schemas.agent import AgentState, AgentType
 from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message
 from mirix.schemas.usage import MirixUsageStatistics
+from mirix.settings import settings
 from mirix.utils import printv
 
 if TYPE_CHECKING:
@@ -212,7 +213,7 @@ class MetaAgent(BaseAgent):
             llm_config = LLMConfig.default_config("gpt-4o-mini")
         self.llm_config = llm_config
 
-        if embedding_config is None:
+        if embedding_config is None and settings.build_embeddings_for_memory:
             embedding_config = EmbeddingConfig.default_config("text-embedding-004")
         self.embedding_config = embedding_config
 

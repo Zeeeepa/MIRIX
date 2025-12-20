@@ -11,6 +11,8 @@ llm_config:
   context_window: 128000
   # api_key: "your-azure-key"  # Or use AZURE_OPENAI_API_KEY env var
 
+build_embeddings_for_memory: true
+
 embedding_config:
   embedding_model: "text-embedding-3-small"
   embedding_endpoint_type: "azure_openai"

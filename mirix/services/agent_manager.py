@@ -56,6 +56,7 @@ from mirix.services.helpers.agent_manager_helper import (
 from mirix.services.message_manager import MessageManager
 from mirix.services.tool_manager import ToolManager
 from mirix.services.user_manager import UserManager
+from mirix.settings import settings
 from mirix.utils import create_random_username, enforce_types, get_utc_time
 
 logger = get_logger(__name__)
@@ -118,8 +119,13 @@ class AgentManager:
             agent_type=agent_create.agent_type, system=agent_create.system
         )
 
-        if not agent_create.llm_config or not agent_create.embedding_config:
-            raise ValueError("llm_config and embedding_config are required")
+        if not agent_create.llm_config:
+            raise ValueError("llm_config is required")
+
+        if settings.build_embeddings_for_memory and not agent_create.embedding_config:
+            raise ValueError(
+                "embedding_config is required when build_embeddings_for_memory is true"
+            )
 
         # Check tool rules are valid
         if agent_create.tool_rules:
@@ -210,8 +216,13 @@ class AgentManager:
                                            including the "meta_memory_agent" parent
         """
 
-        if not meta_agent_create.llm_config or not meta_agent_create.embedding_config:
-            raise ValueError("llm_config and embedding_config are required")
+        if not meta_agent_create.llm_config:
+            raise ValueError("llm_config is required")
+
+        if settings.build_embeddings_for_memory and not meta_agent_create.embedding_config:
+            raise ValueError(
+                "embedding_config is required when build_embeddings_for_memory is true"
+            )
 
         # ✅ NEW: Get or create organization-specific default user for block templates
         user_manager = UserManager()
@@ -509,6 +520,9 @@ class AgentManager:
             meta_agent_update_fields["embedding_config"] = (
                 meta_agent_update.embedding_config
             )
+        elif meta_agent_update.clear_embedding_config:
+            meta_agent_update_fields["embedding_config"] = None
+            meta_agent_update_fields["clear_embedding_config"] = True
 
         # Update meta agent with all fields at once
         if meta_agent_update_fields:
@@ -596,10 +610,13 @@ class AgentManager:
 
                 # Use the updated configs or fall back to meta agent's configs
                 llm_config = meta_agent_update.llm_config or meta_agent_state.llm_config
-                embedding_config = (
-                    meta_agent_update.embedding_config
-                    or meta_agent_state.embedding_config
-                )
+                if meta_agent_update.clear_embedding_config:
+                    embedding_config = None
+                else:
+                    embedding_config = (
+                        meta_agent_update.embedding_config
+                        or meta_agent_state.embedding_config
+                    )
 
                 # Create the agent using CreateAgent schema with parent_id
                 agent_create = CreateAgent(
@@ -642,7 +659,11 @@ class AgentManager:
                         )
 
         # Update llm_config and embedding_config for all sub-agents if provided
-        if meta_agent_update.llm_config or meta_agent_update.embedding_config:
+        if (
+            meta_agent_update.llm_config
+            or meta_agent_update.embedding_config
+            or meta_agent_update.clear_embedding_config
+        ):
             for agent_name, child_agent in existing_agents_by_name.items():
                 update_fields = {}
                 if meta_agent_update.llm_config is not None:
@@ -651,6 +672,8 @@ class AgentManager:
                     update_fields["embedding_config"] = (
                         meta_agent_update.embedding_config
                     )
+                elif meta_agent_update.clear_embedding_config:
+                    update_fields["clear_embedding_config"] = True
 
                 if update_fields:
                     logger.debug("Updating configs for sub-agent: %s", agent_name)
@@ -843,7 +866,7 @@ class AgentManager:
         system: str,
         agent_type: AgentType,
         llm_config: LLMConfig,
-        embedding_config: EmbeddingConfig,
+        embedding_config: Optional[EmbeddingConfig],
         tool_ids: List[str],
         tool_rules: Optional[List[PydanticToolRule]] = None,
         parent_id: Optional[str] = None,
@@ -1001,6 +1024,8 @@ class AgentManager:
             # Track old parent_id for cache invalidation
             old_parent_id = agent.parent_id
 
+            clear_embedding_config = getattr(agent_update, "clear_embedding_config", False)
+
             # Update scalar fields directly
             scalar_fields = {
                 "name",
@@ -1016,6 +1041,9 @@ class AgentManager:
                 value = getattr(agent_update, field, None)
                 if value is not None:
                     setattr(agent, field, value)
+                elif field == "embedding_config" and clear_embedding_config:
+                    logger.info("Clearing embedding_config for agent %s", agent_id)
+                    setattr(agent, field, None)
 
             # Update relationships using _process_relationship
             if agent_update.tool_ids is not None:

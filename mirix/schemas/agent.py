@@ -48,7 +48,7 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
         tools (List[str]): The tools used by the agent. This includes any memory editing functions specified in `memory`.
         system (str): The system prompt used by the agent.
         llm_config (LLMConfig): The LLM configuration used by the agent.
-        embedding_config (EmbeddingConfig): The embedding configuration used by the agent.
+        embedding_config (Optional[EmbeddingConfig]): The embedding configuration used by the agent.
 
     """
 
@@ -78,8 +78,8 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     llm_config: LLMConfig = Field(
         ..., description="The LLM configuration used by the agent."
     )
-    embedding_config: EmbeddingConfig = Field(
-        ..., description="The embedding configuration used by the agent."
+    embedding_config: Optional[EmbeddingConfig] = Field(
+        None, description="The embedding configuration used by the agent."
     )
 
     # This is an object representing the in-process state of a running `Agent`
@@ -264,6 +264,9 @@ class UpdateAgent(BaseModel):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the agent."
     )
+    clear_embedding_config: bool = Field(
+        False, description="If true, clear the embedding configuration."
+    )
     message_ids: Optional[List[str]] = Field(
         None, description="The ids of the messages in the agent's in-context memory."
     )
@@ -365,6 +368,10 @@ class UpdateMetaAgent(BaseModel):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None,
         description="Embedding configuration for meta agent and its sub-agents.",
+    )
+    clear_embedding_config: bool = Field(
+        False,
+        description="If true, clear embedding configuration for meta agent and its sub-agents.",
     )
 
     class Config:

@@ -7,7 +7,6 @@ from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.orm.errors import NoResultFound
 from mirix.orm.procedural_memory import ProceduralMemoryItem
@@ -909,7 +908,7 @@ class ProceduralMemoryManager:
     ) -> PydanticProceduralMemoryItem:
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 # TODO: need to check if we need to chunk the text
                 embed_model = embedding_model(agent_state.embedding_config)
                 summary_embedding = embed_model.get_text_embedding(summary)

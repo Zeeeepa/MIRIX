@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Base URL can be set via MIRIX_API_URL environment variable or .env file
 # MirixClient will automatically read from environment variables
 BASE_URL = os.environ.get("MIRIX_API_URL", "http://localhost:8000")
-CONFIG_PATH = Path(__file__).parent.parent / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
+CONFIG_PATH = Path(__file__).parent.parent / "mirix" / "configs" / "examples" / "mirix_openai.yaml"
 
 
 def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefix: str = ""):

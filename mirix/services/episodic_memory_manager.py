@@ -9,7 +9,6 @@ from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.orm.episodic_memory import EpisodicEvent
 from mirix.orm.errors import NoResultFound
@@ -559,7 +558,7 @@ class EpisodicMemoryManager:
                 user_id = UserManager.ADMIN_USER_ID
                 logger.debug("user_id not provided, using ADMIN_USER_ID: %s", user_id)
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 # TODO: need to check if we need to chunk the text
                 embed_model = embedding_model(agent_state.embedding_config)
                 details_embedding = embed_model.get_text_embedding(details)

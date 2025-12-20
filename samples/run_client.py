@@ -406,7 +406,6 @@ def main():
         update_agents=True,
     )
     
-    """
     result = client.add(
        user_id=user_id,  # Optional - uses admin user if None
        messages=[
@@ -433,7 +432,6 @@ def main():
        chaining=True
     )
     print(f"[OK] Memory added successfully: {result.get('success', False)}")
-    """
 
     # # 4. Example: Retrieve memories using new API
     # print("Step 4: Retrieving memories with conversation context...")

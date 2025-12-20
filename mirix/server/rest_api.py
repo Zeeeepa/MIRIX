@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from mirix.helpers.message_helpers import prepare_input_message_create
+from mirix.embeddings import embedding_model
 from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
@@ -209,6 +210,21 @@ def get_client_and_org(
         )
     
     return client_id, org_id
+
+
+def validate_embedding_config(embedding_config: EmbeddingConfig) -> None:
+    """
+    Validate embedding configuration with a simple test request.
+    """
+    test_sentence = "Mirix embedding model validation."
+    try:
+        embedding_model(embedding_config).get_text_embedding(test_sentence)
+    except Exception as exc:
+        logger.exception("Embedding model validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Embedding model validation failed: {exc}",
+        ) from exc
 
 
 def extract_topics_and_temporal_info(
@@ -1706,6 +1722,8 @@ async def initialize_meta_agent(
       model: "gpt-4o-mini"
       ...
 
+    build_embeddings_for_memory: true
+
     embedding_config:
       embedding_model: "text-embedding-3-small"
       ...
@@ -1736,10 +1754,40 @@ async def initialize_meta_agent(
     # Extract config components
     config = request.config
 
+    build_embeddings_for_memory = config.get("build_embeddings_for_memory", True)
+    settings.build_embeddings_for_memory = build_embeddings_for_memory
+
+    if not config.get("llm_config"):
+        raise HTTPException(
+            status_code=400,
+            detail="llm_config is required to initialize the meta agent",
+        )
+
+    llm_config = LLMConfig(**config["llm_config"])
+
+    if build_embeddings_for_memory:
+        if not config.get("embedding_config"):
+            raise HTTPException(
+                status_code=400,
+                detail="embedding_config is required when build_embeddings_for_memory is true",
+            )
+        embedding_config = EmbeddingConfig(**config["embedding_config"])
+        validate_embedding_config(embedding_config)
+    else:
+        if config.get("embedding_config") is not None:
+            logger.warning(
+                "build_embeddings_for_memory is false; ignoring embedding_config from request"
+            )
+        embedding_config = None
+
+    clear_embedding_config = request.update_agents and (
+        embedding_config is None or not build_embeddings_for_memory
+    )
+
     # Build create_params by flattening meta_agent_config
     create_params = {
-        "llm_config": LLMConfig(**config["llm_config"]),
-        "embedding_config": EmbeddingConfig(**config["embedding_config"]),
+        "llm_config": llm_config,
+        "embedding_config": embedding_config,
     }
 
     # Flatten meta_agent_config fields into create_params
@@ -1780,6 +1828,8 @@ async def initialize_meta_agent(
 
         # Only update the meta agent if update_agents is True
         if request.update_agents:
+            if clear_embedding_config:
+                create_params["clear_embedding_config"] = True
             # DEBUG: Log what we're passing to update_meta_agent
             logger.debug("[INIT META AGENT] create_params for UpdateMetaAgent: %s", create_params)
             logger.debug("[INIT META AGENT] 'agents' in create_params: %s", 'agents' in create_params)
@@ -1792,6 +1842,7 @@ async def initialize_meta_agent(
                 meta_agent_update=UpdateMetaAgent(**create_params),
                 actor=client
             )
+
     else:
         meta_agent = server.agent_manager.create_meta_agent(
             meta_agent_create=CreateMetaAgent(**create_params),
@@ -2838,6 +2889,15 @@ async def search_memory(
             "count": 0,
         }
 
+    if search_method == "embedding" and not settings.build_embeddings_for_memory:
+        return {
+            "success": False,
+            "error": "embedding search is disabled because build_embeddings_for_memory is false.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
     if memory_type == "all":
         search_field = "null"
 
@@ -3135,6 +3195,15 @@ async def search_memory_all_users(
         return {
             "success": False,
             "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    if search_method == "embedding" and not settings.build_embeddings_for_memory:
+        return {
+            "success": False,
+            "error": "embedding search is disabled because build_embeddings_for_memory is false.",
             "query": query,
             "results": [],
             "count": 0,

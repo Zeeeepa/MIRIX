@@ -1,4 +1,4 @@
-from mirix.agent import Agent
+from mirix.agent.agent import Agent
 
 
 class KnowledgeVaultAgent(Agent):

@@ -1493,6 +1493,7 @@ class Agent(BaseAgent):
             )
 
             if self.agent_state.agent_type == AgentType.core_memory_agent or has_direct_memory_tools:
+                
                 if not existing_blocks:
                     # No blocks exist for this user - auto-create from admin user's template
                     logger.debug(
@@ -1508,31 +1509,24 @@ class Agent(BaseAgent):
                     user_manager = UserManager()
                     admin_user = None
 
-                    try:
-                        if user.client_id:
-                            # Find the admin user for this client
-                            admin_user = user_manager.get_admin_user_for_client(user.client_id)
-                            if admin_user:
-                                logger.debug(
-                                    "Found admin user %s for client %s",
-                                    admin_user.id,
-                                    user.client_id
-                                )
-
-                        if not admin_user:
-                            # Fallback: try to get the global admin user
-                            logger.warning(
-                                "No admin user found for client %s, falling back to global admin",
-                                user.client_id
-                            )
-                            admin_user = user_manager.get_admin_user()
-                    except Exception as e:
-                        logger.error(
-                            "Failed to get admin user for client %s: %s. Cannot auto-create blocks.",
-                            user.client_id,
-                            e,
+                    assert user.client_id
+                    
+                    # Find the admin user for this client
+                    admin_user = user_manager.get_admin_user_for_client(user.client_id)
+                    if admin_user:
+                        logger.debug(
+                            "Found admin user %s for client %s",
+                            admin_user.id,
+                            user.client_id
                         )
-                        admin_user = None
+
+                    if not admin_user:
+                        # Fallback: try to get the global admin user
+                        logger.warning(
+                            "No admin user found for client %s, falling back to global admin",
+                            user.client_id
+                        )
+                        admin_user = user_manager.get_admin_user()
 
                     if admin_user and admin_user.id != user.id:
                         # Core memory blocks are user-scoped, not agent-scoped
@@ -1550,30 +1544,23 @@ class Agent(BaseAgent):
                             from mirix.schemas.block import Block
 
                             for template_block in template_blocks:
-                                try:
-                                    # Core memory blocks are user-scoped, not agent-scoped
-                                    self.block_manager.create_or_update_block(
-                                        block=Block(
-                                            label=template_block.label,
-                                            value=template_block.value,
-                                            limit=template_block.limit,
-                                        ),
-                                        actor=self.actor,
-                                        user=self.user,
-                                        agent_id=None,  # User-scoped blocks
-                                    )
-                                    logger.info(
-                                        "✓ Auto-created '%s' block for user %s (template from admin: %s)",
-                                        template_block.label,
-                                        user.id,
-                                        admin_user.id,
-                                    )
-                                except Exception as e:
-                                    logger.error(
-                                        "Failed to auto-create '%s' block: %s",
-                                        template_block.label,
-                                        e,
-                                    )
+                                # Core memory blocks are user-scoped, not agent-scoped
+                                self.block_manager.create_or_update_block(
+                                    block=Block(
+                                        label=template_block.label,
+                                        value=template_block.value,
+                                        limit=template_block.limit,
+                                    ),
+                                    actor=self.actor,
+                                    user=self.user,
+                                    agent_id=None,  # User-scoped blocks
+                                )
+                                logger.info(
+                                    "✓ Auto-created '%s' block for user %s (template from admin: %s)",
+                                    template_block.label,
+                                    user.id,
+                                    admin_user.id,
+                                )
 
                             # Reload blocks after creation (user-scoped)
                             existing_blocks = self.block_manager.get_blocks(user=self.user)
@@ -1593,9 +1580,10 @@ class Agent(BaseAgent):
                         b := self.block_manager.get_block_by_id(
                             block.id, user=self.user
                         )
-                        is not None
-                    ]
-                )
+                    )
+                    is not None
+                ]
+            )
 
         max_chaining_steps = max_chaining_steps or MAX_CHAINING_STEPS
 

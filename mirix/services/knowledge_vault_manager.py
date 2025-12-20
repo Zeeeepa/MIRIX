@@ -7,7 +7,6 @@ from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.helpers.converters import deserialize_vector
 from mirix.orm.errors import NoResultFound
@@ -584,7 +583,7 @@ class KnowledgeVaultManager:
         """Insert knowledge into the knowledge vault."""
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 embed_model = embedding_model(agent_state.embedding_config)
                 caption_embedding = embed_model.get_text_embedding(caption)
                 embedding_config = agent_state.embedding_config

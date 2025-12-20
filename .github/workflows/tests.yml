@@ -46,6 +46,7 @@ jobs:
       run: |
         cd "${{ github.workspace }}"
         python -m pytest tests/test_memory_server.py \
+               tests/test_credit_system.py \
                tests/test_auth_provider.py \
                tests/test_queue.py \
                tests/test_redis_integration.py -v

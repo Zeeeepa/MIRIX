@@ -14,6 +14,7 @@ class EmbeddingConfig(BaseModel):
         embedding_model (str): The model for the embedding.
         embedding_dim (int): The dimension of the embedding.
         embedding_chunk_size (int): The chunk size of the embedding.
+        api_key (str, optional): Custom API key for this specific embedding configuration.
         auth_provider (str, optional): Name of registered auth provider for dynamic header injection.
         azure_endpoint (:obj:`str`, optional): The Azure endpoint for the model (Azure only).
         azure_version (str): The Azure version for the model (Azure only).
@@ -52,6 +53,10 @@ class EmbeddingConfig(BaseModel):
     handle: Optional[str] = Field(
         None,
         description="The handle for this config, in the format provider/model-name.",
+    )
+    api_key: Optional[str] = Field(
+        None,
+        description="Custom API key for this specific embedding configuration",
     )
     auth_provider: Optional[str] = Field(
         None,

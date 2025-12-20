@@ -7,6 +7,8 @@ llm_config:
   model_endpoint: "https://api.openai.com/v1"
   context_window: 128000
 
+build_embeddings_for_memory: true
+
 embedding_config:
   embedding_model: "text-embedding-3-small"
   embedding_endpoint: "https://api.openai.com/v1"
