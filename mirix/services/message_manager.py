@@ -82,14 +82,10 @@ class MessageManager:
                 limit=len(message_ids),
             )
 
-            if len(results) != len(message_ids):
-                raise NoResultFound(
-                    f"Expected {len(message_ids)} messages, but found {len(results)}. Missing ids={set(message_ids) - set([r.id for r in results])}"
-                )
-
-            # Sort results directly based on message_ids
+            # Return messages in requested order, skipping any missing IDs
+            # (messages may be missing due to concurrent summarization/cleanup by other workers)
             result_dict = {msg.id: msg.to_pydantic() for msg in results}
-            return [result_dict[msg_id] for msg_id in message_ids]
+            return [result_dict[msg_id] for msg_id in message_ids if msg_id in result_dict]
 
     @enforce_types
     def create_message(

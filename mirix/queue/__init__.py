@@ -13,11 +13,11 @@ Features:
 Usage:
     >>> from mirix.queue import initialize_queue, save, QueueMessage
     >>> from mirix.server.server import SyncServer
-    >>> 
+    >>>
     >>> # Initialize with server instance
     >>> server = SyncServer()
     >>> initialize_queue(server)
-    >>> 
+    >>>
     >>> # Enqueue messages
     >>> msg = QueueMessage()
     >>> msg.agent_id = "agent-123"
@@ -25,7 +25,9 @@ Usage:
 
 The queue should be initialized when the REST API starts (in lifespan event).
 """
+
 import logging
+from typing import Optional
 
 from mirix.queue.manager import get_manager
 from mirix.queue.message_pb2 import QueueMessage
@@ -33,45 +35,54 @@ from mirix.queue.message_pb2 import QueueMessage
 logger = logging.getLogger(__name__)
 
 # Version
-__version__ = '0.1.0'
+__version__ = "0.1.0"
 
 # Get the global manager instance (singleton)
 _manager = get_manager()
 
 
-def initialize_queue(server=None) -> None:
+def initialize_queue(
+    server=None,
+    num_workers: Optional[int] = None,
+) -> None:
     """
     Initialize the queue with an optional server instance.
-    
+
     The queue worker will invoke server.send_messages() when processing messages.
     This should be called during application startup (e.g., in FastAPI lifespan).
-    
+
     Args:
         server: Server instance (e.g., SyncServer) for processing messages
-        
+        num_workers: Optional override for number of workers (memory queue only).
+                    If provided, takes precedence over MEMORY_QUEUE_NUM_WORKERS env var.
+                    Ignored when QUEUE_TYPE is 'kafka'.
+
     Example:
         >>> from mirix.server.server import SyncServer
         >>> from mirix.queue import initialize_queue
-        >>> 
+        >>>
         >>> server = SyncServer()
-        >>> initialize_queue(server)
+        >>> initialize_queue(server)  # Uses env var or default (1)
+        >>>
+        >>> # Or with explicit worker count:
+        >>> initialize_queue(server, num_workers=8)
     """
-    _manager.initialize(server=server)
+    _manager.initialize(server=server, num_workers=num_workers)
     logger.info("Queue initialized with server instance")
 
 
 def save(message: QueueMessage) -> None:
     """
     Add a message to the queue
-    
+
     The message will be automatically processed by the background worker.
-    
+
     Args:
         message: QueueMessage protobuf message to add to the queue
-        
+
     Raises:
         RuntimeError: If the queue is not initialized
-        
+
     Example:
         >>> import mirix.queue as queue
         >>> from mirix.queue.message_pb2 import QueueMessage
@@ -83,11 +94,9 @@ def save(message: QueueMessage) -> None:
         logger.warning("Queue not initialized - call initialize_queue() first")
         # Auto-initialize without server for backward compatibility
         _manager.initialize()
-    
+
     _manager.save(message)
 
 
 # Export public API
-__all__ = ['initialize_queue', 'save', 'QueueMessage']
-
-
+__all__ = ["initialize_queue", "save", "QueueMessage"]

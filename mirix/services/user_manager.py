@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+from mirix.log import get_logger
 from mirix.orm.errors import NoResultFound
 from mirix.orm.organization import Organization as OrganizationModel
 from mirix.orm.user import User as UserModel
@@ -8,12 +9,15 @@ from mirix.schemas.user import UserUpdate
 from mirix.services.organization_manager import OrganizationManager
 from mirix.utils import enforce_types
 
+logger = get_logger(__name__)
+
 
 class UserManager:
     """Manager class to handle business logic related to Users."""
 
     ADMIN_USER_NAME = "admin_user"
     ADMIN_USER_ID = "user-00000000-0000-4000-8000-000000000000"
+    DEFAULT_USER_NAME = "default_user"  # Organization-specific default user for block templates
     DEFAULT_TIME_ZONE = "UTC (UTC+00:00)"
 
     def __init__(self):
@@ -400,6 +404,60 @@ class UserManager:
             org_mgr = OrganizationManager()
             org_mgr.get_default_organization()  # Auto-creates if missing
             return self.create_admin_user(org_id=OrganizationManager.DEFAULT_ORG_ID)
+
+    @enforce_types
+    def get_or_create_org_default_user(self, org_id: str, client_id: Optional[str] = None) -> PydanticUser:
+        """
+        Get or create the default template user for an organization.
+        This user serves as the template for copying blocks to new users.
+        
+        Args:
+            org_id: Organization ID
+            client_id: Optional client ID (for audit trail)
+            
+        Returns:
+            PydanticUser: The default user for this organization
+        """
+        # Try to find existing default user for this org
+        with self.session_maker() as session:
+            try:
+                user = session.query(UserModel).filter(
+                    UserModel.name == self.DEFAULT_USER_NAME,
+                    UserModel.organization_id == org_id,
+                    UserModel.is_deleted == False
+                ).first()
+                
+                if user:
+                    logger.debug("Found existing default user %s for organization %s", user.id, org_id)
+                    return user.to_pydantic()
+            except Exception as e:
+                logger.debug("Error finding default user: %s", e)
+        
+        # Default user doesn't exist, create it
+        logger.info("Creating default template user for organization %s", org_id)
+        
+        # Generate a deterministic user_id for the default user
+        default_user_id = f"user-default-{org_id}"
+        
+        try:
+            # Try to get by ID first (in case it exists with that ID)
+            return self.get_user_by_id(default_user_id)
+        except NoResultFound:
+            pass
+        
+        # Create the default user
+        with self.session_maker() as session:
+            user = UserModel(
+                id=default_user_id,
+                name=self.DEFAULT_USER_NAME,
+                status="active",
+                timezone=self.DEFAULT_TIME_ZONE,
+                organization_id=org_id,
+                client_id=client_id,  # Optional - which client created this user
+            )
+            user.create(session)
+            logger.info("✅ Created default template user %s for organization %s", default_user_id, org_id)
+            return user.to_pydantic()
 
     @enforce_types
     def get_user_or_admin(self, user_id: Optional[str] = None):

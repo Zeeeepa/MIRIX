@@ -24,7 +24,7 @@ def core_memory_append(
         content (str): Content to write to the memory. All unicode (including emojis) are supported.
 
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: None is returned on success, or an error message string if the operation would exceed the limit.
     """
     # check if the content starts with something like "Line n:" (here n is a number) using regex
     if re.match(r"^Line \d+:", content):
@@ -32,8 +32,29 @@ def core_memory_append(
             "You should not include 'Line n:' (here n is a number) in the content."
         )
 
-    current_value = str(agent_state.memory.get_block(label).value)
+    # Get the current block and its limit
+    current_block = agent_state.memory.get_block(label)
+    current_value = str(current_block.value)
+    limit = current_block.limit
+    
+    # Calculate the new value and its length
     new_value = (current_value + "\n" + str(content)).strip()
+    new_length = len(new_value)
+    
+    # Check if the new value would exceed the limit
+    if new_length > limit:
+        # Return a descriptive error message instead of raising an exception
+        # This allows the agent to see the error and adapt its behavior
+        error_msg = (
+            f"ERROR: Cannot append - would exceed {limit} character limit "
+            f"(current: {len(current_value)}, adding: {len(content)}, "
+            f"total would be: {new_length}). "
+            f"Use core_memory_rewrite to condense the '{label}' block first, "
+            f"targeting around {int(limit * 0.5)} characters (~50% capacity)."
+        )
+        return error_msg
+    
+    # If within limit, perform the append
     agent_state.memory.update_block_value(label=label, value=new_value)
     return None
 
@@ -48,12 +69,31 @@ def core_memory_rewrite(
         label (str): Section of the memory to be edited (persona or human).
         content (str): Content to write to the memory. All unicode (including emojis) are supported.
     Returns:
-        Optional[str]: None is always returned as this function does not produce a response.
+        Optional[str]: None is returned on success, or an error message string if the new content exceeds the limit.
     """
-    current_value = str(agent_state.memory.get_block(label).value)
+    # Get the current block and its limit
+    current_block = agent_state.memory.get_block(label)
+    current_value = str(current_block.value)
+    limit = current_block.limit
     new_value = content.strip()
+    new_length = len(new_value)
+    
+    # Check if the new value exceeds the limit
+    if new_length > limit:
+        error_msg = (
+            f"ERROR: Rewrite failed - new content exceeds {limit} character limit "
+            f"(provided: {new_length} characters). "
+            f"Please condense further, targeting around {int(limit * 0.5)} characters (~50% capacity)."
+        )
+        return error_msg
+    
+    # Only update if the content actually changed
     if current_value != new_value:
         agent_state.memory.update_block_value(label=label, value=new_value)
+        # Provide feedback on the operation
+        percentage = int((new_length / limit) * 100)
+        return f"Successfully rewrote '{label}' block: {new_length}/{limit} characters ({percentage}% full)."
+    
     return None
 
 
@@ -129,7 +169,6 @@ def episodic_memory_merge(
         event_id=event_id,
         new_summary=combined_summary,
         new_details=combined_details,
-        user=self.user,
         actor=self.actor,
     )
     response = (

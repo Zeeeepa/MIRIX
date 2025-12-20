@@ -595,14 +595,37 @@ class ClientManager:
             return self.create_default_client(org_id=OrganizationManager.DEFAULT_ORG_ID)
 
     @enforce_types
-    def get_client_or_default(self, client_id: Optional[str] = None):
-        """Fetch the client or default client."""
+    def get_client_or_default(
+        self, client_id: Optional[str] = None, organization_id: Optional[str] = None
+    ):
+        """
+        Fetch the client or create/return default client.
+        
+        Args:
+            client_id: The client ID to retrieve (optional)
+            organization_id: The organization ID for creating new clients (optional)
+            
+        Returns:
+            PydanticClient: The client object
+        """
         if not client_id:
             return self.get_default_client()
 
         try:
             return self.get_client_by_id(client_id=client_id)
         except NoResultFound:
+            # If organization_id is provided, create a new client
+            if organization_id:
+                return self.create_client(
+                    PydanticClient(
+                        id=client_id,
+                        organization_id=organization_id,
+                        name=f"Local Client {client_id}",
+                        status="active",
+                        scope="local"
+                    )
+                )
+            # Otherwise return default client
             return self.get_default_client()
 
     @enforce_types

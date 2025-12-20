@@ -88,10 +88,18 @@ def create_client():
 
 class LocalClient(AbstractClient):
     """
-    A local client for Mirix, which corresponds to a single user.
+    A local client for Mirix, which corresponds to a single client.
+    
+    Each LocalClient instance represents a client within an organization,
+    and manages its own set of agents, tools, and memory.
 
     Attributes:
+        client_id (str): The client ID.
         user_id (str): The user ID.
+        org_id (str): The organization ID.
+        client (Client): The client object (used as actor for all operations).
+        user (User): The user object.
+        organization (Organization): The organization object.
         debug (bool): Whether to print debug information.
         interface (QueuingInterface): The interface for the client.
         server (SyncServer): The server for the client.
@@ -99,6 +107,7 @@ class LocalClient(AbstractClient):
 
     def __init__(
         self,
+        client_id: Optional[str] = None,
         user_id: Optional[str] = None,
         org_id: Optional[str] = None,
         debug: bool = False,
@@ -106,11 +115,15 @@ class LocalClient(AbstractClient):
         default_embedding_config: Optional[EmbeddingConfig] = None,
     ):
         """
-        Initializes a new instance of Client class.
+        Initializes a new instance of LocalClient class.
 
         Args:
-            user_id (str): The user ID.
+            client_id (str): The client ID (optional, defaults to default client).
+            user_id (str): The user ID (optional, defaults to default user).
+            org_id (str): The organization ID (optional, defaults to default org).
             debug (bool): Whether to print debug information.
+            default_llm_config (LLMConfig): Default LLM configuration.
+            default_embedding_config (EmbeddingConfig): Default embedding configuration.
         """
 
         from mirix.server.server import SyncServer
@@ -141,11 +154,20 @@ class LocalClient(AbstractClient):
         if user_id:
             self.user_id = user_id
         else:
-            # get default user
+            # get default admin user
             self.user_id = self.server.user_manager.ADMIN_USER_ID
+        # save client_id that `LocalClient` is associated with
+        if client_id:
+            self.client_id = client_id
+        else:
+            # get default client
+            self.client_id = self.server.client_manager.DEFAULT_CLIENT_ID
 
         self.user = self.server.user_manager.get_user_or_default(self.user_id)
         self.organization = self.server.get_organization_or_default(self.org_id)
+        self.client = self.server.client_manager.get_client_or_default(
+            self.client_id, self.org_id
+        )
 
         # get images directory from settings and ensure it exists
         # Can be customized via MIRIX_IMAGES_DIR environment variable
@@ -441,7 +463,7 @@ class LocalClient(AbstractClient):
         self.interface.clear()
 
         return self.server.agent_manager.list_agents(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             tags=tags,
             query_text=query_text,
             limit=limit,
@@ -524,13 +546,15 @@ class LocalClient(AbstractClient):
             tool_names += BASE_TOOLS
         if include_meta_memory_tools:
             tool_names += META_MEMORY_TOOLS
-        tool_ids += [
-            self.server.tool_manager.get_tool_by_name(
-                tool_name=name,
-                actor=self.server.user_manager.get_user_by_id(self.user.id),
-            ).id
-            for name in tool_names
-        ]
+        
+        # Get tool IDs for tools that exist (some may not be created yet)
+        for tool_name in tool_names:
+            tool = self.server.tool_manager.get_tool_by_name(
+                tool_name=tool_name,
+                actor=self.client,
+            )
+            if tool:
+                tool_ids.append(tool.id)
 
         # check if default configs are provided
         assert (
@@ -541,7 +565,7 @@ class LocalClient(AbstractClient):
         # TODO: This should not happen here, we need to have clear separation between create/add blocks
         for block in memory.get_blocks():
             self.server.block_manager.create_or_update_block(
-                block, actor=self.server.user_manager.get_user_by_id(self.user.id)
+                block, actor=self.client, user=self.user
             )
 
         # Also get any existing block_ids passed in
@@ -573,12 +597,12 @@ class LocalClient(AbstractClient):
 
         agent_state = self.server.create_agent(
             CreateAgent(**create_params),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
         # TODO: get full agent state
         return self.server.agent_manager.get_agent_by_id(
-            agent_state.id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            agent_state.id, actor=self.client
         )
 
     def create_user(self, user_id: str, user_name: str) -> PydanticUser:
@@ -600,7 +624,7 @@ class LocalClient(AbstractClient):
         # Create MetaAgent through server
         return self.server.create_meta_agent(
             request=CreateMetaAgent(**config),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_tools_from_agent(self, agent_id: str) -> List[Tool]:
@@ -616,7 +640,7 @@ class LocalClient(AbstractClient):
         self.interface.clear()
         return self.server.agent_manager.get_agent_by_id(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         ).tools
 
     def add_tool_to_agent(self, agent_id: str, tool_id: str):
@@ -634,7 +658,7 @@ class LocalClient(AbstractClient):
         agent_state = self.server.agent_manager.attach_tool(
             agent_id=agent_id,
             tool_id=tool_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return agent_state
 
@@ -653,9 +677,66 @@ class LocalClient(AbstractClient):
         agent_state = self.server.agent_manager.detach_tool(
             agent_id=agent_id,
             tool_id=tool_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return agent_state
+
+    def update_agent(
+        self,
+        agent_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        system: Optional[str] = None,
+        tool_ids: Optional[List[str]] = None,
+        metadata: Optional[Dict] = None,
+        llm_config: Optional[LLMConfig] = None,
+        embedding_config: Optional[EmbeddingConfig] = None,
+        message_ids: Optional[List[str]] = None,
+    ):
+        """
+        Update an agent's configuration.
+
+        Args:
+            agent_id (str): ID of the agent to update
+            name (str): New name for the agent
+            description (str): New description
+            system (str): New system prompt
+            tool_ids (List[str]): New list of tool IDs
+            metadata (Dict): New metadata
+            llm_config (LLMConfig): New LLM configuration
+            embedding_config (EmbeddingConfig): New embedding configuration
+            message_ids (List[str]): New list of message IDs
+
+        Returns:
+            AgentState: Updated agent state
+        """
+        from mirix.schemas.agent import UpdateAgent
+        
+        # Build update object with only provided fields
+        update_data = {}
+        if name is not None:
+            update_data["name"] = name
+        if description is not None:
+            update_data["description"] = description
+        if system is not None:
+            update_data["system"] = system
+        if tool_ids is not None:
+            update_data["tool_ids"] = tool_ids
+        if metadata is not None:
+            update_data["metadata"] = metadata
+        if llm_config is not None:
+            update_data["llm_config"] = llm_config
+        if embedding_config is not None:
+            update_data["embedding_config"] = embedding_config
+        if message_ids is not None:
+            update_data["message_ids"] = message_ids
+        
+        agent_update = UpdateAgent(**update_data)
+        return self.server.agent_manager.update_agent(
+            agent_id=agent_id,
+            agent_update=agent_update,
+            actor=self.client,
+        )
 
     def rename_agent(self, agent_id: str, new_name: str):
         """
@@ -676,7 +757,7 @@ class LocalClient(AbstractClient):
         """
         self.server.agent_manager.delete_agent(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_agent_by_name(self, agent_name: str) -> AgentState:
@@ -692,7 +773,7 @@ class LocalClient(AbstractClient):
         self.interface.clear()
         return self.server.agent_manager.get_agent_by_name(
             agent_name=agent_name,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_agent(self, agent_id: str) -> AgentState:
@@ -708,7 +789,7 @@ class LocalClient(AbstractClient):
         self.interface.clear()
         return self.server.agent_manager.get_agent_by_id(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_agent_id(self, agent_name: str) -> Optional[str]:
@@ -729,7 +810,7 @@ class LocalClient(AbstractClient):
         try:
             return self.server.agent_manager.get_agent_by_name(
                 agent_name=agent_name,
-                actor=self.server.user_manager.get_user_by_id(self.user.id),
+                actor=self.client,
             ).id
         except NoResultFound:
             return None
@@ -747,7 +828,7 @@ class LocalClient(AbstractClient):
         """
         memory = self.server.get_agent_memory(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return memory
 
@@ -772,7 +853,7 @@ class LocalClient(AbstractClient):
             agent_id=agent_id,
             label=section,
             value=value,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return memory
 
@@ -789,7 +870,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.get_archival_memory_summary(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_recall_memory_summary(self, agent_id: str) -> RecallMemorySummary:
@@ -804,7 +885,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.get_recall_memory_summary(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_in_context_messages(self, agent_id: str) -> List[Message]:
@@ -819,7 +900,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.agent_manager.get_in_context_messages(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     # agent interactions
@@ -833,7 +914,7 @@ class LocalClient(AbstractClient):
         return self.server.construct_system_message(
             agent_id=agent_id,
             message=message,
-            actor=self.server.user_manager.get_user_by_id(user_id),
+            actor=self.client,
         )
 
     def extract_memory_for_system_prompt(
@@ -845,13 +926,14 @@ class LocalClient(AbstractClient):
         return self.server.extract_memory_for_system_prompt(
             agent_id=agent_id,
             message=message,
-            actor=self.server.user_manager.get_user_by_id(user_id),
+            actor=self.client,
         )
 
     def send_messages(
         self,
         agent_id: str,
         messages: List[Union[Message | MessageCreate]],
+        user_id: Optional[str] = None,  # End-user ID
     ):
         """
         Send pre-packed messages to an agent.
@@ -859,15 +941,32 @@ class LocalClient(AbstractClient):
         Args:
             agent_id (str): ID of the agent
             messages (List[Union[Message | MessageCreate]]): List of messages to send
+            user_id (str): Optional end-user ID for message attribution
 
         Returns:
             response (MirixResponse): Response from the agent
         """
         self.interface.clear()
+        
+        # Determine which user to use
+        target_user = None
+        if user_id is not None:
+            target_user = self.server.user_manager.get_user_by_id(user_id)
+            if target_user is None:
+                from mirix.log import get_logger
+                logger = get_logger(__name__)
+                logger.warning(
+                    f"User {user_id} not found, falling back to LocalClient's default user {self.user_id}"
+                )
+                target_user = self.user
+        else:
+            target_user = self.user
+        
         usage = self.server.send_messages(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             agent_id=agent_id,
             input_messages=messages,
+            user=target_user,  # Pass user object
         )
 
         # format messages
@@ -880,6 +979,7 @@ class LocalClient(AbstractClient):
         name: Optional[str] = None,
         agent_id: Optional[str] = None,
         agent_name: Optional[str] = None,
+        user_id: Optional[str] = None,  # End-user ID for message attribution
         stream_steps: bool = False,
         stream_tokens: bool = False,
         chaining: Optional[bool] = None,
@@ -892,7 +992,10 @@ class LocalClient(AbstractClient):
             message (str): Message to send
             role (str): Role of the message
             agent_id (str): ID of the agent
-            name(str): Name of the sender
+            name (str): Name of the sender
+            user_id (str): Optional end-user ID for message attribution. If not provided,
+                          uses the LocalClient's default user_id (set during initialization).
+                          This is critical for multi-user scenarios.
             stream_steps (bool): Stream the steps (default: `False`)
             stream_tokens (bool): Stream the tokens (default: `False`)
             chaining (bool): Whether to enable chaining for this message
@@ -1025,11 +1128,30 @@ class LocalClient(AbstractClient):
         else:
             raise ValueError(f"Invalid message type: {type(message)}")
 
+        # Determine which user to use
+        # If user_id provided, create User object for it; otherwise use LocalClient's default user
+        target_user = None
+        if user_id is not None:
+            # Get or create the specified user
+            target_user = self.server.user_manager.get_user_by_id(user_id)
+            if target_user is None:
+                # User doesn't exist, fall back to default
+                from mirix.log import get_logger
+                logger = get_logger(__name__)
+                logger.warning(
+                    f"User {user_id} not found, falling back to LocalClient's default user {self.user_id}"
+                )
+                target_user = self.user
+        else:
+            # Use LocalClient's default user
+            target_user = self.user
+
         usage = self.server.send_messages(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             agent_id=agent_id,
             input_messages=input_messages,
             chaining=chaining,
+            user=target_user,  # Pass user object instead of relying on default
             verbose=verbose,
         )
 
@@ -1042,19 +1164,30 @@ class LocalClient(AbstractClient):
 
         return MirixResponse(messages=mirix_messages, usage=usage)
 
-    def user_message(self, agent_id: str, message: str) -> MirixResponse:
+    def user_message(
+        self, 
+        agent_id: str, 
+        message: str, 
+        user_id: Optional[str] = None  # End-user ID
+    ) -> MirixResponse:
         """
         Send a message to an agent as a user
 
         Args:
             agent_id (str): ID of the agent
             message (str): Message to send
+            user_id (str): Optional end-user ID for message attribution
 
         Returns:
             response (MirixResponse): Response from the agent
         """
         self.interface.clear()
-        return self.send_message(role="user", agent_id=agent_id, message=message)
+        return self.send_message(
+            role="user", 
+            agent_id=agent_id, 
+            message=message, 
+            user_id=user_id  # Pass user_id
+        )
 
     def run_command(self, agent_id: str, command: str) -> MirixResponse:
         """
@@ -1082,7 +1215,7 @@ class LocalClient(AbstractClient):
 
     def get_block_id(self, name: str, label: str) -> str:
         block = self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label=label,
         )
         if not block:
@@ -1102,7 +1235,8 @@ class LocalClient(AbstractClient):
         """
         return self.server.block_manager.create_or_update_block(
             Human(value=text),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
+            user=self.user,
         )
 
     def create_persona(self, name: str, text: str):
@@ -1118,7 +1252,8 @@ class LocalClient(AbstractClient):
         """
         return self.server.block_manager.create_or_update_block(
             Persona(value=text),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
+            user=self.user,
         )
 
     def list_humans(self):
@@ -1129,7 +1264,7 @@ class LocalClient(AbstractClient):
             humans (List[Human]): List of human blocks
         """
         return self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label="human",
         )
 
@@ -1141,7 +1276,7 @@ class LocalClient(AbstractClient):
             personas (List[Persona]): List of persona blocks
         """
         return self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label="persona",
         )
 
@@ -1160,7 +1295,7 @@ class LocalClient(AbstractClient):
         return self.server.block_manager.update_block(
             block_id=human_id,
             block_update=BlockUpdate(value=text),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_persona(self, persona_id: str, text: str):
@@ -1179,7 +1314,7 @@ class LocalClient(AbstractClient):
         return self.server.block_manager.update_block(
             block_id=persona_block.id,
             block_update=BlockUpdate(value=text),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_persona_text(self, persona_name: str, text: str):
@@ -1199,7 +1334,7 @@ class LocalClient(AbstractClient):
             return self.server.block_manager.update_block(
                 block_id=persona_id,
                 block_update=BlockUpdate(value=text),
-                actor=self.server.user_manager.get_user_by_id(self.user.id),
+                actor=self.client,
             )
         else:
             # Create new persona if it doesn't exist
@@ -1218,7 +1353,7 @@ class LocalClient(AbstractClient):
         assert id, "Persona ID must be provided"
         return Persona(
             **self.server.block_manager.get_block_by_id(
-                id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+                id, user=self.user
             ).model_dump()
         )
 
@@ -1235,7 +1370,7 @@ class LocalClient(AbstractClient):
         assert id, "Human ID must be provided"
         return Human(
             **self.server.block_manager.get_block_by_id(
-                id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+                id, user=self.user
             ).model_dump()
         )
 
@@ -1250,7 +1385,7 @@ class LocalClient(AbstractClient):
             id (str): ID of the persona block
         """
         persona = self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label="persona",
         )
         if not persona:
@@ -1268,7 +1403,7 @@ class LocalClient(AbstractClient):
             id (str): ID of the human block
         """
         human = self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label="human",
         )
         if not human:
@@ -1305,7 +1440,7 @@ class LocalClient(AbstractClient):
         )
         return self.server.tool_manager.create_or_update_tool(
             pydantic_tool=Tool(**tool_create.model_dump()),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def load_crewai_tool(
@@ -1319,14 +1454,14 @@ class LocalClient(AbstractClient):
         )
         return self.server.tool_manager.create_or_update_tool(
             pydantic_tool=Tool(**tool_create.model_dump()),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def load_composio_tool(self, action: "ActionType") -> Tool:
         tool_create = ToolCreate.from_composio(action_name=action.name)
         return self.server.tool_manager.create_or_update_tool(
             pydantic_tool=Tool(**tool_create.model_dump()),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def create_tool(
@@ -1368,7 +1503,7 @@ class LocalClient(AbstractClient):
                 description=description,
                 return_char_limit=return_char_limit,
             ),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def create_or_update_tool(
@@ -1407,7 +1542,7 @@ class LocalClient(AbstractClient):
                 description=description,
                 return_char_limit=return_char_limit,
             ),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_tool(
@@ -1449,7 +1584,7 @@ class LocalClient(AbstractClient):
         return self.server.tool_manager.update_tool_by_id(
             tool_id=id,
             tool_update=ToolUpdate(**update_data),
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def list_tools(
@@ -1464,7 +1599,7 @@ class LocalClient(AbstractClient):
         return self.server.tool_manager.list_tools(
             cursor=cursor,
             limit=limit,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def get_tool(self, id: str) -> Optional[Tool]:
@@ -1478,7 +1613,7 @@ class LocalClient(AbstractClient):
             tool (Tool): Tool
         """
         return self.server.tool_manager.get_tool_by_id(
-            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            id, actor=self.client
         )
 
     def delete_tool(self, id: str):
@@ -1489,7 +1624,7 @@ class LocalClient(AbstractClient):
             id (str): ID of the tool
         """
         return self.server.tool_manager.delete_tool_by_id(
-            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            id, actor=self.client
         )
 
     def get_tool_id(self, name: str) -> Optional[str]:
@@ -1503,7 +1638,7 @@ class LocalClient(AbstractClient):
             id (str): ID of the tool (`None` if not found)
         """
         tool = self.server.tool_manager.get_tool_by_name(
-            tool_name=name, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            tool_name=name, actor=self.client
         )
         return tool.id if tool else None
 
@@ -1547,7 +1682,7 @@ class LocalClient(AbstractClient):
             blocks (List[Block]): List of blocks
         """
         blocks = self.server.block_manager.get_blocks(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            user=self.user,
             label=label,
         )
         return blocks
@@ -1569,15 +1704,19 @@ class LocalClient(AbstractClient):
         Returns:
             block (Block): Created block
         """
+        from mirix.constants import CORE_MEMORY_BLOCK_CHAR_LIMIT
+        
+        # Use default limit if not provided
+        if limit is None:
+            limit = CORE_MEMORY_BLOCK_CHAR_LIMIT
+            
         block = Block(
             label=label,
             value=value,
             limit=limit,
         )
-        # if limit:
-        #     block.limit = limit
         return self.server.block_manager.create_or_update_block(
-            block, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            block, actor=self.client, user=self.user
         )
 
     def get_block(self, block_id: str) -> Block:
@@ -1591,7 +1730,7 @@ class LocalClient(AbstractClient):
             block (Block): Block
         """
         return self.server.block_manager.get_block_by_id(
-            block_id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            block_id, user=self.user
         )
 
     def delete_block(self, id: str) -> Block:
@@ -1605,7 +1744,7 @@ class LocalClient(AbstractClient):
             block (Block): Deleted block
         """
         return self.server.block_manager.delete_block(
-            id, actor=self.server.user_manager.get_user_by_id(self.user.id)
+            id, actor=self.client
         )
 
     def set_default_llm_config(self, llm_config: LLMConfig):
@@ -1668,7 +1807,7 @@ class LocalClient(AbstractClient):
         config_create = SandboxConfigCreate(config=config)
         return self.server.sandbox_config_manager.create_or_update_sandbox_config(
             sandbox_config_create=config_create,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_sandbox_config(
@@ -1683,7 +1822,7 @@ class LocalClient(AbstractClient):
         return self.server.sandbox_config_manager.update_sandbox_config(
             sandbox_config_id=sandbox_config_id,
             sandbox_update=sandbox_update,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def delete_sandbox_config(self, sandbox_config_id: str) -> None:
@@ -1692,7 +1831,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.sandbox_config_manager.delete_sandbox_config(
             sandbox_config_id=sandbox_config_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def list_sandbox_configs(
@@ -1702,7 +1841,7 @@ class LocalClient(AbstractClient):
         List all sandbox configurations.
         """
         return self.server.sandbox_config_manager.list_sandbox_configs(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             limit=limit,
             cursor=cursor,
         )
@@ -1723,7 +1862,7 @@ class LocalClient(AbstractClient):
         return self.server.sandbox_config_manager.create_sandbox_env_var(
             env_var_create=env_var_create,
             sandbox_config_id=sandbox_config_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_sandbox_env_var(
@@ -1742,7 +1881,7 @@ class LocalClient(AbstractClient):
         return self.server.sandbox_config_manager.update_sandbox_env_var(
             env_var_id=env_var_id,
             env_var_update=env_var_update,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def delete_sandbox_env_var(self, env_var_id: str) -> None:
@@ -1751,7 +1890,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.sandbox_config_manager.delete_sandbox_env_var(
             env_var_id=env_var_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def list_sandbox_env_vars(
@@ -1762,7 +1901,7 @@ class LocalClient(AbstractClient):
         """
         return self.server.sandbox_config_manager.list_sandbox_env_vars(
             sandbox_config_id=sandbox_config_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             limit=limit,
             cursor=cursor,
         )
@@ -1878,13 +2017,13 @@ class LocalClient(AbstractClient):
         """
         block_req = Block(**create_block.model_dump())
         block = self.server.block_manager.create_or_update_block(
-            actor=self.server.user_manager.get_user_by_id(self.user.id), block=block_req
+            actor=self.client, block=block_req, user=self.user
         )
         # Link the block to the agent
         agent = self.server.agent_manager.attach_block(
             agent_id=agent_id,
             block_id=block.id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return agent.memory
 
@@ -1902,7 +2041,7 @@ class LocalClient(AbstractClient):
         return self.server.agent_manager.attach_block(
             agent_id=agent_id,
             block_id=block_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def remove_agent_memory_block(self, agent_id: str, block_label: str) -> Memory:
@@ -1919,7 +2058,7 @@ class LocalClient(AbstractClient):
         return self.server.agent_manager.detach_block_with_label(
             agent_id=agent_id,
             block_label=block_label,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def list_agent_memory_blocks(self, agent_id: str) -> List[Block]:
@@ -1934,7 +2073,7 @@ class LocalClient(AbstractClient):
         """
         agent = self.server.agent_manager.get_agent_by_id(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
         return agent.memory.blocks
 
@@ -1952,7 +2091,7 @@ class LocalClient(AbstractClient):
         return self.server.agent_manager.get_block_with_label(
             agent_id=agent_id,
             block_label=label,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
     def update_agent_memory_block(
@@ -1982,7 +2121,7 @@ class LocalClient(AbstractClient):
             data["limit"] = limit
         return self.server.block_manager.update_block(
             block.id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             block_update=BlockUpdate(**data),
         )
 
@@ -2014,8 +2153,9 @@ class LocalClient(AbstractClient):
             data["label"] = label
         return self.server.block_manager.update_block(
             block_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
             block_update=BlockUpdate(**data),
+            actor=self.client,
+            user=self.user,
         )
 
     def get_tags(
@@ -2031,7 +2171,7 @@ class LocalClient(AbstractClient):
             tags (List[str]): List of tags
         """
         return self.server.agent_manager.list_tags(
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
             cursor=cursor,
             limit=limit,
             query_text=query_text,
@@ -2090,7 +2230,7 @@ class LocalClient(AbstractClient):
         # Get the agent to access its memory managers
         agent_state = self.server.agent_manager.get_agent_by_id(
             agent_id=agent_id,
-            actor=self.server.user_manager.get_user_by_id(self.user.id),
+            actor=self.client,
         )
 
         if memory_type == "all":
@@ -2102,7 +2242,7 @@ class LocalClient(AbstractClient):
         # Search episodic memory
         if memory_type == "episodic" or memory_type == "all":
             episodic_memory = self.server.episodic_memory_manager.list_episodic_memory(
-                actor=self.user,
+                user=self.user,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
@@ -2132,7 +2272,7 @@ class LocalClient(AbstractClient):
         # Search resource memory
         if memory_type == "resource" or memory_type == "all":
             resource_memories = self.server.resource_memory_manager.list_resources(
-                actor=self.user,
+                user=self.user,
                 agent_state=agent_state,
                 query=query,
                 search_field=(
@@ -2164,7 +2304,7 @@ class LocalClient(AbstractClient):
         # Search procedural memory
         if memory_type == "procedural" or memory_type == "all":
             procedural_memories = self.server.procedural_memory_manager.list_procedures(
-                actor=self.user,
+                user=self.user,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",
@@ -2193,7 +2333,7 @@ class LocalClient(AbstractClient):
         if memory_type == "knowledge_vault" or memory_type == "all":
             knowledge_vault_memories = (
                 self.server.knowledge_vault_manager.list_knowledge(
-                    actor=self.user,
+                    user=self.user,
                     agent_state=agent_state,
                     query=query,
                     search_field=search_field if search_field != "null" else "caption",
@@ -2224,7 +2364,7 @@ class LocalClient(AbstractClient):
         # Search semantic memory
         if memory_type == "semantic" or memory_type == "all":
             semantic_memories = self.server.semantic_memory_manager.list_semantic_items(
-                actor=self.user,
+                user=self.user,
                 agent_state=agent_state,
                 query=query,
                 search_field=search_field if search_field != "null" else "summary",

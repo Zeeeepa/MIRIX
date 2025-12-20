@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import requests
-from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Request
+from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import MessageRole
 from mirix.schemas.environment_variables import (
@@ -48,9 +49,8 @@ from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
-from mirix.schemas.client import Client, ClientCreate, ClientUpdate
 from mirix.server.server import SyncServer
-from mirix.settings import model_settings
+from mirix.settings import model_settings, settings
 from mirix.utils import convert_message_to_mirix_message
 
 logger = get_logger(__name__)
@@ -73,10 +73,14 @@ def get_server() -> SyncServer:
     return _server
 
 
-async def initialize():
+async def initialize(num_workers: Optional[int] = None):
     """
     Initialize the Mirix server and queue services.
     This function can be called by external applications to initialize the server.
+
+    Args:
+        num_workers: Optional number of queue workers. If not provided,
+                    uses settings.memory_queue_num_workers.
     """
     logger.info("Starting Mirix REST API server")
 
@@ -84,9 +88,17 @@ async def initialize():
     server = get_server()
     logger.info("SyncServer initialized")
 
+    # Use provided num_workers or fall back to settings
+    effective_num_workers = (
+        num_workers if num_workers is not None else settings.memory_queue_num_workers
+    )
+
     # Initialize queue with server reference
-    initialize_queue(server)
-    logger.info("Queue service started with SyncServer integration")
+    initialize_queue(server, num_workers=effective_num_workers)
+    logger.info(
+        "Queue service started with SyncServer integration (num_workers=%d)",
+        effective_num_workers,
+    )
 
 
 async def cleanup():
@@ -778,11 +790,11 @@ async def update_agent_system_prompt(
     2. Updates the agent.system field in Redis cache
     3. Creates a new system message
     4. Updates message_ids[0] to reference the new system message
-    
+
     Args:
         agent_id: ID of the agent to update (e.g., "agent-123")
         request: UpdateSystemPromptRequest with the new system prompt
-        
+    
     Returns:
         AgentState: The updated agent state
         
@@ -811,10 +823,11 @@ class SendMessageRequest(BaseModel):
     """Request to send a message to an agent."""
     message: str
     role: str
+    user_id: Optional[str] = None  # End-user ID for message attribution
     name: Optional[str] = None
     stream_steps: bool = False
     stream_tokens: bool = False
-    filter_tags: Optional[Dict[str, Any]] = None  # NEW: filter tags support
+    filter_tags: Optional[Dict[str, Any]] = None  # Filter tags support
     use_cache: bool = True  # Control Redis cache behavior
 
 
@@ -832,12 +845,16 @@ async def send_message_to_agent(
     
     Args:
         agent_id: The ID of the agent to send the message to
-        request: The message request containing text, role, and optional filter_tags
-        x_user_id: User ID from header
+        request: The message request containing text, role, user_id, and optional filter_tags
+        x_client_id: Client ID from header (identifies the client application)
         x_org_id: Organization ID from header
     
     Returns:
         MirixResponse: The agent's response including messages and usage statistics
+        
+    Note:
+        If user_id is not provided in the request, messages will be associated with
+        the default user (DEFAULT_USER_ID).
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
@@ -857,6 +874,7 @@ async def send_message_to_agent(
             agent_id=agent_id,
             input_messages=[message_create],
             chaining=True,
+            user_id=request.user_id,  # Pass user_id to queue
             filter_tags=request.filter_tags,  # Pass filter_tags to queue
             use_cache=request.use_cache,  # Pass use_cache to queue
         )
@@ -1158,6 +1176,9 @@ async def create_or_get_user(
     client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Extract client_id and org_id from client object
+    client_id = client.id
     org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
 
     # Use provided user_id or generate a new one
@@ -1188,7 +1209,7 @@ async def create_or_get_user(
             status="active"
         ),
         client_id=client_id,  # Associate user with client
-    )
+        )
     logger.debug("Created new user: %s for client: %s", user_id, client_id)
     return user
 
@@ -2139,7 +2160,7 @@ async def retrieve_memory_with_conversation(
     else:
         # Create new filter_tags if not provided
         filter_tags = {}
-    
+
     # Add or update the "scope" key with the client's scope
     filter_tags["scope"] = client.scope
 
@@ -2171,7 +2192,7 @@ async def retrieve_memory_with_conversation(
 
     topics: Optional[str] = None
     temporal_expr: Optional[str] = None
-    
+
     if has_content:
         # Prefer local model for topic extraction when explicitly requested
         if request.local_model_for_retrieval:
@@ -2200,7 +2221,7 @@ async def retrieve_memory_with_conversation(
     # NEW: Parse temporal expression to date range
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    
+
     # Priority: explicit request parameters > LLM-extracted temporal expression
     if request.start_date or request.end_date:
         # Use explicit date range from request
@@ -2215,7 +2236,7 @@ async def retrieve_memory_with_conversation(
     elif temporal_expr:
         # Parse LLM-extracted temporal expression
         from mirix.temporal.temporal_parser import parse_temporal_expression
-        
+
         # Get user's timezone for accurate "today" interpretation
         try:
             user = server.user_manager.get_user_by_id(user_id)
@@ -2225,7 +2246,7 @@ async def retrieve_memory_with_conversation(
         except Exception:
             # Fallback to UTC if user timezone not available
             reference_time = datetime.now()
-        
+
         temporal_range = parse_temporal_expression(temporal_expr, reference_time)
         if temporal_range:
             start_date = temporal_range.start
@@ -2357,11 +2378,15 @@ async def search_memory(
     search_method: str = "bm25",
     limit: int = 10,
     authorization: Optional[str] = Header(None),
+    filter_tags: Optional[str] = Query(None),
+    similarity_threshold: Optional[float] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
     x_client_id: Optional[str] = Header(None),
     x_org_id: Optional[str] = Header(None),
 ):
     """
-    Search for memories using various search methods.
+    Search for memories using various search methods with optional temporal filtering.
     Similar to the search_in_memory tool function.
     
     Args:
@@ -2378,15 +2403,35 @@ async def search_memory(
                      - For "all": use "null" (default)
         search_method: Search method. Options: "bm25" (default), "embedding"
         limit: Maximum number of results per memory type (default: 10)
+        filter_tags: Optional JSON string of filter tags (scope added automatically)
+        similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                             Only results with cosine distance < threshold are returned.
+                             Only applies when search_method="embedding"
+        start_date: Optional start date/time for episodic memory filtering (ISO 8601 format)
+        end_date: Optional end date/time for episodic memory filtering (ISO 8601 format)
     """
     server = get_server()
 
+    client = None
+
     # Support both dashboard JWTs and programmatic API key access
     if authorization:
-        client, _ = get_client_from_jwt_or_api_key(authorization)
-    else:
-        client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+        try:
+            client, _ = get_client_from_jwt_or_api_key(authorization)
+        except HTTPException:
+            # If JWT/API key auth fails, fall through to use x_client_id
+            pass
+    
+    # Fallback to use the client_id and org_id passed in the method parameters.
+    if not client and x_client_id:
+        client_id = x_client_id
         client = server.client_manager.get_client_by_id(client_id)
+    else:
+        if not client:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required. Provide either Authorization (Bearer JWT) or X-API-Key header, or x-client-id and x-org-id headers.",
+            )
 
     # If user_id is not provided, use the admin user for this client
     if not user_id:
@@ -2415,6 +2460,49 @@ async def search_memory(
     except:
         timezone_str = "UTC"
 
+    # Parse filter_tags from JSON string to dict
+    parsed_filter_tags = None
+    if filter_tags:
+        try:
+            parsed_filter_tags = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            return {
+                "success": False,
+                "error": f"Invalid filter_tags JSON: {filter_tags}",
+                "query": query,
+                "results": [],
+                "count": 0,
+            }
+    
+    # Add client scope to filter_tags (create if not provided)
+    if parsed_filter_tags is None:
+        parsed_filter_tags = {}
+    
+    # Add or update the "scope" key with the client's scope
+    parsed_filter_tags["scope"] = client.scope
+
+    # Parse temporal filtering parameters
+    parsed_start_date: Optional[datetime] = None
+    parsed_end_date: Optional[datetime] = None
+    
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison (DB stores naive datetimes)
+            if parsed_start_date.tzinfo:
+                parsed_start_date = parsed_start_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid start_date format: %s", e)
+    
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison
+            if parsed_end_date.tzinfo:
+                parsed_end_date = parsed_end_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid end_date format: %s", e)
+
     # Validate search parameters
     if memory_type == "resource" and search_field == "content" and search_method == "embedding":
         return {
@@ -2440,7 +2528,7 @@ async def search_memory(
     # Collect results from requested memory types
     all_results = []
 
-    # Search episodic memories
+    # Search episodic memories (WITH temporal filtering)
     if memory_type in ["episodic", "all"]:
         try:
             episodic_memories = server.episodic_memory_manager.list_episodic_memory(
@@ -2451,6 +2539,10 @@ async def search_memory(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2478,6 +2570,8 @@ async def search_memory(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2504,6 +2598,8 @@ async def search_memory(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2529,6 +2625,8 @@ async def search_memory(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2556,6 +2654,8 @@ async def search_memory(
                 search_method=search_method,
                 limit=limit,
                 timezone_str=timezone_str,
+                filter_tags=parsed_filter_tags,
+                similarity_threshold=similarity_threshold,
             )
             all_results.extend([
                 {
@@ -2577,8 +2677,323 @@ async def search_memory(
         "memory_type": memory_type,
         "search_field": search_field,
         "search_method": search_method,
+        "date_range": {
+            "start": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end": parsed_end_date.isoformat() if parsed_end_date else None,
+        } if (parsed_start_date or parsed_end_date) else None,
         "results": all_results,
         "count": len(all_results),
+    }
+
+
+@router.get("/memory/search_all_users")
+async def search_memory_all_users(
+    query: str,
+    memory_type: str = "all",
+    search_field: str = "null",
+    search_method: str = "bm25",
+    limit: int = 10,
+    client_id: Optional[str] = Query(None),
+    org_id: Optional[str] = Query(None),
+    filter_tags: Optional[str] = Query(None),
+    similarity_threshold: Optional[float] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Search for memories across ALL users in the organization with optional temporal filtering.
+    Automatically filters by client scope using filter_tags.
+    
+    Organization resolution priority:
+    1. If client_id provided: use that client's organization_id
+    2. Else: use org_id from query param or x_org_id header
+    
+    Args:
+        query: The search query string
+        memory_type: Type of memory to search. Options: "episodic", "resource", 
+                    "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+        search_field: Field to search in. Options vary by memory type
+        search_method: Search method. Options: "bm25" (default), "embedding"
+        limit: Maximum number of results (total across all users)
+        client_id: Optional client ID (uses its org_id and scope)
+        org_id: Optional organization ID (used if client_id not provided)
+        filter_tags: Optional JSON string of additional filter tags
+        similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0)
+        start_date: Optional start date/time for episodic memory filtering (ISO 8601 format)
+        end_date: Optional end date/time for episodic memory filtering (ISO 8601 format)
+    """
+    import json
+    
+    server = get_server()
+    
+    # Determine which client to use and which org to search
+    if client_id:
+        # Use the provided client_id - fetch its org_id
+        effective_client_id = client_id
+        client = server.client_manager.get_client_by_id(effective_client_id)
+        effective_org_id = client.organization_id  # Use CLIENT's org_id
+        logger.info(
+            "Using provided client_id=%s with its organization_id=%s",
+            effective_client_id, effective_org_id
+        )
+    else:
+        # Fall back to headers
+        effective_client_id, header_org_id = get_client_and_org(x_client_id, x_org_id)
+        client = server.client_manager.get_client_by_id(effective_client_id)
+        # Use org_id from query param if provided, otherwise use header org_id
+        effective_org_id = org_id or header_org_id
+        logger.info(
+            "Using client_id=%s from header with org_id=%s",
+            effective_client_id, effective_org_id
+        )
+
+    # Parse filter_tags if provided, otherwise create new dict
+    if filter_tags:
+        try:
+            filter_tags_dict = json.loads(filter_tags)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid filter_tags JSON format"
+            )
+    else:
+        filter_tags_dict = {}
+    
+    # Add client scope to filter_tags (same pattern as retrieve_with_conversation)
+    # This filters memories where memory.filter_tags["scope"] == client.scope
+    filter_tags_dict["scope"] = client.scope
+    
+    logger.info(
+        "Cross-user search: client=%s, org=%s, client_scope=%s, filter_tags=%s, similarity_threshold=%s",
+        effective_client_id, effective_org_id, client.scope, filter_tags_dict, similarity_threshold
+    )
+
+    # Parse temporal filtering parameters
+    parsed_start_date: Optional[datetime] = None
+    parsed_end_date: Optional[datetime] = None
+    
+    if start_date:
+        try:
+            parsed_start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison (DB stores naive datetimes)
+            if parsed_start_date.tzinfo:
+                parsed_start_date = parsed_start_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid start_date format: %s", e)
+    
+    if end_date:
+        try:
+            parsed_end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            # Strip timezone for DB comparison
+            if parsed_end_date.tzinfo:
+                parsed_end_date = parsed_end_date.replace(tzinfo=None)
+        except ValueError as e:
+            logger.warning("Invalid end_date format: %s", e)
+
+    # Get agents for this client
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
+    if not all_agents:
+        return {
+            "success": False,
+            "error": "No agents found for this client",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    agent_state = all_agents[0]
+    
+    # Validate search parameters
+    if memory_type == "resource" and search_field == "content" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for resource memory's 'content' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
+        return {
+            "success": False,
+            "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "query": query,
+            "results": [],
+            "count": 0,
+        }
+
+    if memory_type == "all":
+        search_field = "null"
+
+    # Collect results using organization_id filter
+    all_results = []
+
+    # Search episodic memories across organization (WITH temporal filtering)
+    if memory_type in ["episodic", "all"]:
+        try:
+            episodic_memories = server.episodic_memory_manager.list_episodic_memory_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+                start_date=parsed_start_date,
+                end_date=parsed_end_date,
+                similarity_threshold=similarity_threshold,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "episodic",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "timestamp": x.occurred_at.isoformat() if x.occurred_at else None,
+                    "event_type": x.event_type,
+                    "actor": x.actor,
+                    "summary": x.summary,
+                    "details": x.details,
+                }
+                for x in episodic_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching episodic memories across organization: %s", e)
+
+    # Search resource memories across organization
+    if memory_type in ["resource", "all"]:
+        try:
+            resource_memories = server.resource_memory_manager.list_resources_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else ("summary" if search_method == "embedding" else "content"),
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "resource",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "resource_type": x.resource_type,
+                    "title": x.title,
+                    "summary": x.summary,
+                    "content": x.content[:200] if x.content else None,
+                }
+                for x in resource_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching resource memories across organization: %s", e)
+
+    # Search procedural memories across organization
+    if memory_type in ["procedural", "all"]:
+        try:
+            procedural_memories = server.procedural_memory_manager.list_procedures_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "procedural",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "summary": x.summary,
+                    "steps": x.steps,
+                }
+                for x in procedural_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching procedural memories across organization: %s", e)
+
+    # Search knowledge vault across organization
+    if memory_type in ["knowledge_vault", "all"]:
+        try:
+            knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "caption",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "knowledge_vault",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "entry_type": x.entry_type,
+                    "source": x.source,
+                    "sensitivity": x.sensitivity,
+                    "secret_value": x.secret_value,
+                    "caption": x.caption,
+                }
+                for x in knowledge_vault_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching knowledge vault across organization: %s", e)
+
+    # Search semantic memories across organization
+    if memory_type in ["semantic", "all"]:
+        try:
+            semantic_memories = server.semantic_memory_manager.list_semantic_items_by_org(
+                agent_state=agent_state,
+                organization_id=effective_org_id,
+                query=query,
+                search_field=search_field if search_field != "null" else "summary",
+                search_method=search_method,
+                limit=limit,
+                timezone_str="UTC",
+                filter_tags=filter_tags_dict,
+                similarity_threshold=similarity_threshold,
+            )
+            all_results.extend([
+                {
+                    "memory_type": "semantic",
+                    "user_id": x.user_id,
+                    "id": x.id,
+                    "name": x.name,
+                    "summary": x.summary,
+                    "details": x.details,
+                    "source": x.source,
+                }
+                for x in semantic_memories
+            ])
+        except Exception as e:
+            logger.error("Error searching semantic memories across organization: %s", e)
+
+    return {
+        "success": True,
+        "query": query,
+        "memory_type": memory_type,
+        "search_field": search_field,
+        "search_method": search_method,
+        "date_range": {
+            "start": parsed_start_date.isoformat() if parsed_start_date else None,
+            "end": parsed_end_date.isoformat() if parsed_end_date else None,
+        } if (parsed_start_date or parsed_end_date) else None,
+        "results": all_results,
+        "count": len(all_results),
+        "client_id": effective_client_id,
+        "organization_id": effective_org_id,
+        "client_scope": client.scope,
+        "filter_tags": filter_tags_dict,
     }
 
 

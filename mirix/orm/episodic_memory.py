@@ -139,11 +139,41 @@ class EpisodicEvent(SqlalchemyBase, OrganizationMixin, UserMixin):
                 )
                 if settings.mirix_pg_uri_no_default
                 else None,
+                # Organization-level query optimization indexes
+                Index("ix_episodic_memory_organization_id", "organization_id")
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_episodic_memory_org_occurred_at",
+                    "organization_id",
+                    "occurred_at",
+                    postgresql_using="btree",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_episodic_memory_filter_tags_gin",
+                    text("(filter_tags::jsonb)"),
+                    postgresql_using="gin",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
+                Index(
+                    "ix_episodic_memory_org_filter_scope",
+                    "organization_id",
+                    text("((filter_tags->>'scope')::text)"),
+                    postgresql_using="btree",
+                )
+                if settings.mirix_pg_uri_no_default
+                else None,
                 # Standard indexes for SQLite (FTS5 virtual table handled separately)
                 Index("ix_episodic_memory_summary_sqlite", "summary")
                 if not settings.mirix_pg_uri_no_default
                 else None,
                 Index("ix_episodic_memory_details_sqlite", "details")
+                if not settings.mirix_pg_uri_no_default
+                else None,
+                Index("ix_episodic_memory_organization_id_sqlite", "organization_id")
                 if not settings.mirix_pg_uri_no_default
                 else None,
             ],

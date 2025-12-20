@@ -116,12 +116,19 @@ class Memory(BaseModel, validate_assignment=True):
     # Memory.template is a Jinja2 template for compiling memory module into a prompt string.
     prompt_template: str = Field(
         default="{% for block in blocks %}"
-        '<{{ block.label }} characters="{{ block.value|length }}/{{ block.limit }}">\n'
+        "{% set percentage = ((block.value|length / block.limit) * 100)|int %}"
+        "{% set status = '' %}"
+        "{% if percentage >= 90 %}"
+        "{% set status = ' ⚠️ NEARLY FULL - USE core_memory_rewrite TO CONDENSE' %}"
+        "{% elif percentage >= 75 %}"
+        "{% set status = ' ⚡ Getting Full - Consider Rewriting Soon' %}"
+        "{% endif %}"
+        '<{{ block.label }} characters="{{ block.value|length }}/{{ block.limit }}" ({{ percentage }}% full){{ status }}>\n'
         "{{ block.value|line_numbers }}\n"
         "</{{ block.label }}>"
         "{% if not loop.last %}\n{% endif %}"
         "{% endfor %}",
-        description="Jinja2 template for compiling memory blocks into a prompt string",
+        description="Jinja2 template for compiling memory blocks into a prompt string with usage statistics",
     )
 
     def get_prompt_template(self) -> str:
@@ -150,6 +157,41 @@ class Memory(BaseModel, validate_assignment=True):
             raise ValueError(
                 f"Prompt template is not compatible with current memory structure: {str(e)}"
             )
+
+    def get_block_usage_stats(self, label: str) -> dict:
+        """Get usage statistics for a specific block.
+        
+        Args:
+            label: The label of the block to get stats for
+            
+        Returns:
+            dict: Dictionary containing current_size, limit, percentage, and status
+        """
+        block = self.get_block(label)
+        current_size = len(block.value)
+        limit = block.limit
+        percentage = int((current_size / limit) * 100)
+        
+        if percentage >= 90:
+            status = "critical"
+            recommendation = "USE core_memory_rewrite NOW"
+        elif percentage >= 75:
+            status = "warning"
+            recommendation = "Consider using core_memory_rewrite soon"
+        elif percentage >= 50:
+            status = "moderate"
+            recommendation = "Healthy usage"
+        else:
+            status = "good"
+            recommendation = "Plenty of space available"
+            
+        return {
+            "current_size": current_size,
+            "limit": limit,
+            "percentage": percentage,
+            "status": status,
+            "recommendation": recommendation
+        }
 
     def compile(self) -> str:
         """Generate a string representation of the memory in-context using the Jinja2 template"""

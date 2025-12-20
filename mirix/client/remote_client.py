@@ -113,6 +113,9 @@ class MirixClient(AbstractClient):
         base_url: Optional[str] = None,
         client_name: Optional[str] = None,
         client_scope: str = "",
+        client_id: Optional[str] = None,
+        org_name: Optional[str] = None,           
+        org_id: Optional[str] = None,
         debug: bool = False,
         timeout: int = 60,
         max_retries: int = 3,
@@ -143,19 +146,47 @@ class MirixClient(AbstractClient):
             base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8531")
         ).rstrip("/")
 
-        self.client_name = client_name or "mirix-client"
         self.client_scope = client_scope            
         self.timeout = timeout
         self._known_users: Set[str] = set()
         self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
-        if not self.api_key:
-            raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
-        
-        # Track initialized meta agent for this project
-        self._meta_agent: Optional[AgentState] = None
-        
+
         # Create session with retry logic
         self.session = requests.Session()
+
+        # If no api_key, check for client_id and org_id for backwards compatibility with older versions of the client
+        
+        #if not self.api_key:
+        #    raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
+
+        if self.api_key:
+            # Set headers - API key identifies client and org
+            self.session.headers.update({"X-API-Key": self.api_key}) 
+        else:
+            # Generate IDs if not provided
+            # Using client_id and org_id for backwards compatibility with older versions of the client
+            if not client_id:
+                import uuid
+
+                client_id = f"client-{uuid.uuid4().hex[:8]}"
+
+            if not org_id:
+                import uuid
+
+                org_id = f"org-{uuid.uuid4().hex[:8]}"
+
+        self.client_id = client_id
+        self.client_name = client_name or client_id
+        self.session.headers.update({"X-Client-ID": self.client_id})                
+        self.org_id = org_id
+        self.org_name = org_name or self.org_id
+        self.session.headers.update({"X-Org-ID": self.org_id})
+
+        # Create organization and client if they don't exist
+        self._ensure_org_and_client_exist(headers=headers)
+
+        # Track initialized meta agent for this project
+        self._meta_agent: Optional[AgentState] = None
         
         # Configure retries
         retry_strategy = Retry(
@@ -176,14 +207,69 @@ class MirixClient(AbstractClient):
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Set headers - API key identifies client and org
-        self.session.headers.update({"X-API-Key": self.api_key})
         self.session.headers.update({"Content-Type": "application/json"})
+
+    def _ensure_org_and_client_exist(self, headers: Optional[Dict[str, str]] = None):
+        """
+        Ensure that the organization and client exist on the server.
+        Creates them if they don't exist.
+        
+        Note: This method does NOT create users. Users are created per-request
+        based on the user_id parameter in add() and other methods.
+
+        Args:
+            headers: Optional headers to include in the request
+        """
+        try:
+            # Create or get organization first
+            org_response = self._request(
+                "POST",
+                "/organizations/create_or_get",
+                json={"org_id": self.org_id, "name": self.org_name},
+                headers=headers,
+            )
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Organization initialized: %s (name: %s)",
+                    self.org_id,
+                    self.org_name,
+                )
+
+            # Create or get client
+            client_response = self._request(
+                "POST",
+                "/clients/create_or_get",
+                json={
+                    "client_id": self.client_id,
+                    "name": self.client_name,
+                    "org_id": self.org_id,
+                    "scope": self.client_scope,
+                    "status": "active",
+                },
+                headers=headers,
+            )
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Client initialized: %s (name: %s, scope: %s)",
+                    self.client_id,
+                    self.client_name,
+                    self.client_scope,
+                )
+        except Exception as e:
+            # Don't fail initialization if this fails - the server might handle it
+            if self.debug:
+                logger.debug(
+                    "[MirixClient] Note: Could not pre-create org/client: %s", e
+                )
+                logger.debug(
+                    "[MirixClient] Server will create them on first request if needed"
+                )
 
     def create_or_get_user(
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
+        org_id: Optional[str] = None,   # For backwards compatibility with older versions of the client
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -198,6 +284,7 @@ class MirixClient(AbstractClient):
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
+            org_id: Optional organization ID. Defaults to client's org_id if not provided. For backwards compatibility with older versions of the client.
             
         Returns:
             str: The user_id (either existing or newly created)
@@ -227,7 +314,19 @@ class MirixClient(AbstractClient):
             "user_id": user_id,
             "name": user_name,
         }
+
+        # Check if X-API-Key is set in headers
+        has_api_key = False
+        if headers and "X-API-Key" in headers:
+            has_api_key = True
         
+        # If no X-API-Key, include org_id in request data
+        if not has_api_key:
+            # Use passed in org_id, or fall back to self.org_id
+            effective_org_id = org_id if org_id else getattr(self, 'org_id', None)
+            if effective_org_id:
+                request_data["org_id"] = effective_org_id
+
         # Make API request
         response = self._request(
             "POST", "/users/create_or_get", json=request_data, headers=headers
@@ -639,6 +738,7 @@ class MirixClient(AbstractClient):
         message: str,
         role: str,
         agent_id: Optional[str] = None,
+        user_id: Optional[str] = None,  # End-user ID for message attribution
         name: Optional[str] = None,
         stream: Optional[bool] = False,
         stream_steps: bool = False,
@@ -653,6 +753,9 @@ class MirixClient(AbstractClient):
             message: The message text to send
             role: The role of the message sender (user/system)
             agent_id: The ID of the agent to send the message to
+            user_id: Optional end-user ID for message attribution. If not provided,
+                    messages will be associated with the default user. This is critical
+                    for multi-tenant applications to properly isolate user conversations.
             name: Optional name of the message sender
             stream: Enable streaming (not yet implemented)
             stream_steps: Stream intermediate steps
@@ -660,6 +763,7 @@ class MirixClient(AbstractClient):
             filter_tags: Optional filter tags for categorization and filtering.
                 Example: {"project_id": "proj-alpha", "session_id": "sess-123"}
             use_cache: Control Redis cache behavior (default: True)
+            headers: Optional headers to include in the request
         
         Returns:
             MirixResponse: The response from the agent
@@ -669,6 +773,7 @@ class MirixClient(AbstractClient):
             ...     message="What's the status?",
             ...     role="user",
             ...     agent_id="agent123",
+            ...     user_id="user-456",
             ...     filter_tags={"project": "alpha", "priority": "high"}
             ... )
         """
@@ -682,6 +787,10 @@ class MirixClient(AbstractClient):
             "stream_steps": stream_steps,
             "stream_tokens": stream_tokens,
         }
+        
+        # Include user_id if provided
+        if user_id is not None:
+            request_data["user_id"] = user_id
         
         # Include filter_tags if provided
         if filter_tags is not None:
@@ -697,11 +806,29 @@ class MirixClient(AbstractClient):
         return MirixResponse(**data)
 
     def user_message(
-        self, agent_id: str, message: str, headers: Optional[Dict[str, str]] = None
+        self, 
+        agent_id: str, 
+        message: str, 
+        user_id: Optional[str] = None,  # End-user ID
+        headers: Optional[Dict[str, str]] = None
     ) -> MirixResponse:
-        """Send a user message to an agent."""
+        """Send a user message to an agent.
+        
+        Args:
+            agent_id: The ID of the agent to send the message to
+            message: The message text to send
+            user_id: Optional end-user ID for message attribution
+            headers: Optional headers to include in the request
+            
+        Returns:
+            MirixResponse: The response from the agent
+        """
         return self.send_message(
-            message=message, role="user", agent_id=agent_id, headers=headers
+            message=message, 
+            role="user", 
+            agent_id=agent_id, 
+            user_id=user_id,  # Pass user_id
+            headers=headers
         )
 
     def get_messages(
@@ -1432,10 +1559,15 @@ class MirixClient(AbstractClient):
         search_field: str = "null",
         search_method: str = "bm25",
         limit: int = 10,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        similarity_threshold: Optional[float] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
-        Search for memories using various search methods.
+        Search for memories using various search methods with optional temporal filtering.
         Similar to the search_in_memory tool function.
         
         This method performs a search across specified memory types and returns
@@ -1457,6 +1589,22 @@ class MirixClient(AbstractClient):
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
             limit: Maximum number of results per memory type (default: 10)
+            filter_tags: Optional filter tags for additional filtering (scope added automatically)
+            similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                                 Only results with cosine distance < threshold are returned.
+                                 Recommended values:
+                                 - 0.5 (strict: only highly relevant results)
+                                 - 0.7 (moderate: reasonably relevant results)
+                                 - 0.9 (loose: loosely related results)
+                                 - None (no filtering, returns all top N results)
+                                 Only applies when search_method="embedding". Default: None
+            start_date: Optional start date/time for filtering episodic memories (ISO 8601 format).
+                       Only episodic memories with occurred_at >= start_date will be returned.
+                       Examples: "2025-12-05T00:00:00" or "2025-12-05T00:00:00Z"
+            end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
+                     Only episodic memories with occurred_at <= end_date will be returned.
+                     Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
+            org_id: Optional organization scope override (defaults to client's org)
         
         Returns:
             Dict containing:
@@ -1465,6 +1613,7 @@ class MirixClient(AbstractClient):
                 - memory_type: str (the memory type searched)
                 - search_field: str (the field searched)
                 - search_method: str (the search method used)
+                - date_range: dict (applied date range, if any)
                 - results: List[Dict] (flat list of results from all memory types)
                 - count: int (total number of results)
             
@@ -1485,6 +1634,29 @@ class MirixClient(AbstractClient):
             ...     search_field="details",
             ...     limit=10
             ... )
+            >>> 
+            >>> # Search with additional filter tags
+            >>> filtered_results = client.search(
+            ...     user_id='user_123',
+            ...     query="QuickBooks",
+            ...     filter_tags={"project": "alpha", "expert_id": "expert-123"}
+            ... )
+            >>> 
+            >>> # Search with temporal filtering (episodic memories only)
+            >>> temporal_results = client.search(
+            ...     user_id='user_123',
+            ...     query="meetings",
+            ...     start_date="2025-12-01T00:00:00",
+            ...     end_date="2025-12-05T23:59:59"
+            ... )
+            >>> 
+            >>> # Search with similarity threshold (embedding only)
+            >>> relevant_results = client.search(
+            ...     user_id='user_123',
+            ...     query="database optimization",
+            ...     search_method="embedding",
+            ...     similarity_threshold=0.7
+            ... )
         """
         if not self._meta_agent:
             raise ValueError(
@@ -1503,7 +1675,160 @@ class MirixClient(AbstractClient):
             "limit": limit,
         }
         
+        # Add filter_tags if provided
+        if filter_tags:
+            import json
+            params["filter_tags"] = json.dumps(filter_tags)
+        
+        # Add similarity threshold if provided
+        if similarity_threshold is not None:
+            params["similarity_threshold"] = similarity_threshold
+        
+        # Add temporal filtering parameters
+        if start_date is not None:
+            params["start_date"] = start_date
+        if end_date is not None:
+            params["end_date"] = end_date
+        
         return self._request("GET", "/memory/search", params=params, headers=headers)
+
+    def search_all_users(
+        self,
+        query: str,
+        memory_type: str = "all",
+        search_field: str = "null",
+        search_method: str = "bm25",
+        limit: int = 10,
+        client_id: Optional[str] = None,
+        filter_tags: Optional[Dict[str, Any]] = None,
+        similarity_threshold: Optional[float] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        org_id: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Search for memories across ALL users in the organization with optional temporal filtering.
+        Results are automatically filtered by client scope.
+        
+        If client_id is provided, uses that client's organization.
+        
+        Args:
+            query: Search query
+            memory_type: Type of memory to search. Options: "episodic", "resource", 
+                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+            search_field: Field to search in. Options vary by memory type:
+                         - episodic: "summary", "details"
+                         - resource: "summary", "content"
+                         - procedural: "summary", "steps"
+                         - knowledge_vault: "caption", "secret_value"
+                         - semantic: "name", "summary", "details"
+                         - For "all": use "null" (default)
+            search_method: Search method. Options: "bm25" (default), "embedding"
+            limit: Maximum results per memory type (total across all users)
+            client_id: Optional client ID (uses its org_id and scope for filtering)
+            filter_tags: Optional additional filter tags (scope added automatically)
+            similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
+                                 Only results with cosine distance < threshold are returned.
+                                 Recommended: 0.5 (strict), 0.7 (moderate), 0.9 (loose), None (no filter).
+                                 Only applies when search_method="embedding". Default: None
+            start_date: Optional start date/time for filtering episodic memories (ISO 8601 format).
+                       Only episodic memories with occurred_at >= start_date will be returned.
+                       Examples: "2025-12-05T00:00:00" or "2025-12-05T00:00:00Z"
+            end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
+                     Only episodic memories with occurred_at <= end_date will be returned.
+                     Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
+            org_id: Optional organization scope (overridden by client's org if client_id provided)
+        
+        Returns:
+            Dict containing:
+                - success: bool
+                - query: str (the search query)
+                - memory_type: str (the memory type searched)
+                - search_field: str (the field searched)
+                - search_method: str (the search method used)
+                - date_range: dict (applied date range, if any)
+                - results: List[Dict] (flat list of results with user_id for each)
+                - count: int (total number of results)
+                - client_id: str (which client was used)
+                - organization_id: str (which org was searched)
+                - client_scope: str (scope used for filtering)
+                - filter_tags: dict (applied filter tags)
+            
+        Example:
+            >>> # Search all users' episodic memories
+            >>> results = client.search_all_users(
+            ...     query="meeting notes",
+            ...     memory_type="episodic",
+            ...     limit=20
+            ... )
+            >>> print(f"Found {results['count']} memories across users")
+            >>> 
+            >>> # Search with specific client and additional filters
+            >>> results = client.search_all_users(
+            ...     query="project documentation",
+            ...     client_id="client-123",
+            ...     filter_tags={"project": "alpha"},
+            ...     memory_type="resource"
+            ... )
+            >>> 
+            >>> # Search across all users with temporal filtering
+            >>> results = client.search_all_users(
+            ...     query="project updates",
+            ...     client_id="client-123",
+            ...     start_date="2025-12-01T00:00:00",
+            ...     end_date="2025-12-05T23:59:59"
+            ... )
+            >>> 
+            >>> # Search across all users with similarity threshold
+            >>> results = client.search_all_users(
+            ...     query="QuickBooks troubleshooting",
+            ...     client_id="client-123",
+            ...     search_method="embedding",
+            ...     similarity_threshold=0.7,
+            ...     limit=20
+            ... )
+        """
+        if not self._meta_agent:
+            raise ValueError(
+                "Meta agent not initialized. Call initialize_meta_agent() first."
+            )
+        
+        params = {
+            "query": query,
+            "memory_type": memory_type,
+            "search_field": search_field,
+            "search_method": search_method,
+            "limit": limit,
+        }
+        
+        # Add client_id if provided (server will use this client's org_id)
+        if client_id:
+            params["client_id"] = client_id
+        
+        # Add org_id if provided (used only if no client_id specified)
+        if org_id:
+            params["org_id"] = org_id
+        elif not client_id:
+            # Use current client's org_id if neither client_id nor org_id provided
+            params["org_id"] = self.org_id
+        
+        # Add filter_tags if provided
+        if filter_tags:
+            import json
+            params["filter_tags"] = json.dumps(filter_tags)
+        
+        # Add similarity threshold if provided
+        if similarity_threshold is not None:
+            params["similarity_threshold"] = similarity_threshold
+        
+        # Add temporal filtering parameters
+        if start_date is not None:
+            params["start_date"] = start_date
+        if end_date is not None:
+            params["end_date"] = end_date
+        
+        return self._request("GET", "/memory/search_all_users", params=params, headers=headers)
 
     # ========================================================================
     # LangChain/Composio/CrewAI Integration (Not Supported)
