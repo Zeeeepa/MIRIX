@@ -90,8 +90,9 @@ class AzureOpenAIClient(OpenAIClient):
         """
         Build request data for Azure OpenAI API.
         Azure uses deployment names as the model parameter.
+        Inherits reasoning support from OpenAIClient for o1/o3 models.
         """
-        # Call parent method to build the base request
+        # Call parent method to build the base request (includes reasoning support)
         request_data = super().build_request_data(
             messages=messages,
             llm_config=llm_config,
@@ -107,6 +108,18 @@ class AzureOpenAIClient(OpenAIClient):
         )
         if azure_deployment:
             request_data["model"] = azure_deployment
+
+        # Log if reasoning is enabled for Azure deployment
+        is_reasoning_model = (
+            llm_config.model.startswith("o1")
+            or llm_config.model.startswith("o3")
+            or llm_config.model.startswith("o4")
+            or llm_config.model.startswith("gpt-5")
+        )
+        if is_reasoning_model and llm_config.enable_reasoner:
+            logger.debug(
+                f"Azure OpenAI reasoning model enabled: deployment={azure_deployment}"
+            )
 
         return request_data
 

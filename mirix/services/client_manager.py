@@ -636,3 +636,51 @@ class ClientManager:
         with self.session_maker() as session:
             results = ClientModel.list(db_session=session, cursor=cursor, limit=limit)
             return [client.to_pydantic() for client in results]
+
+    @enforce_types
+    def deduct_credits(self, client_id: str, amount: float) -> PydanticClient:
+        """
+        Deduct credits from a client's balance.
+
+        Args:
+            client_id: The ID of the client to deduct credits from
+            amount: The cost in dollars to deduct (1 credit = 1 dollar)
+
+        Returns:
+            The updated client with the new credits balance
+
+        Note:
+            Credits can go negative if usage exceeds balance.
+            The caller should check credits before making LLM calls if they want to enforce limits.
+        """
+        from mirix.log import get_logger
+
+        logger = get_logger(__name__)
+
+        with self.session_maker() as session:
+            existing_client = ClientModel.read(db_session=session, identifier=client_id)
+            existing_client.credits -= amount
+
+            logger.debug(
+                "Deducted $%.6f from client %s. New balance: $%.4f",
+                amount,
+                client_id,
+                existing_client.credits,
+            )
+
+            existing_client.update_with_redis(session, actor=None)
+            return existing_client.to_pydantic()
+
+    @enforce_types
+    def get_credits(self, client_id: str) -> float:
+        """
+        Get the current credits balance for a client.
+
+        Args:
+            client_id: The ID of the client
+
+        Returns:
+            The current credits balance
+        """
+        client = self.get_client_by_id(client_id)
+        return client.credits

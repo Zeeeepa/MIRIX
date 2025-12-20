@@ -28,6 +28,7 @@ class User(UserBase):
         status (str): Whether the user is active or not.
         client_id (str): The client this user belongs to.
         created_at (datetime): The creation date of the user.
+        last_self_reflection_time (datetime): The last time self-reflection was performed.
     """
 
     # ID is now a REQUIRED field (no default_factory) to prevent ID overwrite bugs.
@@ -57,6 +58,9 @@ class User(UserBase):
         default_factory=get_utc_time, description="The update date of the user."
     )
     is_deleted: bool = Field(False, description="Whether this user is deleted or not.")
+    last_self_reflection_time: Optional[datetime] = Field(
+        None, description="The last time self-reflection was performed for this user."
+    )
 
 
 class UserCreate(UserBase):
@@ -74,4 +78,7 @@ class UserUpdate(UserBase):
     timezone: Optional[str] = Field(None, description="The new timezone of the user.")
     organization_id: Optional[str] = Field(
         None, description="The new organization id of the user."
+    )
+    last_self_reflection_time: Optional[datetime] = Field(
+        None, description="The last time self-reflection was performed for this user."
     )

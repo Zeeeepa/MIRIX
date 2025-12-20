@@ -125,7 +125,25 @@ SEMANTIC_MEMORY_TOOLS = [
 CHAT_AGENT_TOOLS = []
 EXTRAS_TOOLS = ["web_search", "fetch_and_read_pdf"]
 MCP_TOOLS = []
+# META_MEMORY_TOOLS: When meta_memory_agent has child agents, use trigger_memory_update
+# When it has NO child agents (simplified mode), it gets direct memory tools for all types
 META_MEMORY_TOOLS = ["trigger_memory_update"]
+META_MEMORY_TOOLS_DIRECT = [
+    # Core memory tools
+    "core_memory_append",
+    "core_memory_rewrite",
+    # Episodic memory tools (insert + merge)
+    "episodic_memory_insert",
+    "episodic_memory_merge",
+    # Semantic memory tools
+    "semantic_memory_insert",
+    # Procedural memory tools
+    "procedural_memory_insert",
+    # Knowledge vault tools
+    "knowledge_vault_insert",
+    # Resource memory tools
+    "resource_memory_insert",
+]
 SEARCH_MEMORY_TOOLS = ["search_in_memory", "list_memory_within_timerange"]
 UNIVERSAL_MEMORY_TOOLS = [
     "search_in_memory",

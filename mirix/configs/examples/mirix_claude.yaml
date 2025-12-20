@@ -25,4 +25,10 @@ meta_agent_config:
     - meta_memory_agent
     - reflexion_agent
     - background_agent
+  memory:
+    core:
+      - label: "human"
+        value: ""
+      - label: "persona"
+        value: "I am a helpful assistant."
 

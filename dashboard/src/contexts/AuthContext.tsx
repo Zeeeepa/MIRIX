@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import apiClient from '@/api/client';
 import { useNavigate } from 'react-router-dom';
 
@@ -10,6 +10,7 @@ interface ClientUser {
   status: string;
   default_user_id: string;  // Default user for memory operations
   created_at: string;
+  credits: number;  // Available credits for LLM API calls
 }
 
 interface AuthContextType {
@@ -17,6 +18,7 @@ interface AuthContextType {
   token: string | null;
   login: (token: string, user: ClientUser) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;  // Refresh user data from server
   isAuthenticated: boolean;
   isLoading: boolean;
 }
@@ -70,8 +72,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     navigate('/login');
   };
 
+  const refreshUser = useCallback(async () => {
+    const storedToken = localStorage.getItem('token');
+    if (!storedToken) return;
+
+    try {
+      const response = await apiClient.get('/admin/auth/me');
+      setUser(response.data);
+      setToken(storedToken);
+    } catch (error) {
+      console.error('Failed to refresh user profile', error);
+    }
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!user, isLoading }}>
+    <AuthContext.Provider
+      value={{ user, token, login, logout, refreshUser, isAuthenticated: !!user, isLoading }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -281,6 +281,26 @@ class UpdateAgent(BaseModel):
         extra = "ignore"  # Ignores extra fields
 
 
+class MemoryBlockConfig(BaseModel):
+    """Configuration for a memory block."""
+
+    label: str = Field(..., description="Label for the memory block (e.g., 'human', 'persona').")
+    value: str = Field("", description="Initial value for the memory block.")
+    limit: Optional[int] = Field(None, description="Character limit for the block.")
+
+
+class MemoryConfig(BaseModel):
+    """Configuration for memory structure."""
+
+    core: List[MemoryBlockConfig] = Field(
+        default_factory=lambda: [
+            MemoryBlockConfig(label="human", value="", limit=None),
+            MemoryBlockConfig(label="persona", value="I am a helpful assistant.", limit=None),
+        ],
+        description="List of core memory blocks to create for core_memory_agent.",
+    )
+
+
 class CreateMetaAgent(BaseModel):
     """Request schema for creating a MetaAgent."""
 
@@ -288,7 +308,7 @@ class CreateMetaAgent(BaseModel):
         None,
         description="Optional name for the MetaAgent. If None, a random name will be generated.",
     )
-    agents: List[Union[str, Dict[str, Any]]] = Field(
+    agents: List[str] = Field(
         default_factory=lambda: [
             "core_memory_agent",
             "resource_memory_agent",
@@ -300,7 +320,11 @@ class CreateMetaAgent(BaseModel):
             "reflexion_agent",
             "background_agent",
         ],
-        description="List of memory agent names or dicts with agent configs. Supports both 'agent_name' strings and {'agent_name': {'blocks': [...], ...}} dicts.",
+        description="List of memory agent names to create. Each agent is specified as a string (e.g., 'episodic_memory_agent').",
+    )
+    memory: Optional[MemoryConfig] = Field(
+        None,
+        description="Memory configuration containing blocks for core_memory_agent. If not provided, default blocks are created.",
     )
     system_prompts: Optional[Dict[str, str]] = Field(
         None,
@@ -322,9 +346,13 @@ class UpdateMetaAgent(BaseModel):
         None,
         description="Optional new name for the MetaAgent.",
     )
-    agents: Optional[List[Union[str, Dict[str, Any]]]] = Field(
+    agents: Optional[List[str]] = Field(
         None,
-        description="List of memory agent names or dicts with agent configs. Will be compared with existing agents to determine what to add/remove.",
+        description="List of memory agent names. Will be compared with existing agents to determine what to add/remove.",
+    )
+    memory: Optional[MemoryConfig] = Field(
+        None,
+        description="Memory configuration containing blocks for core_memory_agent. Updates the memory structure.",
     )
     system_prompts: Optional[Dict[str, str]] = Field(
         None,

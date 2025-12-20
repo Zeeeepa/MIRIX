@@ -34,7 +34,11 @@ from mirix.schemas.openai.chat_completion_response import (
     FunctionCall,
 )
 from mirix.schemas.openai.chat_completion_response import Message as ChoiceMessage
-from mirix.schemas.openai.chat_completion_response import ToolCall, UsageStatistics
+from mirix.schemas.openai.chat_completion_response import (
+    PromptTokensDetails,
+    ToolCall,
+    UsageStatistics,
+)
 from mirix.services.provider_manager import ProviderManager
 from mirix.tracing import trace_method
 
@@ -510,6 +514,10 @@ class AnthropicClient(LLMClientBase):
         completion_tokens = response.usage.output_tokens
         finish_reason = remap_finish_reason(str(response.stop_reason))
 
+        # Extract cached tokens from Anthropic's usage format
+        # Anthropic uses cache_read_input_tokens for tokens retrieved from cache
+        cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+
         content = None
         reasoning_content = None
         reasoning_content_signature = None
@@ -551,6 +559,17 @@ class AnthropicClient(LLMClientBase):
             raise RuntimeError("Unexpected empty content in response")
 
         assert response.role == "assistant"
+
+        # Log reasoning content if present (for debugging/observability)
+        if reasoning_content:
+            logger.debug(
+                f"Anthropic reasoning content received: {len(reasoning_content)} chars"
+            )
+        if redacted_reasoning_content:
+            logger.debug(
+                f"Anthropic redacted reasoning content received: {len(redacted_reasoning_content)} chars"
+            )
+
         choice = Choice(
             index=0,
             finish_reason=finish_reason,
@@ -564,6 +583,12 @@ class AnthropicClient(LLMClientBase):
             ),
         )
 
+        prompt_tokens_details = (
+            PromptTokensDetails(cached_tokens=cached_tokens)
+            if cached_tokens > 0
+            else None
+        )
+
         chat_completion_response = ChatCompletionResponse(
             id=response.id,
             choices=[choice],
@@ -573,6 +598,7 @@ class AnthropicClient(LLMClientBase):
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=prompt_tokens + completion_tokens,
+                prompt_tokens_details=prompt_tokens_details,
             ),
         )
 

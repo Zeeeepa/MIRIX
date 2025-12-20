@@ -15,15 +15,6 @@ embedding_config:
 
 meta_agent_config:
   system_prompts_folder: mirix\prompts\system\base
-  agents:
-    - core_memory_agent
-    - resource_memory_agent
-    - semantic_memory_agent
-    - episodic_memory_agent
-    - procedural_memory_agent
-    - knowledge_vault_memory_agent
-    - reflexion_agent
-    - background_agent
   memory:
     core:
       - label: "human"

@@ -259,7 +259,7 @@ class ClientAuthManager:
                 if not existing_user:
                     admin_user = UserModel(
                         id=admin_user_id,
-                        name=f"Admin",
+                        name="Admin",
                         status="active",
                         timezone="UTC",
                         organization_id=org_id,
@@ -268,6 +268,45 @@ class ClientAuthManager:
                     )
                     admin_user.create(session)
                     logger.info("Created admin user for client: %s -> %s", client.id, admin_user_id)
+
+                    # Create default memory blocks for the admin user
+                    # These serve as templates for new users under this client
+                    try:
+                        from mirix.services.block_manager import BlockManager
+                        from mirix.schemas.block import Block as PydanticBlock
+                        from mirix.constants import CORE_MEMORY_BLOCK_CHAR_LIMIT
+
+                        block_manager = BlockManager()
+                        admin_user_pydantic = admin_user.to_pydantic()
+
+                        # Create "human" block (empty by default)
+                        block_manager.create_or_update_block(
+                            block=PydanticBlock(
+                                label="human",
+                                value="",
+                                limit=CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            ),
+                            actor=client.to_pydantic(),
+                            user=admin_user_pydantic,
+                            agent_id=None,  # User-scoped blocks
+                        )
+
+                        # Create "persona" block with default value
+                        block_manager.create_or_update_block(
+                            block=PydanticBlock(
+                                label="persona",
+                                value="I am a helpful assistant.",
+                                limit=CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            ),
+                            actor=client.to_pydantic(),
+                            user=admin_user_pydantic,
+                            agent_id=None,  # User-scoped blocks
+                        )
+
+                        logger.info("Created default memory blocks for admin user: %s", admin_user_id)
+                    except Exception as block_error:
+                        logger.warning("Failed to create default blocks for admin user %s: %s", admin_user_id, block_error)
+                        # Don't fail user creation if block creation fails
             except Exception as e:
                 logger.warning("Failed to create admin user for client %s: %s", client.id, e)
                 # Don't fail client registration if user creation fails

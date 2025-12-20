@@ -126,6 +126,30 @@ class UserManager:
             return existing_user.to_pydantic()
 
     @enforce_types
+    def update_last_self_reflection_time(self, user_id: str, reflection_time: "datetime") -> PydanticUser:
+        """Update the last_self_reflection_time of a user (with Redis cache invalidation).
+
+        Args:
+            user_id: ID of the user to update
+            reflection_time: The datetime when self-reflection was performed
+
+        Returns:
+            Updated user object
+        """
+        from datetime import datetime
+
+        with self.session_maker() as session:
+            # Retrieve the existing user by ID
+            existing_user = UserModel.read(db_session=session, identifier=user_id)
+
+            # Update the last_self_reflection_time
+            existing_user.last_self_reflection_time = reflection_time
+
+            # Commit the updated user and update cache
+            existing_user.update_with_redis(session, actor=None)  # ⭐ Updates Redis cache
+            return existing_user.to_pydantic()
+
+    @enforce_types
     def delete_user_by_id(self, user_id: str):
         """
         Soft delete a user and cascade soft delete to all associated records using memory managers.
@@ -458,6 +482,25 @@ class UserManager:
             user.create(session)
             logger.info("✅ Created default template user %s for organization %s", default_user_id, org_id)
             return user.to_pydantic()
+    def get_admin_user_for_client(self, client_id: str) -> Optional[PydanticUser]:
+        """Fetch the admin user for a specific client.
+
+        Args:
+            client_id: The client ID to find the admin user for
+
+        Returns:
+            The admin user for the client, or None if not found
+        """
+        with self.session_maker() as session:
+            admin_user = session.query(UserModel).filter(
+                UserModel.client_id == client_id,
+                UserModel.is_admin == True,
+                UserModel.is_deleted == False,
+            ).first()
+
+            if admin_user:
+                return admin_user.to_pydantic()
+            return None
 
     @enforce_types
     def get_user_or_admin(self, user_id: Optional[str] = None):

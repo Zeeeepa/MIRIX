@@ -14,6 +14,7 @@ from mirix.constants import (
     KNOWLEDGE_VAULT_TOOLS,
     MCP_TOOLS,
     META_MEMORY_TOOLS,
+    META_MEMORY_TOOLS_DIRECT,
     PROCEDURAL_MEMORY_TOOLS,
     RESOURCE_MEMORY_TOOLS,
     SEARCH_MEMORY_TOOLS,
@@ -30,6 +31,7 @@ from mirix.schemas.agent import (
     AgentType,
     CreateAgent,
     CreateMetaAgent,
+    MemoryConfig,
     UpdateAgent,
     UpdateMetaAgent,
 )
@@ -146,8 +148,8 @@ class AgentManager:
             tool_names.extend(CORE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.semantic_memory_agent:
             tool_names.extend(SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_create.agent_type == AgentType.meta_memory_agent:
-            tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        # NOTE: meta_memory_agent tools are NOT added here - they are configured in create_meta_agent
+        # based on whether the agent has children (trigger_memory_update) or not (direct tools)
         if agent_create.agent_type == AgentType.reflexion_agent:
             tool_names.extend(
                 SEARCH_MEMORY_TOOLS
@@ -270,6 +272,12 @@ class AgentManager:
                 with open(prompt_file, "r", encoding="utf-8") as f:
                     default_system_prompts[agent_name] = f.read()
 
+        # Check if we have child agents (excluding meta_memory_agent itself)
+        child_agents = [
+            name for name in meta_agent_create.agents if name != "meta_memory_agent"
+        ]
+        has_child_agents = len(child_agents) > 0
+
         # First, create the meta_memory_agent as the parent
         meta_agent_name = meta_agent_create.name or "meta_memory_agent"
         meta_system_prompt = None
@@ -278,8 +286,15 @@ class AgentManager:
             and "meta_memory_agent" in meta_agent_create.system_prompts
         ):
             meta_system_prompt = meta_agent_create.system_prompts["meta_memory_agent"]
-        else:
+        elif has_child_agents:
+            # Use the standard meta_memory_agent prompt with trigger_memory_update
             meta_system_prompt = default_system_prompts["meta_memory_agent"]
+        else:
+            # No child agents - use the direct prompt with episodic memory tools
+            meta_system_prompt = default_system_prompts.get(
+                "meta_memory_agent_direct",
+                default_system_prompts["meta_memory_agent"]  # Fallback
+            )
 
         meta_agent_create_schema = CreateAgent(
             name=meta_agent_name,
@@ -302,21 +317,7 @@ class AgentManager:
         created_agents = {}
 
         # Now create all sub-agents with parent_id set to the meta_memory_agent
-        for agent_item in meta_agent_create.agents:
-            # Parse agent_item - can be string or dict
-            agent_name = None
-            agent_config = {}
-
-            if isinstance(agent_item, str):
-                agent_name = agent_item
-            elif isinstance(agent_item, dict):
-                # Dict format: {agent_name: {config}}
-                agent_name = list(agent_item.keys())[0]
-                agent_config = agent_item[agent_name] or {}
-            else:
-                logger.warning("Invalid agent item format: %s, skipping...", agent_item)
-                continue
-
+        for agent_name in meta_agent_create.agents:
             # Skip meta_memory_agent since we already created it as the parent
             if agent_name == "meta_memory_agent":
                 continue
@@ -358,24 +359,22 @@ class AgentManager:
                 f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}"
             )
 
-            # ✅ FIX: Process agent-specific initialization (e.g., blocks for core_memory_agent)
-            # This handles any agent configuration provided in the meta_agent creation request
-            if "blocks" in agent_config:
-                # Create memory blocks for this agent (typically core_memory_agent)
-                memory_block_configs = agent_config["blocks"]
-                for block in memory_block_configs:
+            # Create memory blocks for core_memory_agent from the separate memory config
+            if agent_name == "core_memory_agent" and meta_agent_create.memory:
+                memory_config = meta_agent_create.memory
+                for block_config in memory_config.core:
                     self.block_manager.create_or_update_block(
                         block=Block(
-                            value=block["value"],
-                            limit=block.get("limit", CORE_MEMORY_BLOCK_CHAR_LIMIT),
-                            label=block["label"],
+                            value=block_config.value,
+                            limit=block_config.limit or CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            label=block_config.label,
                         ),
                         actor=actor,
-                        agent_id=agent_state.id,  # ✅ Use child agent's ID, not parent's
-                        user=user,  # ✅ Pass user for block creation
+                        agent_id=None,  # Core memory blocks are user-scoped, not agent-scoped
+                        user=user,  # Pass user for block creation
                     )
                 logger.debug(
-                    f"Created {len(memory_block_configs)} memory blocks for {agent_name} (agent_id: {agent_state.id})"
+                    f"Created {len(memory_config.core)} memory blocks for user (user_id: {user.id})"
                 )
 
                 # ✅ Ensure blocks are committed to database before proceeding
@@ -388,9 +387,65 @@ class AgentManager:
 
             # Future: Add handling for other agent-specific configs here if needed
             # E.g., if 'initial_data' in agent_config: ...
+        
+        # Configure meta_memory_agent tools based on whether it has children
+        # (This is done here because create_agent doesn't add meta_memory tools)
+        tool_ids_to_add = []
+        existing_tool_ids = [t.id for t in meta_agent_state.tools]
 
         if created_agents:
+            # Has child agents - use trigger_memory_update to delegate to children
             meta_agent_state.children = list(created_agents.values())
+            logger.info(
+                "Child agents specified - configuring meta_memory_agent with trigger_memory_update"
+            )
+            for tool_name in META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS:
+                tool = self.tool_manager.get_tool_by_name(tool_name=tool_name, actor=actor)
+                if tool:
+                    tool_ids_to_add.append(tool.id)
+                else:
+                    logger.debug("Tool %s not found", tool_name)
+        else:
+            # No child agents - use direct memory tools
+            logger.info(
+                "No child agents specified - configuring meta_memory_agent with direct memory tools"
+            )
+            for tool_name in META_MEMORY_TOOLS_DIRECT + UNIVERSAL_MEMORY_TOOLS:
+                tool = self.tool_manager.get_tool_by_name(tool_name=tool_name, actor=actor)
+                if tool:
+                    tool_ids_to_add.append(tool.id)
+                else:
+                    logger.debug("Tool %s not found", tool_name)
+
+            # Create memory blocks on meta_memory_agent itself (since no core_memory_agent exists)
+            if meta_agent_create.memory:
+                memory_config = meta_agent_create.memory
+                for block_config in memory_config.core:
+                    self.block_manager.create_or_update_block(
+                        block=Block(
+                            value=block_config.value,
+                            limit=block_config.limit or CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            label=block_config.label,
+                        ),
+                        actor=actor,
+                        agent_id=None,  # Core memory blocks are user-scoped, not agent-scoped
+                        user=user,  # Pass user for block creation
+                    )
+                logger.debug(
+                    f"Created {len(memory_config.core)} memory blocks for user (user_id: {user.id})"
+                )
+
+        # Update agent tools
+        new_tool_ids = list(set(existing_tool_ids + tool_ids_to_add))
+        self.update_agent(
+            agent_id=meta_agent_state.id,
+            agent_update=UpdateAgent(tool_ids=new_tool_ids),
+            actor=actor,
+        )
+
+        # Refresh the agent state to get updated tools
+        meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_state.id, actor=actor)
+
         return meta_agent_state
 
     def update_meta_agent(
@@ -503,21 +558,8 @@ class AgentManager:
         if meta_agent_update.agents is not None:
             # Parse the desired agent names from the update request
             desired_agent_names = set()
-            agent_configs = {}
 
-            for agent_item in meta_agent_update.agents:
-                if isinstance(agent_item, str):
-                    agent_name = agent_item
-                    agent_configs[agent_name] = {}
-                elif isinstance(agent_item, dict):
-                    agent_name = list(agent_item.keys())[0]
-                    agent_configs[agent_name] = agent_item[agent_name] or {}
-                else:
-                    logger.warning(
-                        "Invalid agent item format: %s, skipping...", agent_item
-                    )
-                    continue
-
+            for agent_name in meta_agent_update.agents:
                 # Skip meta_memory_agent as it's the parent
                 if agent_name != "meta_memory_agent":
                     desired_agent_names.add(agent_name)
@@ -656,7 +698,14 @@ class AgentManager:
         if agent_state.agent_type == AgentType.semantic_memory_agent:
             tool_names.extend(SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.meta_memory_agent:
-            tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+            # Check if this meta_memory_agent has children
+            # If no children, use direct tools instead of trigger_memory_update
+            children = self.list_agents(parent_id=agent_state.id, actor=actor)
+            if children:
+                tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+            else:
+                # No children - use direct episodic memory tools
+                tool_names.extend(META_MEMORY_TOOLS_DIRECT + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.chat_agent:
             tool_names.extend(BASE_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS)
         if agent_state.agent_type == AgentType.reflexion_agent:

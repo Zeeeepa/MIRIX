@@ -114,10 +114,10 @@ class LLMConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def set_default_enable_reasoner(cls, values):
-        if any(
-            openai_reasoner_model in values.get("model", "")
-            for openai_reasoner_model in ["o3-mini", "o1"]
-        ):
+        # Auto-enable reasoning for known reasoning models (o-series and gpt-5)
+        model = values.get("model", "")
+        reasoning_model_prefixes = ["o1", "o3", "o4", "gpt-5"]
+        if any(model.startswith(prefix) for prefix in reasoning_model_prefixes):
             values["enable_reasoner"] = True
         return values
 

@@ -34,8 +34,8 @@ class AgentInterface(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def internal_monologue(self, msg: str, msg_obj: Optional[Message] = None):
-        """Mirix generates some internal monologue"""
+    def reasoning(self, msg: str, msg_obj: Optional[Message] = None):
+        """Mirix generates reasoning/thinking content (native model reasoning)"""
         raise NotImplementedError
 
     @abstractmethod
@@ -68,12 +68,14 @@ class CLIInterface(AgentInterface):
             print(fstr.format(msg=msg))
 
     @staticmethod
-    def internal_monologue(msg: str, msg_obj: Optional[Message] = None):
+    def reasoning(msg: str, msg_obj: Optional[Message] = None):
+        """Display reasoning/thinking content from the model"""
         # ANSI escape code for italic is '\x1B[3m'
         fstr = f"\x1b[3m{Fore.LIGHTBLACK_EX}{INNER_THOUGHTS_CLI_SYMBOL} {{msg}}{Style.RESET_ALL}"
         if STRIP_UI:
             fstr = "{msg}"
         print(fstr.format(msg=msg))
+
 
     @staticmethod
     def assistant_message(msg: str, msg_obj: Optional[Message] = None):
@@ -281,10 +283,10 @@ class CLIInterface(AgentInterface):
             if role == "system":
                 CLIInterface.system_message(content)
             elif role == "assistant":
-                # Differentiate between internal monologue, function calls, and messages
+                # Differentiate between reasoning content, function calls, and messages
                 if msg.get("function_call"):
                     if content is not None:
-                        CLIInterface.internal_monologue(content)
+                        CLIInterface.reasoning(content)
                     # I think the next one is not up to date
                     # function_message(msg["function_call"])
                     args = json_loads(msg["function_call"].get("arguments"))
@@ -292,13 +294,13 @@ class CLIInterface(AgentInterface):
                     # assistant_message(content)
                 elif msg.get("tool_calls"):
                     if content is not None:
-                        CLIInterface.internal_monologue(content)
+                        CLIInterface.reasoning(content)
                     function_obj = msg["tool_calls"][0].get("function")
                     if function_obj:
                         args = json_loads(function_obj.get("arguments"))
                         CLIInterface.assistant_message(args.get("message"))
                 else:
-                    CLIInterface.internal_monologue(content)
+                    CLIInterface.reasoning(content)
             elif role == "user":
                 CLIInterface.user_message(content, dump=dump)
             elif role == "function":
@@ -480,8 +482,8 @@ class QueuingInterface(AgentInterface):
             print(vars(msg_obj))
             print(msg_obj.created_at.isoformat())
 
-    def internal_monologue(self, msg: str, msg_obj: Optional[Message] = None) -> None:
-        """Handle the agent's internal monologue"""
+    def reasoning(self, msg: str, msg_obj: Optional[Message] = None) -> None:
+        """Handle the agent's reasoning/thinking content"""
         assert msg_obj is not None, (
             "QueuingInterface requires msg_obj references for metadata"
         )
@@ -490,7 +492,7 @@ class QueuingInterface(AgentInterface):
             print(vars(msg_obj))
             print(msg_obj.created_at.isoformat())
 
-        new_message = {"internal_monologue": msg}
+        new_message = {"reasoning": msg}
 
         # add extra metadata
         if msg_obj is not None:

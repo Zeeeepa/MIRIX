@@ -126,3 +126,11 @@ meta_agent_config:
     - reflexion_agent             # Analyzes and optimizes memory organization
     - background_agent            # Performs ongoing memory maintenance tasks
 
+  # Memory configuration - defines core memory structure
+  # These blocks are created for the core_memory_agent
+  memory:
+    core:
+      - label: "human"            # Information about the human/user
+        value: ""
+      - label: "persona"          # Agent's persona/personality
+        value: "I am a helpful assistant."

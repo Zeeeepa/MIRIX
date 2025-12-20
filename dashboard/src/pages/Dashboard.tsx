@@ -1,10 +1,11 @@
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Key, Brain, LogOut } from 'lucide-react';
+import { LayoutDashboard, Key, Brain, LogOut, CreditCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Overview } from './dashboard/Overview';
 import { ApiKeys } from './dashboard/ApiKeys';
 import { Memories } from './dashboard/Memories';
+import { Usage } from './dashboard/Usage';
 import { WorkspaceProvider } from '@/contexts/WorkspaceContext';
 import { UserSwitcher } from '@/components/UserSwitcher';
 import logoImg from '@/assets/logo.png';
@@ -16,7 +17,7 @@ export const Dashboard: React.FC = () => {
     { name: 'Overview', href: '/dashboard', icon: LayoutDashboard, end: true },
     { name: 'API Keys', href: '/dashboard/api-keys', icon: Key },
     { name: 'Memories', href: '/dashboard/memories', icon: Brain },
-    // { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+    { name: 'Usage', href: '/dashboard/usage', icon: CreditCard },
   ];
 
   return (
@@ -80,6 +81,7 @@ export const Dashboard: React.FC = () => {
               <Route path="/" element={<Overview />} />
               <Route path="/api-keys" element={<ApiKeys />} />
               <Route path="/memories" element={<Memories />} />
+              <Route path="/usage" element={<Usage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </div>

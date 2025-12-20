@@ -149,6 +149,8 @@ def meta_agent(server, client):
         config = yaml.safe_load(f)
     
     # Build create_params by flattening meta_agent_config (same as rest_api.py)
+    from mirix.schemas.agent import MemoryConfig, MemoryBlockConfig
+
     create_params = {
         "llm_config": LLMConfig(**config["llm_config"]),
         "embedding_config": EmbeddingConfig(**config["embedding_config"]),
@@ -161,6 +163,19 @@ def meta_agent(server, client):
             create_params["agents"] = meta_config["agents"]
         if "system_prompts" in meta_config:
             create_params["system_prompts"] = meta_config["system_prompts"]
+        # Handle memory config
+        if "memory" in meta_config and meta_config["memory"]:
+            memory_dict = meta_config["memory"]
+            if "core" in memory_dict:
+                core_blocks = [
+                    MemoryBlockConfig(
+                        label=block.get("label", ""),
+                        value=block.get("value", ""),
+                        limit=block.get("limit")
+                    )
+                    for block in memory_dict["core"]
+                ]
+                create_params["memory"] = MemoryConfig(core=core_blocks)
     
     # Create meta agent using agent_manager (same as rest_api.py)
     meta_agent = server.agent_manager.create_meta_agent(

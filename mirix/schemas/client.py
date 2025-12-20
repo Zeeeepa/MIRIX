@@ -49,6 +49,12 @@ class Client(ClientBase):
     password_hash: Optional[str] = Field(None, description="Hashed password for dashboard login.")
     last_login: Optional[datetime] = Field(None, description="Last dashboard login time.")
 
+    # Credits for LLM usage (1 credit = 1 dollar)
+    credits: float = Field(
+        100.0,
+        description="Available credits for LLM API calls. New clients start with $100. 1 credit = 1 dollar.",
+    )
+
     created_at: Optional[datetime] = Field(
         default_factory=get_utc_time, description="The creation date of the client."
     )
@@ -73,5 +79,9 @@ class ClientUpdate(ClientBase):
     scope: Optional[str] = Field(None, description="The new scope of the client.")
     organization_id: Optional[str] = Field(
         None, description="The new organization id of the client."
+    )
+    credits: Optional[float] = Field(
+        None,
+        description="The new credits balance for the client. 1 credit = 1 dollar.",
     )
 

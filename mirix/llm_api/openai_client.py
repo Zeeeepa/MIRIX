@@ -64,6 +64,66 @@ def encode_image(image_path: str) -> str:
 
 
 class OpenAIClient(LLMClientBase):
+    
+    def _supports_named_tool_choice(self) -> bool:
+        """
+        Determine if the model supports OpenAI's named tool_choice format.
+        
+        OpenAI's specific format allows forcing a particular function:
+        {"type": "function", "function": {"name": "function_name"}}
+        
+        Many OpenAI-compatible endpoints (vLLM, LM Studio, Ollama, etc.) only support
+        string values: "none", "auto", "required"
+        
+        Returns:
+            bool: True if the model supports named tool choice, False otherwise
+        """
+        # Official OpenAI endpoints support the object format
+        if self.llm_config.model_endpoint and "api.openai.com" in self.llm_config.model_endpoint:
+            return True
+        
+        # Azure OpenAI also supports it
+        if self.llm_config.model_endpoint_type == "azure_openai":
+            return True
+            
+        # All other endpoints use the simpler string format
+        return False
+    
+    def _get_tool_choice(
+        self, 
+        tools: Optional[List], 
+        force_tool_call: Optional[str]
+    ) -> Optional[str | ToolFunctionChoice]:
+        """
+        Determine the appropriate tool_choice parameter based on model capabilities.
+        
+        Args:
+            tools: List of available tools/functions
+            force_tool_call: Name of a specific function to force call (if any)
+            
+        Returns:
+            None, a string ("none", "auto", "required"), or a ToolFunctionChoice object
+        """
+        if not tools:
+            return None
+        
+        # Check for vLLM first - it has issues with "required", use "auto" instead
+        if self.llm_config.handle and "vllm" in self.llm_config.handle:
+            # vLLM doesn't support "required" well, use "auto"
+            return "auto"
+
+        # Handle forced tool calls
+        if force_tool_call is not None:
+            if self._supports_named_tool_choice():
+                # Use OpenAI's specific format to force a particular function
+                return ToolFunctionChoice(
+                    type="function",
+                    function=ToolFunctionChoiceFunctionCall(name=force_tool_call),
+                )
+            
+        # Default: require a tool call when tools are available
+        return "required"
+    
     def _prepare_client_kwargs(self) -> dict:
         # Check for custom API key in LLMConfig first (for custom models)
         custom_api_key = getattr(self.llm_config, "api_key", None)
@@ -125,11 +185,15 @@ class OpenAIClient(LLMClientBase):
         Constructs a request object in the expected data format for the OpenAI API.
         """
 
-        use_developer_message = llm_config.model.startswith(
-            "o1"
-        ) or llm_config.model.startswith(
-            "o3"
-        )  # o-series models
+        # Check if this is a reasoning model (o-series: o1, o3, o4, and gpt-5)
+        is_reasoning_model = (
+            llm_config.model.startswith("o1")
+            or llm_config.model.startswith("o3")
+            or llm_config.model.startswith("o4")
+            or llm_config.model.startswith("gpt-5")
+        )
+
+        use_developer_message = is_reasoning_model  # reasoning models use developer role
 
         openai_message_list = [
             cast_message_to_subtype(
@@ -148,21 +212,8 @@ class OpenAIClient(LLMClientBase):
             )
             model = None
 
-        # force function calling for reliability, see https://platform.openai.com/docs/api-reference/chat/create#chat-create-tool_choice
-        # TODO(matt) move into LLMConfig
-        # TODO: This vllm checking is very brittle and is a patch at most
-        tool_choice = None
-        if llm_config.handle and "vllm" in self.llm_config.handle:
-            tool_choice = "auto"  # TODO change to "required" once proxy supports it
-        elif tools:
-            # only set if tools is non-Null
-            tool_choice = "required"
-
-        if force_tool_call is not None:
-            tool_choice = ToolFunctionChoice(
-                type="function",
-                function=ToolFunctionChoiceFunctionCall(name=force_tool_call),
-            )
+        # Determine the appropriate tool_choice based on model capabilities
+        tool_choice = self._get_tool_choice(tools, force_tool_call)
 
         data = ChatCompletionRequest(
             model=model,
@@ -195,7 +246,20 @@ class OpenAIClient(LLMClientBase):
             # When there are no tools, delete tool_choice entirely from the request
             delattr(data, "tool_choice")
 
-        return data.model_dump(exclude_unset=True)
+        request_data = data.model_dump(exclude_unset=True)
+
+        # Add reasoning configuration for o1/o3 models
+        if is_reasoning_model and llm_config.enable_reasoner:
+            # Add reasoning_effort if specified
+            if llm_config.reasoning_effort:
+                request_data["reasoning_effort"] = llm_config.reasoning_effort
+            # Note: OpenAI reasoning models don't need explicit thinking budget like Anthropic
+            # The reasoning is handled internally by the model
+            logger.debug(
+                f"OpenAI reasoning model enabled: {model}, reasoning_effort: {llm_config.reasoning_effort}"
+            )
+
+        return request_data
 
     def fill_image_content_in_messages(self, openai_message_list):
         """
@@ -354,11 +418,19 @@ class OpenAIClient(LLMClientBase):
     ) -> ChatCompletionResponse:
         """
         Converts raw OpenAI response dict into the ChatCompletionResponse Pydantic model.
-        Handles potential extraction of inner thoughts if they were added via kwargs.
+        Handles reasoning content for o1/o3 models.
         """
         # OpenAI's response structure directly maps to ChatCompletionResponse
-        # We just need to instantiate the Pydantic model for validation and type safety.
+        # For reasoning models, the response may include reasoning_content in message
         chat_completion_response = ChatCompletionResponse(**response_data)
+
+        # Log reasoning content if present (for debugging/observability)
+        for choice in chat_completion_response.choices:
+            if choice.message.reasoning_content:
+                logger.debug(
+                    f"OpenAI reasoning content received: {len(choice.message.reasoning_content)} chars"
+                )
+
         return chat_completion_response
 
     def stream(self, request_data: dict) -> Stream[ChatCompletionChunk]:

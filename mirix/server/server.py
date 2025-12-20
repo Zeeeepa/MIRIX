@@ -59,26 +59,11 @@ from mirix.schemas.memory import (
 )
 from mirix.schemas.message import Message, MessageCreate, MessageUpdate
 from mirix.schemas.mirix_message import (
-    LegacyMirixMessage,
     MirixMessage,
     ToolReturnMessage,
 )
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
-from mirix.schemas.providers import (
-    AnthropicBedrockProvider,
-    AnthropicProvider,
-    AzureProvider,
-    GoogleAIProvider,
-    GroqProvider,
-    MirixProvider,
-    OllamaProvider,
-    OpenAIProvider,
-    Provider,
-    TogetherProvider,
-    VLLMChatCompletionsProvider,
-    VLLMCompletionsProvider,
-)
 from mirix.schemas.tool import Tool
 from mirix.schemas.usage import MirixUsageStatistics
 from mirix.schemas.user import User
@@ -508,99 +493,6 @@ class SyncServer(Server):
             # self.block_manager.add_default_blocks(actor=self.admin_user)
             self.tool_manager.upsert_base_tools(actor=self.default_client)
 
-        # collect providers (always has Mirix as a default)
-        self._enabled_providers: List[Provider] = [MirixProvider()]
-
-        # Check for database-stored API key first, fall back to model_settings
-        openai_override_key = ProviderManager().get_openai_override_key()
-        openai_api_key = (
-            openai_override_key
-            if openai_override_key
-            else model_settings.openai_api_key
-        )
-
-        if openai_api_key:
-            self._enabled_providers.append(
-                OpenAIProvider(
-                    api_key=openai_api_key,
-                    base_url=model_settings.openai_api_base,
-                )
-            )
-        if model_settings.anthropic_api_key:
-            self._enabled_providers.append(
-                AnthropicProvider(
-                    api_key=model_settings.anthropic_api_key,
-                )
-            )
-        if model_settings.ollama_base_url:
-            self._enabled_providers.append(
-                OllamaProvider(
-                    base_url=model_settings.ollama_base_url,
-                    api_key=None,
-                )
-            )
-        # Check for database-stored API key first, fall back to model_settings
-        gemini_override_key = ProviderManager().get_gemini_override_key()
-        gemini_api_key = (
-            gemini_override_key
-            if gemini_override_key
-            else model_settings.gemini_api_key
-        )
-
-        if gemini_api_key:
-            self._enabled_providers.append(
-                GoogleAIProvider(
-                    api_key=gemini_api_key,
-                )
-            )
-        if model_settings.azure_api_key and model_settings.azure_base_url:
-            assert model_settings.azure_api_version, "AZURE_API_VERSION is required"
-            self._enabled_providers.append(
-                AzureProvider(
-                    api_key=model_settings.azure_api_key,
-                    base_url=model_settings.azure_base_url,
-                    api_version=model_settings.azure_api_version,
-                )
-            )
-        if model_settings.groq_api_key:
-            self._enabled_providers.append(
-                GroqProvider(
-                    api_key=model_settings.groq_api_key,
-                )
-            )
-        if model_settings.together_api_key:
-            self._enabled_providers.append(
-                TogetherProvider(
-                    api_key=model_settings.together_api_key,
-                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
-                )
-            )
-        if model_settings.vllm_api_base:
-            # vLLM exposes both a /chat/completions and a /completions endpoint
-            self._enabled_providers.append(
-                VLLMCompletionsProvider(
-                    base_url=model_settings.vllm_api_base,
-                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
-                )
-            )
-            # NOTE: to use the /chat/completions endpoint, you need to specify extra flags on vLLM startup
-            # see: https://docs.vllm.ai/en/latest/getting_started/examples/openai_chat_completion_client_with_tools.html
-            # e.g. "... --enable-auto-tool-choice --tool-call-parser hermes"
-            self._enabled_providers.append(
-                VLLMChatCompletionsProvider(
-                    base_url=model_settings.vllm_api_base,
-                )
-            )
-        if (
-            model_settings.aws_access_key
-            and model_settings.aws_secret_access_key
-            and model_settings.aws_region
-        ):
-            self._enabled_providers.append(
-                AnthropicBedrockProvider(
-                    aws_region=model_settings.aws_region,
-                )
-            )
 
     def load_agent(
         self, agent_id: str, actor: Client, interface: Union[AgentInterface, None] = None, filter_tags: Optional[dict] = None, use_cache: bool = True, user: Optional[User] = None
@@ -1076,22 +968,10 @@ class SyncServer(Server):
         interface: Union[AgentInterface, None] = None,
     ) -> AgentState:
         if request.llm_config is None:
-            if request.model is None:
-                raise ValueError("Must specify either model or llm_config in request")
-            request.llm_config = self.get_llm_config_from_handle(
-                handle=request.model, context_window_limit=request.context_window_limit
-            )
+            raise ValueError("Must specify llm_config in request")
 
         if request.embedding_config is None:
-            if request.embedding is None:
-                raise ValueError(
-                    "Must specify either embedding or embedding_config in request"
-                )
-            request.embedding_config = self.get_embedding_config_from_handle(
-                handle=request.embedding,
-                embedding_chunk_size=request.embedding_chunk_size
-                or constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
-            )
+            raise ValueError("Must specify embedding_config in request")
 
         """Create a new agent using a config"""
         # Invoke manager
@@ -1232,116 +1112,20 @@ class SyncServer(Server):
             )
 
     def list_llm_models(self) -> List[LLMConfig]:
-        """List available models"""
-
-        llm_models = []
-        for provider in self.get_enabled_providers():
-            try:
-                llm_models.extend(provider.list_llm_models())
-            except Exception as e:
-                warnings.warn(
-                    f"An error occurred while listing LLM models for provider {provider}: {e}"
-                )
-        return llm_models
+        """List available models (deprecated - returns empty list)"""
+        return []
 
     def list_embedding_models(self) -> List[EmbeddingConfig]:
-        """List available embedding models"""
-        embedding_models = []
-        for provider in self.get_enabled_providers():
-            try:
-                embedding_models.extend(provider.list_embedding_models())
-            except Exception as e:
-                warnings.warn(
-                    f"An error occurred while listing embedding models for provider {provider}: {e}"
-                )
-        return embedding_models
-
-    def get_enabled_providers(self):
-        providers_from_env = {p.name: p for p in self._enabled_providers}
-        providers_from_db = {p.name: p for p in self.provider_manager.list_providers()}
-        # Merge the two dictionaries, keeping the values from providers_from_db where conflicts occur
-        return {**providers_from_env, **providers_from_db}.values()
-
-    def get_llm_config_from_handle(
-        self, handle: str, context_window_limit: Optional[int] = None
-    ) -> LLMConfig:
-        provider_name, model_name = handle.split("/", 1)
-        provider = self.get_provider_from_name(provider_name)
-
-        llm_configs = [
-            config
-            for config in provider.list_llm_models()
-            if config.model == model_name
-        ]
-        if not llm_configs:
-            raise ValueError(
-                f"LLM model {model_name} is not supported by {provider_name}"
-            )
-        elif len(llm_configs) > 1:
-            raise ValueError(
-                f"Multiple LLM models with name {model_name} supported by {provider_name}"
-            )
-        else:
-            llm_config = llm_configs[0]
-
-        if context_window_limit:
-            if context_window_limit > llm_config.context_window:
-                raise ValueError(
-                    f"Context window limit ({context_window_limit}) is greater than maximum of ({llm_config.context_window})"
-                )
-            llm_config.context_window = context_window_limit
-
-        return llm_config
-
-    def get_embedding_config_from_handle(
-        self,
-        handle: str,
-        embedding_chunk_size: int = constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
-    ) -> EmbeddingConfig:
-        provider_name, model_name = handle.split("/", 1)
-        provider = self.get_provider_from_name(provider_name)
-
-        embedding_configs = [
-            config
-            for config in provider.list_embedding_models()
-            if config.embedding_model == model_name
-        ]
-        if not embedding_configs:
-            raise ValueError(
-                f"Embedding model {model_name} is not supported by {provider_name}"
-            )
-        elif len(embedding_configs) > 1:
-            raise ValueError(
-                f"Multiple embedding models with name {model_name} supported by {provider_name}"
-            )
-        else:
-            embedding_config = embedding_configs[0]
-
-        if embedding_chunk_size:
-            embedding_config.embedding_chunk_size = embedding_chunk_size
-
-        return embedding_config
-
-    def get_provider_from_name(self, provider_name: str) -> Provider:
-        providers = [
-            provider
-            for provider in self._enabled_providers
-            if provider.name == provider_name
-        ]
-        if not providers:
-            raise ValueError(f"Provider {provider_name} is not supported")
-        elif len(providers) > 1:
-            raise ValueError(f"Multiple providers with name {provider_name} supported")
-        else:
-            provider = providers[0]
-
-        return provider
+        """List available embedding models (deprecated - returns empty list)"""
+        return []
 
     def add_llm_model(self, request: LLMConfig) -> LLMConfig:
-        """Add a new LLM model"""
+        """Add a new LLM model (not implemented)"""
+        raise NotImplementedError("Dynamic model registration is not supported")
 
     def add_embedding_model(self, request: EmbeddingConfig) -> EmbeddingConfig:
-        """Add a new embedding model"""
+        """Add a new embedding model (not implemented)"""
+        raise NotImplementedError("Dynamic model registration is not supported")
 
     def get_agent_context_window(
         self, agent_id: str, actor: Client
@@ -1539,7 +1323,6 @@ class SyncServer(Server):
                 async for message in streaming_interface.get_generator():
                     assert (
                         isinstance(message, MirixMessage)
-                        or isinstance(message, LegacyMirixMessage)
                         or isinstance(message, MessageStreamStatus)
                     ), type(message)
                     generated_stream.append(message)

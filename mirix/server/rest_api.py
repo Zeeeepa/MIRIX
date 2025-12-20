@@ -38,13 +38,7 @@ from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
 from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
 from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
-from mirix.schemas.sandbox_config import (
-    E2BSandboxConfig,
-    LocalSandboxConfig,
-    SandboxConfig,
-    SandboxConfigCreate,
-    SandboxConfigUpdate,
-)
+from mirix.schemas.agent import CreateMetaAgent, MemoryConfig, MemoryBlockConfig, UpdateMetaAgent
 from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
 from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
@@ -1158,8 +1152,9 @@ class CreateOrGetUserRequest(BaseModel):
 @router.post("/users/create_or_get", response_model=User)
 async def create_or_get_user(
     request: CreateOrGetUserRequest,
+    x_org_id: Optional[str] = Header(None),
+    x_client_id: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),
-    http_request: Request = None,
 ):
     """
     Create user if it doesn't exist, or get existing one.
@@ -1172,14 +1167,23 @@ async def create_or_get_user(
     """
     server = get_server()
     
-    # Accept JWT or injected headers (from API key middleware)
-    client, auth_type = get_client_from_jwt_or_api_key(authorization, http_request)
+    # Try API key auth first (via middleware-injected headers), then JWT
+    if x_client_id:
+        client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+        client = server.client_manager.get_client_by_id(client_id)
+    elif authorization:
+        admin_payload = get_current_admin(authorization)
+        client_id = admin_payload["sub"]
+        client = server.client_manager.get_client_by_id(client_id)
+        org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID if client else None
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Provide either X-API-Key or Authorization (Bearer JWT) header.",
+        )
+
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
-    
-    # Extract client_id and org_id from client object
-    client_id = client.id
-    org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
 
     # Use provided user_id or generate a new one
     if request.user_id:
@@ -1208,9 +1212,9 @@ async def create_or_get_user(
             timezone=server.user_manager.DEFAULT_TIME_ZONE,
             status="active"
         ),
-        client_id=client_id,  # Associate user with client
-        )
-    logger.debug("Created new user: %s for client: %s", user_id, client_id)
+        client_id=client.id,  # Associate user with client
+    )
+    logger.debug("Created new user: %s for client: %s", user_id, client.id)
     return user
 
 
@@ -1694,7 +1698,37 @@ async def initialize_meta_agent(
     Initialize a meta agent with configuration.
     
     This creates a meta memory agent that manages specialized memory agents.
+
+    The configuration supports the following structure:
+
+    ```yaml
+    llm_config:
+      model: "gpt-4o-mini"
+      ...
+
+    embedding_config:
+      embedding_model: "text-embedding-3-small"
+      ...
+
+    meta_agent_config:
+      agents:  # List of agent names
+        - core_memory_agent
+        - semantic_memory_agent
+        - episodic_memory_agent
+        - ...
+
+      memory:  # Memory structure configuration
+        core:  # Core memory blocks for core_memory_agent
+          - label: "human"
+            value: ""
+          - label: "persona"
+            value: "I am a helpful assistant."
+
+      system_prompts:  # Optional custom system prompts
+        episodic_memory_agent: "Custom prompt..."
+    ```
     """
+
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
     client = server.client_manager.get_client_by_id(client_id)
@@ -1711,11 +1745,29 @@ async def initialize_meta_agent(
     # Flatten meta_agent_config fields into create_params
     if "meta_agent_config" in config and config["meta_agent_config"]:
         meta_config = config["meta_agent_config"]
-        # Add fields from meta_agent_config directly
+
+        # Add agents list (now expects List[str])
         if "agents" in meta_config:
             create_params["agents"] = meta_config["agents"]
+
+        # Add system_prompts if provided
         if "system_prompts" in meta_config:
             create_params["system_prompts"] = meta_config["system_prompts"]
+
+        # Add memory configuration if provided
+        if "memory" in meta_config and meta_config["memory"]:
+            memory_dict = meta_config["memory"]
+            if "core" in memory_dict:
+                # Convert core blocks list to MemoryBlockConfig objects
+                core_blocks = [
+                    MemoryBlockConfig(
+                        label=block.get("label", ""),
+                        value=block.get("value", ""),
+                        limit=block.get("limit")
+                    )
+                    for block in memory_dict["core"]
+                ]
+                create_params["memory"] = MemoryConfig(core=core_blocks)
 
     # Check if meta agent already exists for this client
     # list_agents now automatically filters by client (organization_id + _created_by_id)
@@ -1728,8 +1780,6 @@ async def initialize_meta_agent(
 
         # Only update the meta agent if update_agents is True
         if request.update_agents:
-            from mirix.schemas.agent import UpdateMetaAgent
-
             # DEBUG: Log what we're passing to update_meta_agent
             logger.debug("[INIT META AGENT] create_params for UpdateMetaAgent: %s", create_params)
             logger.debug("[INIT META AGENT] 'agents' in create_params: %s", 'agents' in create_params)
@@ -1743,8 +1793,10 @@ async def initialize_meta_agent(
                 actor=client
             )
     else:
-        from mirix.schemas.agent import CreateMetaAgent
-        meta_agent = server.agent_manager.create_meta_agent(meta_agent_create=CreateMetaAgent(**create_params), actor=client)
+        meta_agent = server.agent_manager.create_meta_agent(
+            meta_agent_create=CreateMetaAgent(**create_params),
+            actor=client
+        )
 
     return meta_agent
 
@@ -1862,6 +1914,270 @@ async def add_memory(
         "agent_id": meta_agent.id,
         "message_count": len(input_messages),
     }
+
+
+class SelfReflectionRequest(BaseModel):
+    """Request model for triggering self-reflection.
+
+    If specific memory IDs are provided, only those memories will be reflected upon.
+    If no specific memories are provided, all memories updated since last_self_reflection_time
+    will be retrieved and processed.
+    """
+
+    user_id: Optional[str] = None  # Optional - uses admin user if not provided
+    limit: int = 100  # Maximum number of items to retrieve per memory type (when using time-based query)
+
+    # Optional specific memory IDs for targeted self-reflection
+    # If any of these are provided, only the specified memories will be processed
+    core_ids: Optional[List[str]] = None  # Block IDs for core memory
+    episodic_ids: Optional[List[str]] = None  # Episodic memory event IDs
+    semantic_ids: Optional[List[str]] = None  # Semantic memory item IDs
+    resource_ids: Optional[List[str]] = None  # Resource memory item IDs
+    knowledge_vault_ids: Optional[List[str]] = None  # Knowledge vault item IDs
+    procedural_ids: Optional[List[str]] = None  # Procedural memory item IDs
+
+
+# Import self-reflection service functions
+from mirix.services.self_reflection_service import (
+    retrieve_memories_by_updated_at_range,
+    retrieve_specific_memories_by_ids,
+    build_self_reflection_prompt,
+)
+
+
+@router.post("/memory/self-reflection")
+async def trigger_self_reflection(
+    request: SelfReflectionRequest,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Trigger a self-reflection session for a user's memories.
+
+    This endpoint performs the following steps:
+    1. Check the last_self_reflection_time for the user
+    2. Retrieve all memories updated between last_self_reflection_time and current_time
+    3. Build a comprehensive prompt with all memories (in order: core, episodic, semantic, resource, knowledge_vault, procedural)
+    4. Send the prompt to the reflexion_agent for processing
+    5. Update the user's last_self_reflection_time to current_time
+
+    The reflexion agent will:
+    - Remove redundant information within each memory type
+    - Identify and remove duplicates across memory types
+    - Infer new patterns from episodic memories
+    - Find connections between different memories
+
+    Args:
+        request: SelfReflectionRequest with optional user_id and limit
+
+    Returns:
+        Status of the self-reflection session
+    """
+    import datetime as dt
+
+    server = get_server()
+    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
+    client = server.client_manager.get_client_by_id(client_id)
+
+    # If user_id is not provided, use the admin user for this client
+    user_id = request.user_id
+    if not user_id:
+        from mirix.services.admin_user_manager import ClientAuthManager
+        user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
+        logger.debug("No user_id provided, using admin user: %s", user_id)
+
+    # Get user object
+    try:
+        user = server.user_manager.get_user_by_id(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"User {user_id} not found: {e}")
+
+    # Get the last_self_reflection_time and current_time
+    last_reflection_time = user.last_self_reflection_time
+    current_time = datetime.now(dt.UTC)
+
+    logger.info(
+        "Starting self-reflection for user %s: last_reflection=%s, current=%s",
+        user_id,
+        last_reflection_time.isoformat() if last_reflection_time else "None (first time)",
+        current_time.isoformat()
+    )
+
+    # Get all agents for this client to find the reflexion_agent
+    all_agents = server.agent_manager.list_agents(actor=client, limit=1000)
+
+    if not all_agents:
+        raise HTTPException(
+            status_code=404,
+            detail="No agents found for this client. Please initialize agents first."
+        )
+
+    # Find the meta agent first
+    meta_agent = None
+    for agent in all_agents:
+        if agent.name == "meta_memory_agent":
+            meta_agent = agent
+            break
+
+    if not meta_agent:
+        raise HTTPException(
+            status_code=404,
+            detail="Meta memory agent not found. Please initialize agents first."
+        )
+
+    # Get sub-agents (children of meta agent)
+    sub_agents = server.agent_manager.list_agents(actor=client, parent_id=meta_agent.id, limit=1000)
+
+    # Find the reflexion_agent
+    reflexion_agent = None
+    for agent in sub_agents:
+        if "reflexion_agent" in agent.name:
+            reflexion_agent = agent
+            break
+
+    if not reflexion_agent:
+        raise HTTPException(
+            status_code=404,
+            detail="Reflexion agent not found. Please ensure 'reflexion_agent' is configured in the meta agent."
+        )
+
+    # Check if specific memories are provided
+    has_specific_memories = any([
+        request.core_ids,
+        request.episodic_ids,
+        request.semantic_ids,
+        request.resource_ids,
+        request.knowledge_vault_ids,
+        request.procedural_ids,
+    ])
+
+    is_targeted = has_specific_memories
+
+    if has_specific_memories:
+        # Retrieve only the specific memories requested
+        logger.info(
+            "Targeted self-reflection for user %s with specific memories: "
+            "core=%s, episodic=%s, semantic=%s, resource=%s, knowledge_vault=%s, procedural=%s",
+            user_id,
+            len(request.core_ids) if request.core_ids else 0,
+            len(request.episodic_ids) if request.episodic_ids else 0,
+            len(request.semantic_ids) if request.semantic_ids else 0,
+            len(request.resource_ids) if request.resource_ids else 0,
+            len(request.knowledge_vault_ids) if request.knowledge_vault_ids else 0,
+            len(request.procedural_ids) if request.procedural_ids else 0,
+        )
+
+        memories = retrieve_specific_memories_by_ids(
+            server=server,
+            user=user,
+            core_ids=request.core_ids,
+            episodic_ids=request.episodic_ids,
+            semantic_ids=request.semantic_ids,
+            resource_ids=request.resource_ids,
+            knowledge_vault_ids=request.knowledge_vault_ids,
+            procedural_ids=request.procedural_ids,
+        )
+    else:
+        # Retrieve memories updated since last reflection (time-based)
+        memories = retrieve_memories_by_updated_at_range(
+            server=server,
+            user=user,
+            start_time=last_reflection_time,
+            end_time=current_time,
+            limit=request.limit,
+        )
+
+    # Count total memories retrieved
+    total_items = sum(m["total_count"] for m in memories.values())
+
+    if total_items == 0:
+        if has_specific_memories:
+            # Specific memories were requested but none found
+            return {
+                "success": False,
+                "message": "No memories found with the specified IDs",
+                "user_id": user_id,
+                "memories_processed": 0,
+                "status": "no_memories_found",
+            }
+        else:
+            # No new memories to process, still update the reflection time
+            server.user_manager.update_last_self_reflection_time(user_id, current_time)
+            return {
+                "success": True,
+                "message": "No new memories to process since last self-reflection",
+                "user_id": user_id,
+                "last_reflection_time": last_reflection_time.isoformat() if last_reflection_time else None,
+                "current_time": current_time.isoformat(),
+                "memories_processed": 0,
+                "status": "no_changes",
+            }
+
+    # Build the self-reflection prompt
+    reflection_prompt = build_self_reflection_prompt(memories, is_targeted=is_targeted)
+
+    # Send message to reflexion_agent via queue
+    message_create = MessageCreate(
+        role=MessageRole.user,
+        content=reflection_prompt,
+    )
+
+    # Queue the message for processing
+    put_messages(
+        actor=client,
+        agent_id=reflexion_agent.id,
+        input_messages=[message_create],
+        chaining=True,
+        user_id=user_id,
+        use_cache=False,  # Don't cache self-reflection results
+    )
+
+    # Only update last_self_reflection_time for time-based reflections
+    # Targeted reflections don't affect the time-based reflection schedule
+    if not is_targeted:
+        server.user_manager.update_last_self_reflection_time(user_id, current_time)
+
+    if is_targeted:
+        logger.info(
+            "Targeted self-reflection triggered for user %s: %d specific memories queued for processing",
+            user_id, total_items
+        )
+    else:
+        logger.info(
+            "Self-reflection triggered for user %s: %d memories queued for processing",
+            user_id, total_items
+        )
+
+    response = {
+        "success": True,
+        "user_id": user_id,
+        "memories_processed": total_items,
+        "memory_breakdown": {
+            memory_type: data["total_count"]
+            for memory_type, data in memories.items()
+        },
+        "reflexion_agent_id": reflexion_agent.id,
+        "status": "queued",
+        "is_targeted": is_targeted,
+    }
+
+    if is_targeted:
+        response["message"] = "Targeted self-reflection session triggered for specific memories"
+        # Include which memory types were requested
+        response["requested_memories"] = {
+            "core_ids": request.core_ids,
+            "episodic_ids": request.episodic_ids,
+            "semantic_ids": request.semantic_ids,
+            "resource_ids": request.resource_ids,
+            "knowledge_vault_ids": request.knowledge_vault_ids,
+            "procedural_ids": request.procedural_ids,
+        }
+    else:
+        response["message"] = "Self-reflection session triggered"
+        response["last_reflection_time"] = last_reflection_time.isoformat() if last_reflection_time else None
+        response["current_time"] = current_time.isoformat()
+
+    return response
 
 
 class RetrieveMemoryRequest(BaseModel):
@@ -3690,6 +4006,7 @@ class DashboardClientResponse(BaseModel):
     admin_user_id: str  # Admin user for memory operations
     created_at: Optional[datetime]
     last_login: Optional[datetime]
+    credits: float = 100.0  # Available credits for LLM API calls (1 credit = 1 dollar)
 
 
 class TokenResponse(BaseModel):
@@ -3812,7 +4129,8 @@ async def dashboard_register(request: DashboardRegisterRequest):
                 status=client.status,
                 admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
                 created_at=client.created_at,
-                last_login=client.last_login
+                last_login=client.last_login,
+                credits=client.credits,
             )
         )
     except ValueError as e:
@@ -3858,7 +4176,8 @@ async def dashboard_login(request: DashboardLoginRequest):
             status=client.status,
             admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
             created_at=client.created_at,
-            last_login=client.last_login
+            last_login=client.last_login,
+            credits=client.credits,
         )
     )
 
@@ -3886,7 +4205,8 @@ async def dashboard_get_current_client(authorization: Optional[str] = Header(Non
         status=client.status,
         admin_user_id=ClientAuthManager.get_admin_user_id_for_client(client.id),
         created_at=client.created_at,
-        last_login=client.last_login
+        last_login=client.last_login,
+        credits=client.credits,
     )
 
 
@@ -3924,7 +4244,8 @@ async def list_dashboard_clients(
             status=c.status,
             admin_user_id=ClientAuthManager.get_admin_user_id_for_client(c.id),
             created_at=c.created_at,
-            last_login=c.last_login
+            last_login=c.last_login,
+            credits=c.credits,
         )
         for c in clients
     ]

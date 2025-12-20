@@ -24,8 +24,8 @@ def print_server_response(response):
         logger.info("[agent.step end]")
     elif response["type"] == "agent_response":
         msg = response["message"]
-        if response["message_type"] == "internal_monologue":
-            logger.info("[inner thoughts] %s", msg)
+        if response["message_type"] == "reasoning":
+            logger.info("[reasoning] %s", msg)
         elif response["message_type"] == "assistant_message":
             logger.info("%s", msg)
         elif response["message_type"] == "function_message":
