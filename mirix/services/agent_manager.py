@@ -299,20 +299,23 @@ class AgentManager:
         # First, create the meta_memory_agent as the parent
         meta_agent_name = meta_agent_create.name or "meta_memory_agent"
         meta_system_prompt = None
-        if (
-            meta_agent_create.system_prompts
-            and "meta_memory_agent" in meta_agent_create.system_prompts
-        ):
-            meta_system_prompt = meta_agent_create.system_prompts["meta_memory_agent"]
-        elif has_child_agents:
-            # Use the standard meta_memory_agent prompt with trigger_memory_update
-            meta_system_prompt = default_system_prompts["meta_memory_agent"]
-        else:
-            # No child agents - use the direct prompt with episodic memory tools
-            meta_system_prompt = default_system_prompts.get(
-                "meta_memory_agent_direct",
-                default_system_prompts["meta_memory_agent"]  # Fallback
-            )
+
+        if meta_agent_create.system_prompts:
+            if has_child_agents:
+                meta_system_prompt = meta_agent_create.system_prompts['meta_memory_agent_direct']
+            else:
+                meta_system_prompt = meta_agent_create.system_prompts['meta_memory_agent']
+
+        if meta_system_prompt is None:
+            if has_child_agents:
+                # Use the standard meta_memory_agent prompt with trigger_memory_update
+                meta_system_prompt = default_system_prompts["meta_memory_agent"]
+            else:
+                # No child agents - use the direct prompt with episodic memory tools
+                meta_system_prompt = default_system_prompts.get(
+                    "meta_memory_agent_direct",
+                    default_system_prompts["meta_memory_agent"]  # Fallback
+                )
 
         # Build memory_config dict from the MemoryConfig (if decay settings provided)
         memory_config_dict = None
@@ -575,18 +578,6 @@ class AgentManager:
             )
             meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
 
-        # Update meta agent's system prompt if provided (separate call needed for rebuild_system_prompt)
-        if (
-            meta_agent_update.system_prompts
-            and "meta_memory_agent" in meta_agent_update.system_prompts
-        ):
-            self.update_system_prompt(
-                agent_id=meta_agent_id,
-                system_prompt=meta_agent_update.system_prompts["meta_memory_agent"],
-                actor=actor,
-            )
-            meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
-
         # Get existing sub-agents
         existing_children = self.list_agents(actor=actor, parent_id=meta_agent_id)
         existing_agent_names = set()
@@ -698,8 +689,8 @@ class AgentManager:
         # Update system prompts for existing sub-agents
         if meta_agent_update.system_prompts:
             for agent_name, system_prompt in meta_agent_update.system_prompts.items():
-                # Skip meta_memory_agent as we already updated it
-                if agent_name == "meta_memory_agent":
+                # Skip meta_memory_agent and meta_memory_agent_direct as we handle those separately
+                if agent_name in ["meta_memory_agent", "meta_memory_agent_direct"]:
                     continue
 
                 if agent_name in existing_agents_by_name:
@@ -747,12 +738,18 @@ class AgentManager:
         # Update meta_memory_agent's system prompt and tools based on whether it has children
         has_children = len(existing_agents_by_name) > 0
         
-        # Update system prompt if not explicitly provided in the update request
-        if not (
-            meta_agent_update.system_prompts
-            and "meta_memory_agent" in meta_agent_update.system_prompts
-        ):
-            # Determine which prompt to use based on children
+        # Determine the appropriate system prompt
+        meta_system_prompt = None
+        
+        # First check if custom system prompts are provided
+        if meta_agent_update.system_prompts:
+            if has_children:
+                meta_system_prompt = meta_agent_update.system_prompts.get('meta_memory_agent')
+            else:
+                meta_system_prompt = meta_agent_update.system_prompts.get('meta_memory_agent_direct')
+        
+        # If no custom system prompt, use defaults based on children
+        if meta_system_prompt is None:
             if has_children:
                 # Has child agents - use standard meta_memory_agent prompt
                 meta_system_prompt = default_system_prompts.get("meta_memory_agent")
@@ -768,13 +765,14 @@ class AgentManager:
                 logger.info(
                     "Meta agent has no children - using meta_memory_agent_direct.txt system prompt"
                 )
-            
-            if meta_system_prompt:
-                self.update_system_prompt(
-                    agent_id=meta_agent_id,
-                    system_prompt=meta_system_prompt,
-                    actor=actor,
-                )
+        
+        # Update the system prompt
+        if meta_system_prompt:
+            self.update_system_prompt(
+                agent_id=meta_agent_id,
+                system_prompt=meta_system_prompt,
+                actor=actor,
+            )
 
         # Update meta_memory_agent's tools based on whether it has children
         meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)

@@ -80,7 +80,6 @@ client.initialize_meta_agent(
             "embedding_dim": 1536,
         },
         "meta_agent_config": {
-            "system_prompts_folder": "mirix\\prompts\\system\\base",
             "agents": [
                 "core_memory_agent",
                 "resource_memory_agent",
