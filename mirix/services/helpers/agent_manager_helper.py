@@ -74,8 +74,8 @@ def derive_system_message(agent_type: AgentType, system: Optional[str] = None):
             system = gpt_system.get_system_text("base/episodic_memory_agent")
         elif agent_type == AgentType.procedural_memory_agent:
             system = gpt_system.get_system_text("base/procedural_memory_agent")
-        elif agent_type == AgentType.knowledge_vault_memory_agent:
-            system = gpt_system.get_system_text("base/knowledge_vault_memory_agent")
+        elif agent_type == AgentType.knowledge_memory_agent:
+            system = gpt_system.get_system_text("base/knowledge_memory_agent")
         elif agent_type == AgentType.meta_memory_agent:
             system = gpt_system.get_system_text("base/meta_memory_agent")
         elif agent_type == AgentType.semantic_memory_agent:

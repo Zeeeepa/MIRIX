@@ -16,7 +16,7 @@ JSON-BASED CACHING (5 tables - WITH embeddings):
 8. Semantic Memory (JSON, 3 vectors=48KB) - create with 3 embeddings
 9. Procedural Memory (JSON, 2 vectors=32KB) - create with embeddings
 10. Resource Memory (JSON, 1 vector=16KB) - create with embedding
-11. Knowledge Vault (JSON, 1 vector=16KB) - create with embedding
+11. Knowledge (JSON, 1 vector=16KB) - create with embedding
 
 ADDITIONAL COVERAGE:
 - Denormalized tools_agents relationship (tool_ids cached with agent)
@@ -39,7 +39,7 @@ from mirix.services.episodic_memory_manager import EpisodicMemoryManager
 from mirix.services.semantic_memory_manager import SemanticMemoryManager
 from mirix.services.procedural_memory_manager import ProceduralMemoryManager
 from mirix.services.resource_memory_manager import ResourceMemoryManager
-from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
 from mirix.services.organization_manager import OrganizationManager
 from mirix.services.user_manager import UserManager
 from mirix.services.agent_manager import AgentManager
@@ -195,8 +195,8 @@ def resource_manager():
 
 @pytest.fixture
 def knowledge_manager():
-    """Create knowledge vault manager instance."""
-    return KnowledgeVaultManager()
+    """Create knowledge manager instance."""
+    return KnowledgeMemoryManager()
 
 
 @pytest.fixture
@@ -1055,19 +1055,19 @@ class TestResourceMemoryManagerRedis:
 
 
 # ============================================================================
-# KNOWLEDGE VAULT TESTS (JSON-based with 1 embedding!)
+# KNOWLEDGE TESTS (JSON-based with 1 embedding!)
 # ============================================================================
 
-class TestKnowledgeVaultManagerRedis:
-    """Test Knowledge Vault Manager with Redis JSON caching (1 embedding)."""
+class TestKnowledgeMemoryManagerRedis:
+    """Test Knowledge Manager with Redis JSON caching (1 embedding)."""
     
     def test_knowledge_create_with_embedding(self, knowledge_manager, test_client, test_user, test_agent, redis_client):
-        """Test knowledge vault item with 1 embedding (16KB) caches to Redis JSON."""
+        """Test knowledge item with 1 embedding (16KB) caches to Redis JSON."""
         # Create mock embedding
-        from mirix.schemas.knowledge_vault import KnowledgeVaultItem
+        from mirix.schemas.knowledge import KnowledgeItem
         mock_embedding = [0.5] * 4096
         
-        item_data = KnowledgeVaultItem(
+        item_data = KnowledgeItem(
             id=generate_test_id("knowledge"),
             entry_type="credential",
             source="user_input",
@@ -1091,7 +1091,7 @@ class TestKnowledgeVaultManagerRedis:
         assert "caption_embedding" in cached_data
         assert len(cached_data["caption_embedding"]) == 4096
         
-        logger.info("Cached knowledge vault item with 16KB embedding")
+        logger.info("Cached knowledge item with 16KB embedding")
         
         # Cleanup
         knowledge_manager.delete_knowledge_by_id(created_item.id, test_client)
@@ -1282,7 +1282,7 @@ class TestRedisIntegrationEnd2End:
         # 6. Retrieve all (should hit cache)
         retrieved_block = block_manager.get_block_by_id(created_block.id, test_user)
         retrieved_message = message_manager.get_message_by_id(created_message.id, test_client)
-        retrieved_event = episodic_manager.get_episodic_memory_by_id(created_event.id, test_user)
+        retrieved_event = episodic_manager.get_episodic_memory_by_id(created_event.id, test_client, test_user.id)
         retrieved_semantic = semantic_manager.get_semantic_item_by_id(created_semantic.id, test_user, test_user.timezone)
         
         assert retrieved_block.id == created_block.id

@@ -11,6 +11,7 @@ from mirix.queue.message_pb2 import User as ProtoUser
 from mirix.queue.message_pb2 import MessageCreate as ProtoMessageCreate
 from mirix.queue.message_pb2 import QueueMessage
 import mirix.queue as queue
+from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ def put_messages(
             filter_tags: Filter tags dictionary
             use_cache: Control Redis cache behavior
             occurred_at: Optional ISO 8601 timestamp string for episodic memory
+        
+        Returns:
+            Optional[str]: Queue trace ID if tracing was recorded.
         """
         logger.debug("Creating queue message for agent_id=%s, actor=%s (client_id derived from actor)", agent_id, actor.id)
         
@@ -48,6 +52,20 @@ def put_messages(
                 f"actor={actor}, actor.id={actor.id if actor else 'N/A'}"
             )
         
+        # Create queue trace record (best-effort, do not block enqueue)
+        trace_id = None
+        try:
+            trace_manager = MemoryQueueTraceManager()
+            trace = trace_manager.create_trace(
+                actor=actor,
+                agent_id=agent_id,
+                user_id=user_id,
+                message_count=len(input_messages),
+            )
+            trace_id = trace.id
+        except Exception as exc:
+            logger.warning("Failed to create queue trace: %s", exc)
+
         # Convert Pydantic Client to protobuf User (protobuf schema still uses "User")
         proto_user = ProtoUser()
         proto_user.id = actor.id
@@ -116,6 +134,12 @@ def put_messages(
             queue_msg.verbose = verbose
         
         # Convert dict to Struct for filter_tags
+        if filter_tags is not None:
+            filter_tags = dict(filter_tags)
+        else:
+            filter_tags = {}
+        if trace_id:
+            filter_tags["__queue_trace_id"] = trace_id
         if filter_tags:
             queue_msg.filter_tags.update(filter_tags)
         
@@ -131,3 +155,4 @@ def put_messages(
                     agent_id, len(input_messages), occurred_at)
         queue.save(queue_msg)
         logger.debug("Message successfully sent to queue")
+        return trace_id

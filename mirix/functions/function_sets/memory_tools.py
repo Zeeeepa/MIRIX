@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from mirix.agent import Agent, AgentState
 from mirix.schemas.episodic_memory import EpisodicEventForLLM
-from mirix.schemas.knowledge_vault import KnowledgeVaultItemBase
+from mirix.schemas.knowledge import KnowledgeItemBase
 from mirix.schemas.mirix_message_content import TextContent
 from mirix.schemas.procedural_memory import ProceduralMemoryItemBase
 from mirix.schemas.resource_memory import ResourceMemoryItemBase
@@ -205,16 +205,19 @@ def episodic_memory_replace(
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
     client_id = getattr(self, 'client_id', None)
-    user_id = getattr(self, 'user_id', None)
     occurred_at_override = getattr(self, 'occurred_at', None)  # Optional timestamp override from API
+    user_id = self.user_id
 
+    valid_event_ids = []
     for event_id in event_ids:
-        # It will raise an error if the event_id is not found in the episodic memory.
-        self.episodic_memory_manager.get_episodic_memory_by_id(
-            event_id, actor=self.actor
+        # Check if the event exists and is accessible
+        event = self.episodic_memory_manager.get_episodic_memory_by_id(
+            event_id, actor=self.actor, user_id=user_id
         )
+        if event is not None:
+            valid_event_ids.append(event_id)
 
-    for event_id in event_ids:
+    for event_id in valid_event_ids:
         self.episodic_memory_manager.delete_event_by_id(event_id, actor=self.actor)
 
     for new_item in new_items:
@@ -256,7 +259,7 @@ def check_episodic_memory(
     """
     episodic_memory = [
         self.episodic_memory_manager.get_episodic_memory_by_id(
-            event_id, timezone_str=timezone_str, actor=self.actor
+            event_id, timezone_str=timezone_str, actor=self.actor, user_id=self.user_id
         )
         for event_id in event_ids
     ]
@@ -271,6 +274,7 @@ def check_episodic_memory(
             "details": x.details,
         }
         for x in episodic_memory
+        if x is not None
     ]
 
     return formatted_results
@@ -682,12 +686,12 @@ def semantic_memory_update(
     return message_to_return
 
 
-def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
+def knowledge_insert(self: "Agent", items: List[KnowledgeItemBase]):
     """
-    The tool to update knowledge vault.
+    The tool to update knowledge.
 
     Args:
-        items (array): List of knowledge vault items to insert.
+        items (array): List of knowledge items to insert.
 
     Returns:
         Optional[str]: Message about insertion results including any duplicates detected.
@@ -709,8 +713,8 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
     skipped_captions = []
 
     for item in items:
-        # Check for existing similar knowledge vault items (by caption, source, and filter_tags)
-        existing_items = self.knowledge_vault_manager.list_knowledge(
+        # Check for existing similar knowledge items (by caption, source, and filter_tags)
+        existing_items = self.knowledge_memory_manager.list_knowledge(
             agent_state=self.agent_state,
             user=self.user,  # User for read operations (data filtering)
             query="",  # Get all items
@@ -719,7 +723,7 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
             use_cache=use_cache,
         )
         
-        # Check if this knowledge vault item already exists
+        # Check if this knowledge item already exists
         is_duplicate = False
         for existing in existing_items:
             if (existing.caption == item["caption"] and 
@@ -731,7 +735,7 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
                 break
         
         if not is_duplicate:
-            self.knowledge_vault_manager.insert_knowledge(
+            self.knowledge_memory_manager.insert_knowledge(
                 actor=self.actor,
                 agent_state=self.agent_state,
                 agent_id=agent_id,
@@ -752,22 +756,22 @@ def knowledge_vault_insert(self: "Agent", items: List[KnowledgeVaultItemBase]):
         skipped_list = ", ".join(f"'{c}'" for c in skipped_captions[:3])
         if len(skipped_captions) > 3:
             skipped_list += f" and {len(skipped_captions) - 3} more"
-        return f"Inserted {inserted_count} new knowledge vault item(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
+        return f"Inserted {inserted_count} new knowledge item(s). Skipped {skipped_count} duplicate(s): {skipped_list}."
     elif inserted_count > 0:
-        return f"Successfully inserted {inserted_count} new knowledge vault item(s)."
+        return f"Successfully inserted {inserted_count} new knowledge item(s)."
     else:
-        return "No knowledge vault items were inserted."
+        return "No knowledge items were inserted."
 
 
-def knowledge_vault_update(
-    self: "Agent", old_ids: List[str], new_items: List[KnowledgeVaultItemBase]
+def knowledge_update(
+    self: "Agent", old_ids: List[str], new_items: List[KnowledgeItemBase]
 ):
     """
-    The tool to update/delete items in the knowledge vault. To update the knowledge_vault, set the old_ids to be the ids of the items that needs to be updated and new_items as the updated items. Note that the number of new items does not need to be the same as the number of old ids as it is not a one-to-one mapping. To delete the memory, set the old_ids to be the ids of the items that needs to be deleted and new_items as an empty list.
+    The tool to update/delete items in the knowledge. To update the knowledge, set the old_ids to be the ids of the items that needs to be updated and new_items as the updated items. Note that the number of new items does not need to be the same as the number of old ids as it is not a one-to-one mapping. To delete the memory, set the old_ids to be the ids of the items that needs to be deleted and new_items as an empty list.
 
     Args:
         old_ids (array): List of ids of the items to be deleted (or updated).
-        new_items (array): List of new knowledge vault items to insert. If this is an empty list, then it means that the items are being deleted.
+        new_items (array): List of new knowledge items to insert. If this is an empty list, then it means that the items are being deleted.
 
     Returns:
         Optional[str]: None is always returned as this function does not produce a response
@@ -785,12 +789,12 @@ def knowledge_vault_update(
     user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
-        self.knowledge_vault_manager.delete_knowledge_by_id(
-            knowledge_vault_item_id=old_id, actor=self.actor
+        self.knowledge_memory_manager.delete_knowledge_by_id(
+            knowledge_item_id=old_id, actor=self.actor
         )
 
     for item in new_items:
-        self.knowledge_vault_manager.insert_knowledge(
+        self.knowledge_memory_manager.insert_knowledge(
             actor=self.actor,
             agent_state=self.agent_state,
             agent_id=agent_id,
@@ -814,13 +818,18 @@ def trigger_memory_update_with_instruction(
 
     Args:
         instruction (str): The instruction to the memory agent.
-        memory_type (str): The type of memory to update. It should be chosen from the following: "core", "episodic", "resource", "procedural", "knowledge_vault", "semantic". For instance, ['episodic', 'resource'].
+        memory_type (str): The type of memory to update. It should be chosen from the following: "core", "episodic", "resource", "procedural", "knowledge", "semantic". For instance, ['episodic', 'resource'].
 
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
     """
 
     from mirix.local_client import create_client
+    from mirix.services.queue_trace_context import (
+        get_agent_trace_id,
+        reset_parent_agent_trace_id,
+        set_parent_agent_trace_id,
+    )
 
     client = create_client()
     agents = client.list_agents()
@@ -842,13 +851,13 @@ def trigger_memory_update_with_instruction(
         agent_type = "resource_memory_agent"
     elif memory_type == "procedural":
         agent_type = "procedural_memory_agent"
-    elif memory_type == "knowledge_vault":
-        agent_type = "knowledge_vault_memory_agent"
+    elif memory_type == "knowledge":
+        agent_type = "knowledge_memory_agent"
     elif memory_type == "semantic":
         agent_type = "semantic_memory_agent"
     else:
         raise ValueError(
-            f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
+            f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge', 'semantic'."
         )
 
     matching_agent = None
@@ -860,15 +869,23 @@ def trigger_memory_update_with_instruction(
     if matching_agent is None:
         raise ValueError(f"No agent found with type '{agent_type}'")
 
-    client.send_message(
-        role="user",
-        user_id=self.user.id,
-        agent_id=matching_agent.id,
-        message="[Message from Chat Agent (Now you are allowed to make multiple function calls sequentially)] "
-        + instruction,
-        existing_file_uris=user_message["existing_file_uris"],
-        retrieved_memories=user_message.get("retrieved_memories", None),
-    )
+    parent_trace_id = get_agent_trace_id()
+    parent_token = None
+    if parent_trace_id:
+        parent_token = set_parent_agent_trace_id(parent_trace_id)
+    try:
+        client.send_message(
+            role="user",
+            user_id=self.user.id,
+            agent_id=matching_agent.id,
+            message="[Message from Chat Agent (Now you are allowed to make multiple function calls sequentially)] "
+            + instruction,
+            existing_file_uris=user_message["existing_file_uris"],
+            retrieved_memories=user_message.get("retrieved_memories", None),
+        )
+    finally:
+        if parent_token:
+            reset_parent_agent_trace_id(parent_token)
     response += (
         "[System Message] Agent "
         + matching_agent.name
@@ -882,10 +899,10 @@ def trigger_memory_update(
     self: "Agent", user_message: object, memory_types: List[str]
 ) -> Optional[str]:
     """
-    Choose which memory to update. This function will trigger another memory agent which is specifically in charge of handling the corresponding memory to update its memory. Trigger all necessary memory updates at once. Put the explanations in the `internal_monologue` field.
+    Choose which memory to update. This function will trigger another memory agent which is specifically in charge of handling the corresponding memory to update its memory. Trigger all necessary memory updates at once.
 
     Args:
-        memory_types (List[str]): The types of memory to update. It should be chosen from the following: "core", "episodic", "resource", "procedural", "knowledge_vault", "semantic". For instance, ['episodic', 'resource'].
+        memory_types (List[str]): The types of memory to update. It should be chosen from the following: "core", "episodic", "resource", "procedural", "knowledge", "semantic". For instance, ['episodic', 'resource'].
 
     Returns:
         Optional[str]: None is always returned as this function does not produce a response.
@@ -894,10 +911,24 @@ def trigger_memory_update(
     from mirix.agent import (
         CoreMemoryAgent,
         EpisodicMemoryAgent,
-        KnowledgeVaultAgent,
+        KnowledgeMemoryAgent,
         ProceduralMemoryAgent,
         ResourceMemoryAgent,
         SemanticMemoryAgent,
+    )
+    from mirix.services.memory_agent_trace_manager import MemoryAgentTraceManager
+    from mirix.services.queue_trace_context import (
+        get_agent_trace_id,
+        get_memory_update_counts,
+        get_queue_trace_id,
+        init_memory_update_counts,
+        reset_agent_trace_id,
+        reset_memory_update_counts,
+        reset_parent_agent_trace_id,
+        reset_queue_trace_id,
+        set_agent_trace_id,
+        set_parent_agent_trace_id,
+        set_queue_trace_id,
     )
 
     # Validate that user_message is a dictionary
@@ -912,7 +943,7 @@ def trigger_memory_update(
         "episodic": EpisodicMemoryAgent,
         "resource": ResourceMemoryAgent,
         "procedural": ProceduralMemoryAgent,
-        "knowledge_vault": KnowledgeVaultAgent,
+        "knowledge": KnowledgeMemoryAgent,
         "semantic": SemanticMemoryAgent,
     }
 
@@ -920,7 +951,7 @@ def trigger_memory_update(
     for memory_type in memory_types:
         if memory_type not in memory_type_to_agent_class:
             raise ValueError(
-                f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
+                f"Memory type '{memory_type}' is not supported. Please choose from 'core', 'episodic', 'resource', 'procedural', 'knowledge', 'semantic'."
             )
 
     # Get child agents
@@ -931,76 +962,124 @@ def trigger_memory_update(
         agent_state.agent_type: agent_state for agent_state in child_agent_states
     }
 
+    parent_trace_id = get_agent_trace_id()
+    queue_trace_id = get_queue_trace_id()
+
     def _run_single_memory_update(memory_type: str) -> str:
+        queue_token = None
+        parent_token = None
+        agent_trace_token = None
+        counts_token = None
+        agent_trace = None
+        trace_success = False
+        trace_error = None
+        if queue_trace_id:
+            queue_token = set_queue_trace_id(queue_trace_id)
+        if parent_trace_id:
+            parent_token = set_parent_agent_trace_id(parent_trace_id)
         agent_class = memory_type_to_agent_class[memory_type]
         agent_type_str = f"{memory_type}_memory_agent"
 
-        agent_state = agent_type_to_state.get(agent_type_str)
-        if agent_state is None:
-            raise ValueError(f"No agent found with type '{agent_type_str}'")
+        try:
+            agent_state = agent_type_to_state.get(agent_type_str)
+            if agent_state is None:
+                raise ValueError(f"No agent found with type '{agent_type_str}'")
 
-        # Get filter_tags, use_cache, client_id, user_id, and occurred_at from parent agent instance
-        # Deep copy filter_tags to ensure complete isolation between child agents
-        parent_filter_tags = getattr(self, 'filter_tags', None)
-        # Don't use 'or {}' because empty dict {} is valid and different from None
-        filter_tags = deepcopy(parent_filter_tags) if parent_filter_tags is not None else None
-        use_cache = getattr(self, 'use_cache', True)
-        actor = getattr(self, 'actor', None)
-        user = getattr(self, 'user', None)
-        occurred_at = getattr(self, 'occurred_at', None)  # Get occurred_at from parent agent
-        
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}, client_id={actor.id if actor else None}, user_id={user.id if user else None}, occurred_at={occurred_at}")
-        
-        memory_agent = agent_class(
-            agent_state=agent_state,
-            interface=self.interface,
-            actor=actor,
-            user=user,
-            filter_tags=filter_tags,
-            use_cache=use_cache,
-        )
-        
-        # Set occurred_at on the child agent so it can use it during memory operations
-        if occurred_at is not None:
-            memory_agent.occurred_at = occurred_at
+            # Get filter_tags, use_cache, client_id, user_id, and occurred_at from parent agent instance
+            # Deep copy filter_tags to ensure complete isolation between child agents
+            parent_filter_tags = getattr(self, 'filter_tags', None)
+            # Don't use 'or {}' because empty dict {} is valid and different from None
+            filter_tags = deepcopy(parent_filter_tags) if parent_filter_tags is not None else None
+            use_cache = getattr(self, 'use_cache', True)
+            actor = getattr(self, 'actor', None)
+            user = getattr(self, 'user', None)
+            occurred_at = getattr(self, 'occurred_at', None)  # Get occurred_at from parent agent
+            
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"🏷️  Creating {memory_type} agent with filter_tags={filter_tags}, client_id={actor.id if actor else None}, user_id={user.id if user else None}, occurred_at={occurred_at}")
+            
+            if queue_trace_id:
+                trace_manager = MemoryAgentTraceManager()
+                agent_trace = trace_manager.start_trace(
+                    queue_trace_id=queue_trace_id,
+                    parent_trace_id=parent_trace_id,
+                    agent_state=agent_state,
+                    actor=actor,
+                )
+                agent_trace_token = set_agent_trace_id(agent_trace.id)
+                counts_token = init_memory_update_counts()
 
-        # Work on a copy of the user message so parallel updates do not interfere
-        if "message" not in user_message:
-            raise KeyError("user_message must contain a 'message' field")
-
-        if hasattr(user_message["message"], "model_copy"):
-            message_copy = user_message["message"].model_copy(deep=True)  # type: ignore[attr-defined]
-        else:
-            message_copy = deepcopy(user_message["message"])
-
-        system_msg = TextContent(
-            text=(
-                "[System Message] According to the instructions, the retrieved memories "
-                "and the above content, update the corresponding memory."
+            memory_agent = agent_class(
+                agent_state=agent_state,
+                interface=self.interface,
+                actor=actor,
+                user=user,
+                filter_tags=filter_tags,
+                use_cache=use_cache,
             )
-        )
+            
+            # Set occurred_at on the child agent so it can use it during memory operations
+            if occurred_at is not None:
+                memory_agent.occurred_at = occurred_at
 
-        if isinstance(message_copy.content, str):
-            message_copy.content = [TextContent(text=message_copy.content), system_msg]
-        elif isinstance(message_copy.content, list):
-            message_copy.content = list(message_copy.content) + [system_msg]
-        else:
-            message_copy.content = [system_msg]
+            # Work on a copy of the user message so parallel updates do not interfere
+            if "message" not in user_message:
+                raise KeyError("user_message must contain a 'message' field")
 
-        # Pass actor (Client) and user (User) to memory agent
-        # actor is needed for write operations, user is needed for read operations
-        memory_agent.step(
-            input_messages=message_copy,
-            chaining=user_message.get("chaining", False),
-            actor=actor,  # Client for write operations
-            user=user,  # User for read operations
-        )
+            if hasattr(user_message["message"], "model_copy"):
+                message_copy = user_message["message"].model_copy(deep=True)  # type: ignore[attr-defined]
+            else:
+                message_copy = deepcopy(user_message["message"])
 
-        return (
-            f"[System Message] Agent {agent_state.name} has been triggered to update the memory.\n"
-        )
+            system_msg = TextContent(
+                text=(
+                    "[System Message] According to the instructions, the retrieved memories "
+                    "and the above content, update the corresponding memory."
+                )
+            )
+
+            if isinstance(message_copy.content, str):
+                message_copy.content = [TextContent(text=message_copy.content), system_msg]
+            elif isinstance(message_copy.content, list):
+                message_copy.content = list(message_copy.content) + [system_msg]
+            else:
+                message_copy.content = [system_msg]
+
+            # Pass actor (Client) and user (User) to memory agent
+            # actor is needed for write operations, user is needed for read operations
+            memory_agent.step(
+                input_messages=message_copy,
+                chaining=user_message.get("chaining", False),
+                actor=actor,  # Client for write operations
+                user=user,  # User for read operations
+            )
+
+            trace_success = True
+            return (
+                f"[System Message] Agent {agent_state.name} has been triggered to update the memory.\n"
+            )
+        except Exception as exc:
+            trace_error = str(exc)
+            raise
+        finally:
+            if agent_trace:
+                counts = get_memory_update_counts()
+                trace_manager.finish_trace(
+                    agent_trace.id,
+                    success=trace_success,
+                    error_message=trace_error,
+                    memory_update_counts=counts,
+                    actor=actor,
+                )
+            if counts_token:
+                reset_memory_update_counts(counts_token)
+            if agent_trace_token:
+                reset_agent_trace_id(agent_trace_token)
+            if parent_token:
+                reset_parent_agent_trace_id(parent_token)
+            if queue_token:
+                reset_queue_trace_id(queue_token)
 
     max_workers = min(len(memory_types), max(os.cpu_count() or 1, 1))
     responses: dict[int, str] = {}

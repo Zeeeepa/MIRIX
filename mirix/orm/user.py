@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mirix.orm.mixins import OrganizationMixin
@@ -28,6 +29,12 @@ class User(SqlalchemyBase, OrganizationMixin):
     )
     is_admin: Mapped[bool] = mapped_column(
         nullable=False, default=False, doc="Whether this is an admin user for the client."
+    )
+    last_self_reflection_time: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        doc="The last time self-reflection was performed for this user."
     )
     
     # Foreign key to Client - each user belongs to one client

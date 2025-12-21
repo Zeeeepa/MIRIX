@@ -23,6 +23,7 @@ from mirix.schemas.openai.chat_completion_response import (
     Choice,
     FunctionCall,
     Message,
+    PromptTokensDetails,
     ToolCall,
     UsageStatistics,
 )
@@ -88,12 +89,23 @@ class GoogleAIClient(LLMClientBase):
             "max_output_tokens": llm_config.max_tokens,
         }
 
-        # Only add thinkingConfig for models that support it
-        # gemini-2.0-flash and gemini-1.5-pro don't support thinking
-        if not ("2.0" in llm_config.model or "1.5" in llm_config.model):
-            generation_config["thinkingConfig"] = {
-                "thinkingBudget": 1024
-            }  # TODO: put into llm_config
+        # Determine if model supports thinking
+        # Gemini 2.5 and later support thinking, 1.5 and 2.0 don't
+        model_supports_thinking = not (
+            "2.0" in llm_config.model or "1.5" in llm_config.model
+        )
+
+        # Add thinkingConfig if enabled and model supports it
+        if llm_config.enable_reasoner and model_supports_thinking:
+            thinking_budget = (
+                llm_config.max_reasoning_tokens
+                if llm_config.max_reasoning_tokens > 0
+                else 1024
+            )
+            generation_config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+            logger.debug(
+                f"Google AI thinking enabled: model={llm_config.model}, budget={thinking_budget}"
+            )
 
         contents = self.combine_tool_responses(contents)
 
@@ -312,7 +324,7 @@ class GoogleAIClient(LLMClientBase):
             for candidate in response_data["candidates"]:
                 content = candidate["content"]
 
-                if 'role' not in content:
+                if "role" not in content:
                     raise ValueError("Empty response from Google AI API")
 
                 role = content["role"]
@@ -320,7 +332,20 @@ class GoogleAIClient(LLMClientBase):
 
                 parts = content["parts"]
 
+                # Collect thinking/reasoning content and other content separately
+                reasoning_content = None
+                text_content = None
+                tool_calls_list = []
+
                 for response_message in parts:
+                    # Check for thinking/thought content (Google AI reasoning)
+                    if "thought" in response_message:
+                        reasoning_content = response_message["thought"]
+                        logger.debug(
+                            f"Google AI reasoning content received: {len(reasoning_content)} chars"
+                        )
+                        continue
+
                     # Convert the actual message style to OpenAI style
                     if (
                         "functionCall" in response_message
@@ -333,63 +358,68 @@ class GoogleAIClient(LLMClientBase):
                         function_args = function_call["args"]
                         assert isinstance(function_args, dict), function_args
 
-                        # Google AI API doesn't generate tool call IDs
-                        openai_response_message = Message(
-                            role="assistant",  # NOTE: "model" -> "assistant"
-                            content=None,
-                            tool_calls=[
-                                ToolCall(
-                                    id=get_tool_call_id(),
-                                    type="function",
-                                    function=FunctionCall(
-                                        name=function_name,
-                                        arguments=clean_json_string_extra_backslash(
-                                            json_dumps(function_args)
-                                        ),
+                        tool_calls_list.append(
+                            ToolCall(
+                                id=get_tool_call_id(),
+                                type="function",
+                                function=FunctionCall(
+                                    name=function_name,
+                                    arguments=clean_json_string_extra_backslash(
+                                        json_dumps(function_args)
                                     ),
-                                )
-                            ],
+                                ),
+                            )
                         )
+                    elif "text" in response_message:
+                        text_content = response_message["text"]
 
-                    else:
-                        # Google AI API doesn't generate tool call IDs
-                        openai_response_message = Message(
-                            role="assistant",  # NOTE: "model" -> "assistant"
-                            content=response_message["text"],
-                        )
-
-                    # Google AI API uses different finish reason strings than OpenAI
-                    # OpenAI: 'stop', 'length', 'function_call', 'content_filter', null
-                    #   see: https://platform.openai.com/docs/guides/text-generation/chat-completions-api
-                    # Google AI API: FINISH_REASON_UNSPECIFIED, STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER
-                    #   see: https://ai.google.dev/api/python/google/ai/generativelanguage/Candidate/FinishReason
-                    finish_reason = candidate["finishReason"]
-                    if finish_reason == "STOP":
-                        openai_finish_reason = (
-                            "function_call"
-                            if openai_response_message.tool_calls is not None
-                            and len(openai_response_message.tool_calls) > 0
-                            else "stop"
-                        )
-                    elif finish_reason == "MAX_TOKENS":
-                        openai_finish_reason = "length"
-                    elif finish_reason == "SAFETY":
-                        openai_finish_reason = "content_filter"
-                    elif finish_reason == "RECITATION":
-                        openai_finish_reason = "content_filter"
-                    else:
-                        raise ValueError(
-                            f"Unrecognized finish reason in Google AI response: {finish_reason}"
-                        )
-
-                    choices.append(
-                        Choice(
-                            finish_reason=openai_finish_reason,
-                            index=index,
-                            message=openai_response_message,
-                        )
+                # Build the message with all collected parts
+                if tool_calls_list:
+                    openai_response_message = Message(
+                        role="assistant",
+                        content=text_content,
+                        tool_calls=tool_calls_list,
+                        reasoning_content=reasoning_content,
                     )
-                    index += 1
+                else:
+                    openai_response_message = Message(
+                        role="assistant",
+                        content=text_content,
+                        reasoning_content=reasoning_content,
+                    )
+
+                # Google AI API uses different finish reason strings than OpenAI
+                # OpenAI: 'stop', 'length', 'function_call', 'content_filter', null
+                #   see: https://platform.openai.com/docs/guides/text-generation/chat-completions-api
+                # Google AI API: FINISH_REASON_UNSPECIFIED, STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER
+                #   see: https://ai.google.dev/api/python/google/ai/generativelanguage/Candidate/FinishReason
+                finish_reason = candidate["finishReason"]
+                if finish_reason == "STOP":
+                    openai_finish_reason = (
+                        "function_call"
+                        if openai_response_message.tool_calls is not None
+                        and len(openai_response_message.tool_calls) > 0
+                        else "stop"
+                    )
+                elif finish_reason == "MAX_TOKENS":
+                    openai_finish_reason = "length"
+                elif finish_reason == "SAFETY":
+                    openai_finish_reason = "content_filter"
+                elif finish_reason == "RECITATION":
+                    openai_finish_reason = "content_filter"
+                else:
+                    raise ValueError(
+                        f"Unrecognized finish reason in Google AI response: {finish_reason}"
+                    )
+
+                choices.append(
+                    Choice(
+                        finish_reason=openai_finish_reason,
+                        index=index,
+                        message=openai_response_message,
+                    )
+                )
+                index += 1
 
             # NOTE: some of the Google AI APIs show UsageMetadata in the response, but it seems to not exist?
             #  "usageMetadata": {
@@ -416,10 +446,18 @@ class GoogleAIClient(LLMClientBase):
                 completion_tokens = usage_data["candidatesTokenCount"]
                 total_tokens = usage_data["totalTokenCount"]
 
+                # Extract cached tokens from Google's format (cachedContentTokenCount)
+                cached_tokens = usage_data.get("cachedContentTokenCount", 0)
+                prompt_tokens_details = (
+                    PromptTokensDetails(cached_tokens=cached_tokens)
+                    if cached_tokens > 0
+                    else None
+                )
                 usage = UsageStatistics(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
+                    prompt_tokens_details=prompt_tokens_details,
                 )
             else:
                 # Count it ourselves

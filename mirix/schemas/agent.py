@@ -30,7 +30,7 @@ class AgentType(str, Enum):
     episodic_memory_agent = "episodic_memory_agent"
     procedural_memory_agent = "procedural_memory_agent"
     resource_memory_agent = "resource_memory_agent"
-    knowledge_vault_memory_agent = "knowledge_vault_memory_agent"
+    knowledge_memory_agent = "knowledge_memory_agent"
     meta_memory_agent = "meta_memory_agent"
     semantic_memory_agent = "semantic_memory_agent"
     core_memory_agent = "core_memory_agent"
@@ -48,7 +48,7 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
         tools (List[str]): The tools used by the agent. This includes any memory editing functions specified in `memory`.
         system (str): The system prompt used by the agent.
         llm_config (LLMConfig): The LLM configuration used by the agent.
-        embedding_config (EmbeddingConfig): The embedding configuration used by the agent.
+        embedding_config (Optional[EmbeddingConfig]): The embedding configuration used by the agent.
 
     """
 
@@ -78,8 +78,8 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     llm_config: LLMConfig = Field(
         ..., description="The LLM configuration used by the agent."
     )
-    embedding_config: EmbeddingConfig = Field(
-        ..., description="The embedding configuration used by the agent."
+    embedding_config: Optional[EmbeddingConfig] = Field(
+        None, description="The embedding configuration used by the agent."
     )
 
     # This is an object representing the in-process state of a running `Agent`
@@ -104,6 +104,10 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     mcp_tools: Optional[List[str]] = Field(
         default_factory=list,
         description="List of connected MCP server names (e.g., ['gmail-native'])",
+    )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
     )
 
 
@@ -189,6 +193,10 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     mcp_tools: Optional[List[str]] = Field(
         None, description="List of MCP server names to connect to this agent."
     )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
+    )
 
     @field_validator("name")
     @classmethod
@@ -264,6 +272,9 @@ class UpdateAgent(BaseModel):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the agent."
     )
+    clear_embedding_config: bool = Field(
+        False, description="If true, clear the embedding configuration."
+    )
     message_ids: Optional[List[str]] = Field(
         None, description="The ids of the messages in the agent's in-context memory."
     )
@@ -276,9 +287,50 @@ class UpdateAgent(BaseModel):
     mcp_tools: Optional[List[str]] = Field(
         None, description="List of MCP server names to connect to this agent."
     )
+    memory_config: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Memory configuration including decay settings (fade_after_days, expire_after_days)",
+    )
 
     class Config:
         extra = "ignore"  # Ignores extra fields
+
+
+class MemoryBlockConfig(BaseModel):
+    """Configuration for a memory block."""
+
+    label: str = Field(..., description="Label for the memory block (e.g., 'human', 'persona').")
+    value: str = Field("", description="Initial value for the memory block.")
+    limit: Optional[int] = Field(None, description="Character limit for the block.")
+
+
+class MemoryDecayConfig(BaseModel):
+    """Configuration for memory decay/aging behavior."""
+
+    fade_after_days: Optional[int] = Field(
+        None,
+        description="Memories older than this many days become inactive (excluded from retrieval). Set to None to disable fading.",
+    )
+    expire_after_days: Optional[int] = Field(
+        None,
+        description="Memories older than this many days are permanently deleted. Set to None to disable expiration.",
+    )
+
+
+class MemoryConfig(BaseModel):
+    """Configuration for memory structure."""
+
+    core: List[MemoryBlockConfig] = Field(
+        default_factory=lambda: [
+            MemoryBlockConfig(label="human", value="", limit=None),
+            MemoryBlockConfig(label="persona", value="I am a helpful assistant.", limit=None),
+        ],
+        description="List of core memory blocks to create for core_memory_agent.",
+    )
+    decay: Optional[MemoryDecayConfig] = Field(
+        None,
+        description="Memory decay configuration. Controls automatic aging and cleanup of memories.",
+    )
 
 
 class CreateMetaAgent(BaseModel):
@@ -288,19 +340,23 @@ class CreateMetaAgent(BaseModel):
         None,
         description="Optional name for the MetaAgent. If None, a random name will be generated.",
     )
-    agents: List[Union[str, Dict[str, Any]]] = Field(
+    agents: List[str] = Field(
         default_factory=lambda: [
             "core_memory_agent",
             "resource_memory_agent",
             "semantic_memory_agent",
             "episodic_memory_agent",
             "procedural_memory_agent",
-            "knowledge_vault_memory_agent",
+            "knowledge_memory_agent",
             "meta_memory_agent",
             "reflexion_agent",
             "background_agent",
         ],
-        description="List of memory agent names or dicts with agent configs. Supports both 'agent_name' strings and {'agent_name': {'blocks': [...], ...}} dicts.",
+        description="List of memory agent names to create. Each agent is specified as a string (e.g., 'episodic_memory_agent').",
+    )
+    memory: Optional[MemoryConfig] = Field(
+        None,
+        description="Memory configuration containing blocks for core_memory_agent. If not provided, default blocks are created.",
     )
     system_prompts: Optional[Dict[str, str]] = Field(
         None,
@@ -322,9 +378,13 @@ class UpdateMetaAgent(BaseModel):
         None,
         description="Optional new name for the MetaAgent.",
     )
-    agents: Optional[List[Union[str, Dict[str, Any]]]] = Field(
+    agents: Optional[List[str]] = Field(
         None,
-        description="List of memory agent names or dicts with agent configs. Will be compared with existing agents to determine what to add/remove.",
+        description="List of memory agent names. Will be compared with existing agents to determine what to add/remove.",
+    )
+    memory: Optional[MemoryConfig] = Field(
+        None,
+        description="Memory configuration containing blocks for core_memory_agent. Updates the memory structure.",
     )
     system_prompts: Optional[Dict[str, str]] = Field(
         None,
@@ -337,6 +397,10 @@ class UpdateMetaAgent(BaseModel):
     embedding_config: Optional[EmbeddingConfig] = Field(
         None,
         description="Embedding configuration for meta agent and its sub-agents.",
+    )
+    clear_embedding_config: bool = Field(
+        False,
+        description="If true, clear embedding configuration for meta agent and its sub-agents.",
     )
 
     class Config:

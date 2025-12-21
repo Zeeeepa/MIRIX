@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 import mirix.constants as constants
 import mirix.server.utils as server_utils
@@ -26,7 +27,7 @@ from mirix.agent import (
     BackgroundAgent,
     CoreMemoryAgent,
     EpisodicMemoryAgent,
-    KnowledgeVaultAgent,
+    KnowledgeMemoryAgent,
     MetaMemoryAgent,
     ProceduralMemoryAgent,
     ReflexionAgent,
@@ -59,26 +60,11 @@ from mirix.schemas.memory import (
 )
 from mirix.schemas.message import Message, MessageCreate, MessageUpdate
 from mirix.schemas.mirix_message import (
-    LegacyMirixMessage,
     MirixMessage,
     ToolReturnMessage,
 )
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
-from mirix.schemas.providers import (
-    AnthropicBedrockProvider,
-    AnthropicProvider,
-    AzureProvider,
-    GoogleAIProvider,
-    GroqProvider,
-    MirixProvider,
-    OllamaProvider,
-    OpenAIProvider,
-    Provider,
-    TogetherProvider,
-    VLLMChatCompletionsProvider,
-    VLLMCompletionsProvider,
-)
 from mirix.schemas.tool import Tool
 from mirix.schemas.usage import MirixUsageStatistics
 from mirix.schemas.user import User
@@ -88,7 +74,7 @@ from mirix.services.block_manager import BlockManager
 from mirix.services.client_manager import ClientManager
 from mirix.services.cloud_file_mapping_manager import CloudFileMappingManager
 from mirix.services.episodic_memory_manager import EpisodicMemoryManager
-from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
 from mirix.services.message_manager import MessageManager
 from mirix.services.organization_manager import OrganizationManager
 from mirix.services.per_agent_lock_manager import PerAgentLockManager
@@ -343,28 +329,40 @@ if not USE_PGLITE and settings.mirix_pg_uri_no_default:
     # Create all tables for PostgreSQL
     Base.metadata.create_all(bind=engine)
 elif not USE_PGLITE:
-    # TODO: don't rely on config storage
-    sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
+    sqlite_path = (config.recall_storage_path or "").strip()
+    sqlite_in_memory = sqlite_path.lower() == ":memory:"
 
-    logger.info("DATABASE CONNECTION: SQLite mode")
-    logger.debug("Connection String: sqlite:///%s", sqlite_db_path)
+    if sqlite_in_memory:
+        logger.info("DATABASE CONNECTION: SQLite in-memory mode")
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+            echo=False,
+        )
+    else:
+        # TODO: don't rely on config storage
+        sqlite_db_path = os.path.join(config.recall_storage_path, "sqlite.db")
 
-    # Configure SQLite engine with proper concurrency settings
-    engine = create_engine(
-        f"sqlite:///{sqlite_db_path}",
-        # Connection pooling configuration for better concurrency
-        pool_size=20,
-        max_overflow=30,
-        pool_timeout=30,
-        pool_recycle=3600,
-        pool_pre_ping=True,
-        # Enable SQLite-specific options
-        connect_args={
-            "check_same_thread": False,  # Allow sharing connections between threads
-            "timeout": 30,  # 30 second timeout for database locks
-        },
-        echo=False,
-    )
+        logger.info("DATABASE CONNECTION: SQLite mode")
+        logger.debug("Connection String: sqlite:///%s", sqlite_db_path)
+
+        # Configure SQLite engine with proper concurrency settings
+        engine = create_engine(
+            f"sqlite:///{sqlite_db_path}",
+            # Connection pooling configuration for better concurrency
+            pool_size=20,
+            max_overflow=30,
+            pool_timeout=30,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            # Enable SQLite-specific options
+            connect_args={
+                "check_same_thread": False,  # Allow sharing connections between threads
+                "timeout": 30,  # 30 second timeout for database locks
+            },
+            echo=False,
+        )
 
     # Store the original connect method
     original_connect = engine.connect
@@ -485,7 +483,7 @@ class SyncServer(Server):
         self.step_manager = StepManager()
 
         # Newly added managers
-        self.knowledge_vault_manager = KnowledgeVaultManager()
+        self.knowledge_memory_manager = KnowledgeMemoryManager()
         self.episodic_memory_manager = EpisodicMemoryManager()
         self.procedural_memory_manager = ProceduralMemoryManager()
         self.resource_memory_manager = ResourceMemoryManager()
@@ -508,99 +506,6 @@ class SyncServer(Server):
             # self.block_manager.add_default_blocks(actor=self.admin_user)
             self.tool_manager.upsert_base_tools(actor=self.default_client)
 
-        # collect providers (always has Mirix as a default)
-        self._enabled_providers: List[Provider] = [MirixProvider()]
-
-        # Check for database-stored API key first, fall back to model_settings
-        openai_override_key = ProviderManager().get_openai_override_key()
-        openai_api_key = (
-            openai_override_key
-            if openai_override_key
-            else model_settings.openai_api_key
-        )
-
-        if openai_api_key:
-            self._enabled_providers.append(
-                OpenAIProvider(
-                    api_key=openai_api_key,
-                    base_url=model_settings.openai_api_base,
-                )
-            )
-        if model_settings.anthropic_api_key:
-            self._enabled_providers.append(
-                AnthropicProvider(
-                    api_key=model_settings.anthropic_api_key,
-                )
-            )
-        if model_settings.ollama_base_url:
-            self._enabled_providers.append(
-                OllamaProvider(
-                    base_url=model_settings.ollama_base_url,
-                    api_key=None,
-                )
-            )
-        # Check for database-stored API key first, fall back to model_settings
-        gemini_override_key = ProviderManager().get_gemini_override_key()
-        gemini_api_key = (
-            gemini_override_key
-            if gemini_override_key
-            else model_settings.gemini_api_key
-        )
-
-        if gemini_api_key:
-            self._enabled_providers.append(
-                GoogleAIProvider(
-                    api_key=gemini_api_key,
-                )
-            )
-        if model_settings.azure_api_key and model_settings.azure_base_url:
-            assert model_settings.azure_api_version, "AZURE_API_VERSION is required"
-            self._enabled_providers.append(
-                AzureProvider(
-                    api_key=model_settings.azure_api_key,
-                    base_url=model_settings.azure_base_url,
-                    api_version=model_settings.azure_api_version,
-                )
-            )
-        if model_settings.groq_api_key:
-            self._enabled_providers.append(
-                GroqProvider(
-                    api_key=model_settings.groq_api_key,
-                )
-            )
-        if model_settings.together_api_key:
-            self._enabled_providers.append(
-                TogetherProvider(
-                    api_key=model_settings.together_api_key,
-                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
-                )
-            )
-        if model_settings.vllm_api_base:
-            # vLLM exposes both a /chat/completions and a /completions endpoint
-            self._enabled_providers.append(
-                VLLMCompletionsProvider(
-                    base_url=model_settings.vllm_api_base,
-                    default_prompt_formatter=constants.DEFAULT_WRAPPER_NAME,
-                )
-            )
-            # NOTE: to use the /chat/completions endpoint, you need to specify extra flags on vLLM startup
-            # see: https://docs.vllm.ai/en/latest/getting_started/examples/openai_chat_completion_client_with_tools.html
-            # e.g. "... --enable-auto-tool-choice --tool-call-parser hermes"
-            self._enabled_providers.append(
-                VLLMChatCompletionsProvider(
-                    base_url=model_settings.vllm_api_base,
-                )
-            )
-        if (
-            model_settings.aws_access_key
-            and model_settings.aws_secret_access_key
-            and model_settings.aws_region
-        ):
-            self._enabled_providers.append(
-                AnthropicBedrockProvider(
-                    aws_region=model_settings.aws_region,
-                )
-            )
 
     def load_agent(
         self, agent_id: str, actor: Client, interface: Union[AgentInterface, None] = None, filter_tags: Optional[dict] = None, use_cache: bool = True, user: Optional[User] = None
@@ -621,8 +526,8 @@ class SyncServer(Server):
                 agent = EpisodicMemoryAgent(
                     agent_state=agent_state, interface=interface, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
                 )
-            elif agent_state.agent_type == AgentType.knowledge_vault_memory_agent:
-                agent = KnowledgeVaultAgent(
+            elif agent_state.agent_type == AgentType.knowledge_memory_agent:
+                agent = KnowledgeMemoryAgent(
                     agent_state=agent_state, interface=interface, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
                 )
             elif agent_state.agent_type == AgentType.procedural_memory_agent:
@@ -678,6 +583,12 @@ class SyncServer(Server):
         """Send the input message through the agent"""
         logger.debug("Got input messages: %s", input_messages)
         mirix_agent = None
+        trace_manager = None
+        agent_trace = None
+        agent_trace_token = None
+        counts_token = None
+        trace_success = False
+        trace_error = None
         try:
             mirix_agent = self.load_agent(
                 agent_id=agent_id, interface=None, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
@@ -691,6 +602,30 @@ class SyncServer(Server):
             # Store occurred_at on agent instance for use during memory extraction
             if occurred_at is not None:
                 mirix_agent.occurred_at = occurred_at
+
+            # Initialize per-agent trace context if queue tracing is active
+            from mirix.services.memory_agent_trace_manager import MemoryAgentTraceManager
+            from mirix.services.queue_trace_context import (
+                get_parent_agent_trace_id,
+                get_queue_trace_id,
+                get_memory_update_counts,
+                init_memory_update_counts,
+                reset_agent_trace_id,
+                reset_memory_update_counts,
+                set_agent_trace_id,
+            )
+
+            queue_trace_id = get_queue_trace_id()
+            if queue_trace_id:
+                trace_manager = MemoryAgentTraceManager()
+                agent_trace = trace_manager.start_trace(
+                    queue_trace_id=queue_trace_id,
+                    parent_trace_id=get_parent_agent_trace_id(),
+                    agent_state=mirix_agent.agent_state,
+                    actor=actor,
+                )
+                agent_trace_token = set_agent_trace_id(agent_trace.id)
+                counts_token = init_memory_update_counts()
 
             # Determine whether or not to token stream based on the capability of the interface
             token_streaming = (
@@ -708,7 +643,7 @@ class SyncServer(Server):
             if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
                 meta_message = MessageCreate(
                     role="user",
-                    content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)",
+                    content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge, semantic, core, and resource)",
                     filter_tags=filter_tags,  # Also attach to message for reference
                 )
                 logger.debug("Created meta_message with filter_tags=%s", filter_tags)
@@ -727,12 +662,27 @@ class SyncServer(Server):
                 actor=actor,  # Client for write operations (audit trail)
                 user=user     # User for read operations (data filtering)
             )
+            trace_success = True
 
         except Exception as e:
             logger.error("Error in server._step: %s", e)
             logger.error(traceback.print_exc())
+            trace_error = str(e)
             raise
         finally:
+            if trace_manager and agent_trace:
+                counts = get_memory_update_counts()
+                trace_manager.finish_trace(
+                    agent_trace.id,
+                    success=trace_success,
+                    error_message=trace_error,
+                    memory_update_counts=counts,
+                    actor=actor,
+                )
+            if counts_token:
+                reset_memory_update_counts(counts_token)
+            if agent_trace_token:
+                reset_agent_trace_id(agent_trace_token)
             logger.debug("Calling step_yield()")
             if mirix_agent:
                 mirix_agent.interface.step_yield()
@@ -1076,21 +1026,11 @@ class SyncServer(Server):
         interface: Union[AgentInterface, None] = None,
     ) -> AgentState:
         if request.llm_config is None:
-            if request.model is None:
-                raise ValueError("Must specify either model or llm_config in request")
-            request.llm_config = self.get_llm_config_from_handle(
-                handle=request.model, context_window_limit=request.context_window_limit
-            )
+            raise ValueError("Must specify llm_config in request")
 
-        if request.embedding_config is None:
-            if request.embedding is None:
-                raise ValueError(
-                    "Must specify either embedding or embedding_config in request"
-                )
-            request.embedding_config = self.get_embedding_config_from_handle(
-                handle=request.embedding,
-                embedding_chunk_size=request.embedding_chunk_size
-                or constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
+        if settings.build_embeddings_for_memory and request.embedding_config is None:
+            raise ValueError(
+                "Must specify embedding_config in request when build_embeddings_for_memory is true"
             )
 
         """Create a new agent using a config"""
@@ -1232,116 +1172,20 @@ class SyncServer(Server):
             )
 
     def list_llm_models(self) -> List[LLMConfig]:
-        """List available models"""
-
-        llm_models = []
-        for provider in self.get_enabled_providers():
-            try:
-                llm_models.extend(provider.list_llm_models())
-            except Exception as e:
-                warnings.warn(
-                    f"An error occurred while listing LLM models for provider {provider}: {e}"
-                )
-        return llm_models
+        """List available models (deprecated - returns empty list)"""
+        return []
 
     def list_embedding_models(self) -> List[EmbeddingConfig]:
-        """List available embedding models"""
-        embedding_models = []
-        for provider in self.get_enabled_providers():
-            try:
-                embedding_models.extend(provider.list_embedding_models())
-            except Exception as e:
-                warnings.warn(
-                    f"An error occurred while listing embedding models for provider {provider}: {e}"
-                )
-        return embedding_models
-
-    def get_enabled_providers(self):
-        providers_from_env = {p.name: p for p in self._enabled_providers}
-        providers_from_db = {p.name: p for p in self.provider_manager.list_providers()}
-        # Merge the two dictionaries, keeping the values from providers_from_db where conflicts occur
-        return {**providers_from_env, **providers_from_db}.values()
-
-    def get_llm_config_from_handle(
-        self, handle: str, context_window_limit: Optional[int] = None
-    ) -> LLMConfig:
-        provider_name, model_name = handle.split("/", 1)
-        provider = self.get_provider_from_name(provider_name)
-
-        llm_configs = [
-            config
-            for config in provider.list_llm_models()
-            if config.model == model_name
-        ]
-        if not llm_configs:
-            raise ValueError(
-                f"LLM model {model_name} is not supported by {provider_name}"
-            )
-        elif len(llm_configs) > 1:
-            raise ValueError(
-                f"Multiple LLM models with name {model_name} supported by {provider_name}"
-            )
-        else:
-            llm_config = llm_configs[0]
-
-        if context_window_limit:
-            if context_window_limit > llm_config.context_window:
-                raise ValueError(
-                    f"Context window limit ({context_window_limit}) is greater than maximum of ({llm_config.context_window})"
-                )
-            llm_config.context_window = context_window_limit
-
-        return llm_config
-
-    def get_embedding_config_from_handle(
-        self,
-        handle: str,
-        embedding_chunk_size: int = constants.DEFAULT_EMBEDDING_CHUNK_SIZE,
-    ) -> EmbeddingConfig:
-        provider_name, model_name = handle.split("/", 1)
-        provider = self.get_provider_from_name(provider_name)
-
-        embedding_configs = [
-            config
-            for config in provider.list_embedding_models()
-            if config.embedding_model == model_name
-        ]
-        if not embedding_configs:
-            raise ValueError(
-                f"Embedding model {model_name} is not supported by {provider_name}"
-            )
-        elif len(embedding_configs) > 1:
-            raise ValueError(
-                f"Multiple embedding models with name {model_name} supported by {provider_name}"
-            )
-        else:
-            embedding_config = embedding_configs[0]
-
-        if embedding_chunk_size:
-            embedding_config.embedding_chunk_size = embedding_chunk_size
-
-        return embedding_config
-
-    def get_provider_from_name(self, provider_name: str) -> Provider:
-        providers = [
-            provider
-            for provider in self._enabled_providers
-            if provider.name == provider_name
-        ]
-        if not providers:
-            raise ValueError(f"Provider {provider_name} is not supported")
-        elif len(providers) > 1:
-            raise ValueError(f"Multiple providers with name {provider_name} supported")
-        else:
-            provider = providers[0]
-
-        return provider
+        """List available embedding models (deprecated - returns empty list)"""
+        return []
 
     def add_llm_model(self, request: LLMConfig) -> LLMConfig:
-        """Add a new LLM model"""
+        """Add a new LLM model (not implemented)"""
+        raise NotImplementedError("Dynamic model registration is not supported")
 
     def add_embedding_model(self, request: EmbeddingConfig) -> EmbeddingConfig:
-        """Add a new embedding model"""
+        """Add a new embedding model (not implemented)"""
+        raise NotImplementedError("Dynamic model registration is not supported")
 
     def get_agent_context_window(
         self, agent_id: str, actor: Client
@@ -1539,7 +1383,6 @@ class SyncServer(Server):
                 async for message in streaming_interface.get_generator():
                     assert (
                         isinstance(message, MirixMessage)
-                        or isinstance(message, LegacyMirixMessage)
                         or isinstance(message, MessageStreamStatus)
                     ), type(message)
                     generated_stream.append(message)

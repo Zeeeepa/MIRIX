@@ -7,6 +7,8 @@ llm_config:
   model_endpoint: "https://generativelanguage.googleapis.com"
   context_window: 1000000
 
+build_embeddings_for_memory: true
+
 embedding_config:
   embedding_model: "text-embedding-004"
   embedding_endpoint_type: "google_ai"
@@ -16,17 +18,22 @@ embedding_config:
 meta_agent_config:
   system_prompts_folder: mirix\prompts\system\base
   agents:
-    - core_memory_agent:
-        blocks:
-          - label: "human"
-            value: ""
-          - label: "persona"
-            value: "I am a helpful assistant."
+    - core_memory_agent
     - resource_memory_agent
     - semantic_memory_agent
     - episodic_memory_agent
     - procedural_memory_agent
-    - knowledge_vault_memory_agent
+    - knowledge_memory_agent
     - reflexion_agent
     - background_agent
+  memory:
+    core:
+      - label: "human"
+        value: ""
+      - label: "persona"
+        value: "I am a helpful assistant."
+    # Memory decay - controls automatic aging and cleanup
+    decay:
+      fade_after_days: 30     # Memories older than this become inactive (excluded from retrieval)
+      expire_after_days: 90   # Memories older than this are permanently deleted
 

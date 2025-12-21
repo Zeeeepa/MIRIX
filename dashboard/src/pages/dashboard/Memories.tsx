@@ -23,7 +23,7 @@ type MemoryTab =
   | 'semantic'
   | 'procedural'
   | 'resource'
-  | 'knowledge_vault'
+  | 'knowledge'
   | 'core';
 
 interface MemoryCollection<T> {
@@ -71,7 +71,7 @@ interface ResourceMemory {
   updated_at?: string;
 }
 
-interface KnowledgeVaultMemory {
+interface KnowledgeMemory {
   id: string;
   entry_type?: string;
   source?: string;
@@ -93,7 +93,7 @@ type MemoryCollections = {
   semantic?: MemoryCollection<SemanticMemory>;
   procedural?: MemoryCollection<ProceduralMemory>;
   resource?: MemoryCollection<ResourceMemory>;
-  knowledge_vault?: MemoryCollection<KnowledgeVaultMemory>;
+  knowledge?: MemoryCollection<KnowledgeMemory>;
   core?: MemoryCollection<CoreMemory>;
 };
 
@@ -105,7 +105,7 @@ const DEFAULT_FIELDS: Record<MemoryTypeFilter, string[]> = {
   semantic: ['name', 'summary', 'details'],
   procedural: ['summary', 'steps'],
   resource: ['summary', 'content'],
-  knowledge_vault: ['caption', 'secret_value'],
+  knowledge: ['caption', 'secret_value'],
   core: ['label', 'value'],
 };
 
@@ -114,14 +114,15 @@ const MEMORY_TABS: { key: MemoryTab; label: string }[] = [
   { key: 'semantic', label: 'Semantic' },
   { key: 'procedural', label: 'Procedural' },
   { key: 'resource', label: 'Resource' },
-  { key: 'knowledge_vault', label: 'Knowledge Vault' },
+  { key: 'knowledge', label: 'Knowledge' },
   { key: 'core', label: 'Core' },
 ];
 
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : 'N/A');
+const normalizeUserToken = (value: string) => value.replace(/_/g, '-');
 
 export const Memories: React.FC = () => {
-  const { selectedUser } = useWorkspace();
+  const { users, selectedUser, setSelectedUser, isLoading: usersLoading } = useWorkspace();
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<MemoryResult[]>([]);
@@ -143,11 +144,25 @@ export const Memories: React.FC = () => {
   const [expandedKnowledge, setExpandedKnowledge] = useState<Record<string, boolean>>({});
   const [fieldsByType, setFieldsByType] = useState<Record<MemoryTypeFilter, string[]>>(DEFAULT_FIELDS);
   const prevUserIdRef = useRef<string | null>(null);
+  const userParam = searchParams.get('user');
+  const searchParamsString = searchParams.toString();
+  const userParamAppliedRef = useRef(false);
+  const lastUserParamRef = useRef<string | null>(null);
+  const normalizedUserParam = userParam ? normalizeUserToken(userParam) : null;
+  const userParamValid =
+    !!userParam &&
+    users.some(
+      (user) =>
+        user.id === userParam ||
+        user.name === userParam ||
+        normalizeUserToken(user.id) === normalizedUserParam ||
+        normalizeUserToken(user.name) === normalizedUserParam
+    );
 
   // Initialize state from URL params
   useEffect(() => {
     const typeParam = searchParams.get('type') as MemoryTypeFilter | null;
-    if (typeParam && (['all', 'episodic', 'semantic', 'procedural', 'resource', 'knowledge_vault', 'core'] as MemoryTypeFilter[]).includes(typeParam)) {
+    if (typeParam && (['all', 'episodic', 'semantic', 'procedural', 'resource', 'knowledge', 'core'] as MemoryTypeFilter[]).includes(typeParam)) {
       setMemoryTypeFilter(typeParam);
     }
 
@@ -162,7 +177,7 @@ export const Memories: React.FC = () => {
     }
 
     const tabParam = searchParams.get('tab') as MemoryTab | null;
-    if (tabParam && (['episodic', 'semantic', 'procedural', 'resource', 'knowledge_vault', 'core'] as MemoryTab[]).includes(tabParam)) {
+    if (tabParam && (['episodic', 'semantic', 'procedural', 'resource', 'knowledge', 'core'] as MemoryTab[]).includes(tabParam)) {
       setMemoryTab(tabParam);
     }
 
@@ -176,6 +191,7 @@ export const Memories: React.FC = () => {
     if (modeParam === 'search' || modeParam === 'list') {
       setViewMode(modeParam);
     }
+
   }, []); // run once on mount
 
   const fetchMemoryComponents = useCallback(async () => {
@@ -252,6 +268,27 @@ export const Memories: React.FC = () => {
     }
   }, [selectedUser?.id, fetchMemoryComponents]);
 
+  useEffect(() => {
+    if (usersLoading || !userParam || users.length === 0) return;
+    const matchingUser =
+      users.find((user) => user.id === userParam || user.name === userParam) ||
+      (normalizedUserParam
+        ? users.find(
+            (user) =>
+              normalizeUserToken(user.id) === normalizedUserParam ||
+              normalizeUserToken(user.name) === normalizedUserParam
+          )
+        : null);
+    const userParamChanged = userParam !== lastUserParamRef.current;
+    if (matchingUser && (userParamChanged || !userParamAppliedRef.current)) {
+      if (selectedUser?.id !== matchingUser.id) {
+        setSelectedUser(matchingUser);
+      }
+      userParamAppliedRef.current = true;
+    }
+    lastUserParamRef.current = userParam;
+  }, [usersLoading, userParam, users, selectedUser?.id, setSelectedUser]);
+
   const toggleEpisodic = (id: string) => {
     setExpandedEpisodic((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -283,12 +320,12 @@ export const Memories: React.FC = () => {
       setSearchField(availableFields[0] || 'summary');
       return;
     }
-    // Avoid invalid combinations: embedding cannot search resource.content or knowledge_vault.secret_value
+    // Avoid invalid combinations: embedding cannot search resource.content or knowledge.secret_value
     if (searchMethod === 'embedding') {
       if (memoryTypeFilter === 'resource' && searchField === 'content') {
         setSearchField('summary');
       }
-      if (memoryTypeFilter === 'knowledge_vault' && searchField === 'secret_value') {
+      if (memoryTypeFilter === 'knowledge' && searchField === 'secret_value') {
         setSearchField('caption');
       }
     }
@@ -303,8 +340,26 @@ export const Memories: React.FC = () => {
     params.set('method', searchMethod);
     params.set('tab', memoryTab);
     params.set('mode', viewMode);
-    setSearchParams(params, { replace: true });
-  }, [query, memoryTypeFilter, searchField, searchMethod, memoryTab, viewMode, setSearchParams]);
+    const deferUserParamUpdate = !!userParam && userParamValid && !userParamAppliedRef.current;
+    const userIdParam = deferUserParamUpdate ? userParam : selectedUser?.id || userParam;
+    if (userIdParam) {
+      params.set('user', userIdParam);
+    }
+    if (params.toString() !== searchParamsString) {
+      setSearchParams(params, { replace: true });
+    }
+  }, [
+    query,
+    memoryTypeFilter,
+    searchField,
+    searchMethod,
+    memoryTab,
+    viewMode,
+    selectedUser?.id,
+    userParam,
+    searchParamsString,
+    setSearchParams,
+  ]);
 
   const renderTabContent = () => {
     if (!selectedUser) return null;
@@ -537,13 +592,13 @@ export const Memories: React.FC = () => {
           </div>
         );
       }
-      case 'knowledge_vault': {
-        const bucket = memoryCollections.knowledge_vault;
-        if (!bucket || bucket.items.length === 0) return emptyState('Knowledge Vault');
+      case 'knowledge': {
+        const bucket = memoryCollections.knowledge;
+        if (!bucket || bucket.items.length === 0) return emptyState('Knowledge');
         return (
           <div className="space-y-3">
             <div className="text-xs text-muted-foreground">
-              Showing {bucket.items.length} of {bucket.total_count} knowledge vault items
+              Showing {bucket.items.length} of {bucket.total_count} knowledge items
             </div>
             {bucket.items.map((item) => (
               <Card key={item.id} className="border border-primary/10">
@@ -676,7 +731,7 @@ export const Memories: React.FC = () => {
                     <option value="semantic">Semantic</option>
                     <option value="procedural">Procedural</option>
                     <option value="resource">Resource</option>
-                    <option value="knowledge_vault">Knowledge Vault</option>
+                    <option value="knowledge">Knowledge</option>
                     <option value="core">Core</option>
                   </select>
                   <select

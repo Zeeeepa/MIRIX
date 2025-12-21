@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mirix"
-version = "0.1.0"
+version = "0.1.4"
 description = "Multi-Agent Personal Assistant with an Advanced Memory System"
 readme = "README.md"
 license = {text = "Apache License 2.0"}
@@ -67,7 +67,6 @@ dependencies = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp",
     "opentelemetry-instrumentation-requests",
-    "SpeechRecognition",
     "pg8000",
     "pgvector",
     "json_repair",
@@ -98,11 +97,9 @@ dev = [
     "flake8",
 ]
 voice = [
-    "SpeechRecognition",
     "pydub",
 ]
 full = [
-    "SpeechRecognition",
     "pydub",
 ]
 

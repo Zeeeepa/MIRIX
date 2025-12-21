@@ -207,7 +207,7 @@ Supported Temporal Expressions:
 - "last N months": Previous N * 30 days
 
 Note: Only episodic memories are filtered by temporal expressions.
-      Other memory types (semantic, procedural, resource, knowledge vault, core) 
+      Other memory types (semantic, procedural, resource, knowledge, core) 
       do not have occurred_at timestamps and are not affected.
 """
 

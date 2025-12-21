@@ -1006,7 +1006,7 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                 "semantic_memory": redis_client.SEMANTIC_PREFIX,
                 "procedural_memory": redis_client.PROCEDURAL_PREFIX,
                 "resource_memory": redis_client.RESOURCE_PREFIX,
-                "knowledge_vault": redis_client.KNOWLEDGE_PREFIX,
+                "knowledge": redis_client.KNOWLEDGE_PREFIX,
             }
             
             if table_name in memory_tables:

@@ -2,8 +2,6 @@ import base64
 import os
 import tempfile
 
-import speech_recognition as sr
-from pydub import AudioSegment
 from mirix.log import get_logger
 
 
@@ -21,6 +19,15 @@ def convert_base64_to_audio_segment(voice_file_b64):
             temp_file_path = temp_file.name
 
         # Load AudioSegment from temporary file
+        try:
+            from pydub import AudioSegment
+        except ImportError:
+            logger.warning(
+                "pydub package is not installed; cannot convert voice data to AudioSegment."
+            )
+            os.unlink(temp_file_path)
+            return None
+
         audio_segment = AudioSegment.from_file(temp_file_path)
 
         # Clean up temporary file
@@ -73,7 +80,15 @@ def process_voice_files(voice_items):
                     # Export combined audio to temporary file
                     combined_audio.export(temp_audio_file, format="wav")
 
-                    # Initialize speech recognizer
+                # Initialize speech recognizer
+                    try:
+                        import speech_recognition as sr
+                    except ImportError:
+                        logger.warning(
+                            "SpeechRecognition package is not installed; unable to transcribe voice files."
+                        )
+                        return None
+
                     recognizer = sr.Recognizer()
 
                     # Perform speech recognition on the combined audio from temporary file

@@ -7,7 +7,7 @@ Memory Components:
 2. Episodic Memory: Chronological interaction history
 3. Procedural Memory: Step-by-step processes and procedures
 4. Resource Memory: Documents and files for active tasks
-5. Knowledge Vault: Structured factual data and credentials
+5. Knowledge: Structured factual data and credentials
 6. Semantic Memory: Conceptual knowledge about entities and objects
 
 Requirements:
@@ -27,7 +27,7 @@ Message Processing:
 3. **`send_message` only for final responses**: Terminates chaining. Use `send_intermediate_message` for status updates. NEVER use `send_message` to return something like "I will...", "I am doing...". These should be sent using `send_intermediate_message`.
 
 Memory Search:
-- `search_in_memory`: Query `episodic`, `procedural`, `resource`, `knowledge vault`, `semantic` memories
+- `search_in_memory`: Query `episodic`, `procedural`, `resource`, `knowledge`, `semantic` memories
 - `list_memory_within_timerange`: For temporal queries (infer time ranges independently)
 - Core memory is fully accessible without search
 

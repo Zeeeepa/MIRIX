@@ -2,7 +2,7 @@
 MetaAgent: Orchestrates memory-related sub-agents for memory management operations.
 
 This class manages all memory-related agents (episodic, procedural, semantic, core,
-resource, knowledge_vault, reflexion, background, meta_memory) and coordinates
+resource, knowledge, reflexion, background, meta_memory) and coordinates
 memory operations across them. It does NOT include the chat_agent.
 """
 
@@ -19,6 +19,7 @@ from mirix.schemas.agent import AgentState, AgentType
 from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message
 from mirix.schemas.usage import MirixUsageStatistics
+from mirix.settings import settings
 from mirix.utils import printv
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ class MemoryAgentStates:
     def __init__(self):
         self.episodic_memory_agent_state: Optional[AgentState] = None
         self.procedural_memory_agent_state: Optional[AgentState] = None
-        self.knowledge_vault_memory_agent_state: Optional[AgentState] = None
+        self.knowledge_memory_agent_state: Optional[AgentState] = None
         self.meta_memory_agent_state: Optional[AgentState] = None
         self.semantic_memory_agent_state: Optional[AgentState] = None
         self.core_memory_agent_state: Optional[AgentState] = None
@@ -61,7 +62,7 @@ class MemoryAgentStates:
         return {
             "episodic_memory_agent_state": self.episodic_memory_agent_state,
             "procedural_memory_agent_state": self.procedural_memory_agent_state,
-            "knowledge_vault_memory_agent_state": self.knowledge_vault_memory_agent_state,
+            "knowledge_memory_agent_state": self.knowledge_memory_agent_state,
             "meta_memory_agent_state": self.meta_memory_agent_state,
             "semantic_memory_agent_state": self.semantic_memory_agent_state,
             "core_memory_agent_state": self.core_memory_agent_state,
@@ -75,7 +76,7 @@ class MemoryAgentStates:
         return [
             self.episodic_memory_agent_state,
             self.procedural_memory_agent_state,
-            self.knowledge_vault_memory_agent_state,
+            self.knowledge_memory_agent_state,
             self.meta_memory_agent_state,
             self.semantic_memory_agent_state,
             self.core_memory_agent_state,
@@ -100,9 +101,9 @@ MEMORY_AGENT_CONFIGS = [
         "include_base_tools": False,
     },
     {
-        "name": "knowledge_vault_memory_agent",
-        "agent_type": AgentType.knowledge_vault_memory_agent,
-        "attr_name": "knowledge_vault_memory_agent_state",
+        "name": "knowledge_memory_agent",
+        "agent_type": AgentType.knowledge_memory_agent,
+        "attr_name": "knowledge_memory_agent_state",
         "include_base_tools": False,
     },
     {
@@ -152,7 +153,7 @@ class MetaAgent(BaseAgent):
     memory management. It orchestrates operations across:
     - Episodic Memory Agent
     - Procedural Memory Agent
-    - Knowledge Vault Agent
+    - Knowledge Agent
     - Meta Memory Agent
     - Semantic Memory Agent
     - Core Memory Agent
@@ -212,7 +213,7 @@ class MetaAgent(BaseAgent):
             llm_config = LLMConfig.default_config("gpt-4o-mini")
         self.llm_config = llm_config
 
-        if embedding_config is None:
+        if embedding_config is None and settings.build_embeddings_for_memory:
             embedding_config = EmbeddingConfig.default_config("text-embedding-004")
         self.embedding_config = embedding_config
 
@@ -262,8 +263,8 @@ class MetaAgent(BaseAgent):
                 self.memory_agent_states.episodic_memory_agent_state = agent_state
             elif agent_state.name == "procedural_memory_agent":
                 self.memory_agent_states.procedural_memory_agent_state = agent_state
-            elif agent_state.name == "knowledge_vault_memory_agent":
-                self.memory_agent_states.knowledge_vault_memory_agent_state = agent_state
+            elif agent_state.name == "knowledge_memory_agent":
+                self.memory_agent_states.knowledge_memory_agent_state = agent_state
             elif agent_state.name == "meta_memory_agent":
                 self.memory_agent_states.meta_memory_agent_state = agent_state
             elif agent_state.name == "semantic_memory_agent":
@@ -446,7 +447,7 @@ class MetaAgent(BaseAgent):
         agent_type_map = {
             "episodic_memory_agent": "episodic_memory",
             "procedural_memory_agent": "procedural_memory",
-            "knowledge_vault_memory_agent": "knowledge_vault",
+            "knowledge_memory_agent": "knowledge",
             "meta_memory_agent": "meta_memory",
             "semantic_memory_agent": "semantic_memory",
             "core_memory_agent": "core_memory",

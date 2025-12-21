@@ -95,7 +95,7 @@ class MessageQueue:
             "chat": "agent_state",
             "episodic_memory": "episodic_memory_agent_state",
             "procedural_memory": "procedural_memory_agent_state",
-            "knowledge_vault": "knowledge_vault_memory_agent_state",
+            "knowledge": "knowledge_memory_agent_state",
             "meta_memory": "meta_memory_agent_state",
             "semantic_memory": "semantic_memory_agent_state",
             "core_memory": "core_memory_agent_state",

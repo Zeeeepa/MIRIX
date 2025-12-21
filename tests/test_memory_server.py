@@ -9,7 +9,7 @@ Prerequisites:
 
 Test Coverage:
 - Direct memory operations via SyncServer managers
-- All 5 memory types (Episodic, Procedural, Resource, Knowledge Vault, Semantic)
+- All 5 memory types (Episodic, Procedural, Resource, Knowledge, Semantic)
 - All search methods (bm25, embedding) across relevant fields
 - Retrieve with conversation and topic
 
@@ -149,6 +149,8 @@ def meta_agent(server, client):
         config = yaml.safe_load(f)
     
     # Build create_params by flattening meta_agent_config (same as rest_api.py)
+    from mirix.schemas.agent import MemoryConfig, MemoryBlockConfig
+
     create_params = {
         "llm_config": LLMConfig(**config["llm_config"]),
         "embedding_config": EmbeddingConfig(**config["embedding_config"]),
@@ -161,6 +163,19 @@ def meta_agent(server, client):
             create_params["agents"] = meta_config["agents"]
         if "system_prompts" in meta_config:
             create_params["system_prompts"] = meta_config["system_prompts"]
+        # Handle memory config
+        if "memory" in meta_config and meta_config["memory"]:
+            memory_dict = meta_config["memory"]
+            if "core" in memory_dict:
+                core_blocks = [
+                    MemoryBlockConfig(
+                        label=block.get("label", ""),
+                        value=block.get("value", ""),
+                        limit=block.get("limit")
+                    )
+                    for block in memory_dict["core"]
+                ]
+                create_params["memory"] = MemoryConfig(core=core_blocks)
     
     # Create meta agent using agent_manager (same as rest_api.py)
     meta_agent = server.agent_manager.create_meta_agent(
@@ -365,17 +380,17 @@ class TestDirectResourceMemory:
         print(f"[OK] Embedding search found {len(results)} resources")
 
 
-class TestDirectKnowledgeVault:
-    """Test direct knowledge vault operations using managers."""
+class TestDirectKnowledge:
+    """Test direct knowledge operations using managers."""
     
     def test_insert_knowledge(self, server, client, user, meta_agent):
         """Test inserting knowledge directly."""
-        knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
+        knowledge_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_memory_agent)
         
-        knowledge = server.knowledge_vault_manager.insert_knowledge(
+        knowledge = server.knowledge_memory_manager.insert_knowledge(
             actor=client,
             agent_id=meta_agent.id,
-            agent_state=knowledge_vault_memory_agent,
+            agent_state=knowledge_memory_agent,
             entry_type="credential",
             source="development_environment",
             sensitivity="medium",
@@ -391,14 +406,14 @@ class TestDirectKnowledgeVault:
         print(f"[OK] Inserted knowledge: {knowledge.id}")
     
     def test_search_knowledge(self, server, client, user, meta_agent):
-        """Test searching knowledge vault."""
-        knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
+        """Test searching knowledge."""
+        knowledge_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_memory_agent)
         
         # Ensure test data exists
-        server.knowledge_vault_manager.insert_knowledge(
+        server.knowledge_memory_manager.insert_knowledge(
             actor=client,
             agent_id=meta_agent.id,
-            agent_state=knowledge_vault_memory_agent,
+            agent_state=knowledge_memory_agent,
             entry_type="credential",
             source="development_environment",
             sensitivity="medium",
@@ -408,8 +423,8 @@ class TestDirectKnowledgeVault:
             user_id=user.id,
         )
         
-        results = server.knowledge_vault_manager.list_knowledge(
-            agent_state=knowledge_vault_memory_agent,
+        results = server.knowledge_memory_manager.list_knowledge(
+            agent_state=knowledge_memory_agent,
             user=user,
             query="api_key",
             search_method="bm25",
@@ -564,15 +579,15 @@ class TestSearchMethodComparison:
             assert len(results) > 0, f"{method} on '{field}' should find results for '{query}'"
             print(f"[OK] Resource {method} on '{field}': {len(results)} results")
     
-    def test_knowledge_vault_search_methods_and_fields(self, server, client, user, meta_agent):
-        """Test all search methods and fields on knowledge vault."""
-        knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
+    def test_knowledge_search_methods_and_fields(self, server, client, user, meta_agent):
+        """Test all search methods and fields on knowledge."""
+        knowledge_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_memory_agent)
         
         # Ensure test data exists
-        server.knowledge_vault_manager.insert_knowledge(
+        server.knowledge_memory_manager.insert_knowledge(
             actor=client,
             agent_id=meta_agent.id,
-            agent_state=knowledge_vault_memory_agent,
+            agent_state=knowledge_memory_agent,
             entry_type="credential",
             source="development_environment",
             sensitivity="medium",
@@ -590,8 +605,8 @@ class TestSearchMethodComparison:
         ]
         
         for query, field, method in test_cases:
-            results = server.knowledge_vault_manager.list_knowledge(
-                agent_state=knowledge_vault_memory_agent,
+            results = server.knowledge_memory_manager.list_knowledge(
+                agent_state=knowledge_memory_agent,
                 user=user,
                 query=query,
                 search_method=method,
@@ -600,7 +615,7 @@ class TestSearchMethodComparison:
             )
             assert isinstance(results, list)
             assert len(results) > 0, f"{method} on '{field}' should find results for '{query}'"
-            print(f"[OK] Knowledge Vault {method} on '{field}': {len(results)} results")
+            print(f"[OK] Knowledge {method} on '{field}': {len(results)} results")
     
     def test_semantic_search_methods_and_fields(self, server, client, user, meta_agent):
         """Test all search methods and fields on semantic memory."""
@@ -664,10 +679,10 @@ class TestSearchMethodComparison:
         )
         print(f"[OK] Resource: {len(resource_results)} results")
         
-        # Knowledge Vault
-        knowledge_vault_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_vault_memory_agent)
-        knowledge_results = server.knowledge_vault_manager.list_knowledge(
-            agent_state=knowledge_vault_memory_agent,
+        # Knowledge
+        knowledge_memory_agent = get_sub_agent(server, client, meta_agent, AgentType.knowledge_memory_agent)
+        knowledge_results = server.knowledge_memory_manager.list_knowledge(
+            agent_state=knowledge_memory_agent,
             user=user,
             query="test",
             search_method="bm25",

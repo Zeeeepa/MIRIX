@@ -34,7 +34,7 @@ export const UserSwitcher: React.FC<{ className?: string }> = ({ className }) =>
 
   // Check if a user is the default user
   const isDefaultUser = (user: User) => {
-    return clientUser?.default_user_id === user.id;
+    return clientUser?.admin_user_id === user.id;
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {

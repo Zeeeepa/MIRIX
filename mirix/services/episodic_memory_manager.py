@@ -9,7 +9,6 @@ from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.orm.episodic_memory import EpisodicEvent
 from mirix.orm.errors import NoResultFound
@@ -129,18 +128,23 @@ class EpisodicMemoryManager:
     @update_timezone
     @enforce_types
     def get_episodic_memory_by_id(
-        self, episodic_memory_id: str, user: PydanticUser, timezone_str: str = None
+        self,
+        episodic_memory_id: str,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None,
     ) -> Optional[PydanticEpisodicEvent]:
         """
         Fetch a single episodic memory record by ID (with Redis JSON caching).
         
         Args:
             episodic_memory_id: ID of the memory to fetch
-            user: User who owns this memory
+            actor: Client who is fetching this memory
+            user_id: User who is fetching this memory
             timezone_str: Optional timezone string
             
-        Raises:
-            NoResultFound: If the record doesn't exist or doesn't belong to user
+        Returns:
+            PydanticEpisodicEvent: The episodic event if found and accessible, otherwise None
         """
         # Try Redis cache first (JSON-based for memory tables)
         try:
@@ -153,7 +157,23 @@ class EpisodicMemoryManager:
                 if cached_data:
                     # Cache HIT - return from Redis
                     logger.debug("✅ Redis cache HIT for episodic memory %s", episodic_memory_id)
-                    return PydanticEpisodicEvent(**cached_data)
+                    pydantic_event = PydanticEpisodicEvent(**cached_data)
+                    
+                    # Check accessibility
+                    if pydantic_event.user_id == user_id:
+                        return pydantic_event
+                    
+                    # If not the owner, check if the requester is an admin in the same client
+                    from mirix.services.user_manager import UserManager
+                    user_manager = UserManager()
+                    try:
+                        requester = user_manager.get_user_by_id(user_id)
+                        if requester.is_admin and requester.client_id == pydantic_event.client_id:
+                            return pydantic_event
+                    except NoResultFound:
+                        pass
+                    
+                    return None
         except Exception as e:
             # Log but continue to PostgreSQL on Redis error
             logger.warning("Redis cache read failed for episodic memory %s: %s", episodic_memory_id, e)
@@ -161,22 +181,30 @@ class EpisodicMemoryManager:
         # Cache MISS or Redis unavailable - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
-                # Construct a PydanticClient for actor using user's organization_id.
-                # Note: We can pass in a PydanticClient with a default client ID because
-                # EpisodicEvent.read() only uses the organization_id from the actor for
-                # access control (see apply_access_predicate in sqlalchemy_base.py).
-                # The actual client ID is not used for filtering.
-                actor = PydanticClient(
-                    id="system-default-client",
-                    organization_id=user.organization_id,
-                    name="system-client"
-                )
-                
+                # Use the passed actor for access control (filtered by organization)
                 episodic_memory_item = EpisodicEvent.read(
                     db_session=session, identifier=episodic_memory_id, actor=actor
                 )
                 pydantic_event = episodic_memory_item.to_pydantic()
                 
+                # Accessibility check logic
+                accessible = False
+                if pydantic_event.user_id == user_id:
+                    accessible = True
+                else:
+                    # Check if requester is admin and shares the same client
+                    from mirix.services.user_manager import UserManager
+                    user_manager = UserManager()
+                    try:
+                        requester = user_manager.get_user_by_id(user_id)
+                        if requester.is_admin and requester.client_id == pydantic_event.client_id:
+                            accessible = True
+                    except NoResultFound:
+                        pass
+                
+                if not accessible:
+                    return None
+
                 # Populate Redis cache for next time
                 try:
                     if redis_client:
@@ -189,9 +217,7 @@ class EpisodicMemoryManager:
                 
                 return pydantic_event
             except NoResultFound:
-                raise NoResultFound(
-                    f"Episodic episodic_memory record with id {episodic_memory_id} not found."
-                )
+                return None
 
     @update_timezone
     @enforce_types
@@ -330,6 +356,8 @@ class EpisodicMemoryManager:
                     redis_key = f"{redis_client.EPISODIC_PREFIX}{id}"
                     redis_client.delete(redis_key)
                 episodic_memory_item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("episodic", "deleted")
             except NoResultFound:
                 raise NoResultFound(
                     f"Episodic episodic_memory record with id {id} not found."
@@ -531,6 +559,56 @@ class EpisodicMemoryManager:
         
         return count
 
+    def delete_expired_memories(
+        self,
+        user: PydanticUser,
+        expire_after_days: int,
+    ) -> int:
+        """
+        Delete episodic memories older than the specified number of days.
+
+        Args:
+            user: User who owns the memories
+            expire_after_days: Number of days after which memories are considered expired
+
+        Returns:
+            Number of deleted memories
+        """
+        from datetime import timedelta
+        from mirix.database.redis_client import get_redis_client
+
+        expire_cutoff = datetime.now() - timedelta(days=expire_after_days)
+
+        with self.session_maker() as session:
+            query = select(EpisodicEvent).where(
+                EpisodicEvent.user_id == user.id,
+                EpisodicEvent.occurred_at < expire_cutoff,
+            )
+            result = session.execute(query)
+            expired_items = result.scalars().all()
+
+            count = len(expired_items)
+            item_ids = [item.id for item in expired_items]
+
+            for item in expired_items:
+                session.delete(item)
+
+            session.commit()
+
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.EPISODIC_PREFIX}{item_id}" for item_id in item_ids]
+            if redis_keys:
+                redis_client.client.delete(*redis_keys)
+
+        logger.info(
+            "Deleted %d expired episodic memories for user %s (older than %d days)",
+            count,
+            user.id,
+            expire_after_days,
+        )
+        return count
+
     @enforce_types
     def insert_event(
         self,
@@ -559,7 +637,7 @@ class EpisodicMemoryManager:
                 user_id = UserManager.ADMIN_USER_ID
                 logger.debug("user_id not provided, using ADMIN_USER_ID: %s", user_id)
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 # TODO: need to check if we need to chunk the text
                 embed_model = embedding_model(agent_state.embedding_config)
                 details_embedding = embed_model.get_text_embedding(details)
@@ -595,6 +673,9 @@ class EpisodicMemoryManager:
                 user_id=user_id,
                 use_cache=use_cache,
             )
+
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("episodic", "created")
 
             return event
 
@@ -664,6 +745,8 @@ class EpisodicMemoryManager:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         similarity_threshold: Optional[float] = None,
+        include_faded: bool = False,
+        fade_after_days: Optional[int] = None,
     ) -> List[PydanticEpisodicEvent]:
         """
         List all episodic events with various search methods and optional temporal filtering.
@@ -704,8 +787,27 @@ class EpisodicMemoryManager:
             **Temporal filtering**: When start_date and/or end_date are provided, only events with
             occurred_at within the specified range will be returned. This is particularly useful for
             queries like "What happened today?" or "Show me last week's events".
+
+            **Memory decay**: When include_faded is False (default) and fade_after_days is provided,
+            memories older than the specified days (based on occurred_at) will be excluded from results.
+            Set include_faded=True to bypass this filtering and retrieve all memories including faded ones.
         """
-        
+
+        # Apply memory decay filtering (fade cutoff)
+        # If include_faded is False and fade_after_days is set, calculate the cutoff
+        # and use it as a minimum for start_date
+        if not include_faded and fade_after_days is not None:
+            from datetime import timedelta
+
+            fade_cutoff = datetime.now() - timedelta(days=fade_after_days)
+            if start_date is None or fade_cutoff > start_date:
+                start_date = fade_cutoff
+                logger.debug(
+                    "Memory decay: applying fade cutoff at %s (%d days)",
+                    fade_cutoff,
+                    fade_after_days,
+                )
+
         # Extract organization_id from user for multi-tenant isolation
         organization_id = user.organization_id
         
@@ -1297,6 +1399,8 @@ class EpisodicMemoryManager:
             }
 
             selected_event.update_with_redis(session, actor=actor)  # ⭐ Updates Redis JSON cache
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("episodic", "updated")
             return selected_event.to_pydantic()
 
     def _parse_embedding_field(self, embedding_value):

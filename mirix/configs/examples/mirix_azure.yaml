@@ -11,6 +11,8 @@ llm_config:
   context_window: 128000
   # api_key: "your-azure-key"  # Or use AZURE_OPENAI_API_KEY env var
 
+build_embeddings_for_memory: true
+
 embedding_config:
   embedding_model: "text-embedding-3-small"
   embedding_endpoint_type: "azure_openai"
@@ -26,8 +28,18 @@ meta_agent_config:
     - semantic_memory_agent
     - episodic_memory_agent
     - procedural_memory_agent
-    - knowledge_vault_memory_agent
+    - knowledge_memory_agent
     - meta_memory_agent
     - reflexion_agent
     - background_agent
+  memory:
+    core:
+      - label: "human"
+        value: ""
+      - label: "persona"
+        value: "I am a helpful assistant."
+    # Memory decay - controls automatic aging and cleanup
+    decay:
+      fade_after_days: 30     # Memories older than this become inactive (excluded from retrieval)
+      expire_after_days: 90   # Memories older than this are permanently deleted
 

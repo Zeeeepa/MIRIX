@@ -1,21 +1,21 @@
 import json
 import re
 import string
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.helpers.converters import deserialize_vector
 from mirix.orm.errors import NoResultFound
-from mirix.orm.knowledge_vault import KnowledgeVaultItem
+from mirix.orm.knowledge import KnowledgeItem
 from mirix.schemas.agent import AgentState
 from mirix.schemas.client import Client as PydanticClient
-from mirix.schemas.knowledge_vault import (
-    KnowledgeVaultItem as PydanticKnowledgeVaultItem,
+from mirix.schemas.knowledge import (
+    KnowledgeItem as PydanticKnowledgeItem,
 )
 from mirix.log import get_logger
 from mirix.schemas.user import User as PydanticUser
@@ -26,8 +26,8 @@ from mirix.utils import enforce_types
 logger = get_logger(__name__)
 
 
-class KnowledgeVaultManager:
-    """Manager class to handle business logic related to Knowledge Vault Items."""
+class KnowledgeMemoryManager:
+    """Manager class to handle business logic related to Knowledge Items."""
 
     def __init__(self):
         from mirix.server.server import db_context
@@ -147,10 +147,10 @@ class KnowledgeVaultManager:
         self, item_data: Dict[str, Any], query_words: List[str], search_field: str = ""
     ) -> int:
         """
-        Count how many of the query words are present in the knowledge vault item data.
+        Count how many of the query words are present in the knowledge item data.
 
         Args:
-            item_data: Dictionary containing knowledge vault item data
+            item_data: Dictionary containing knowledge item data
             query_words: List of query words to search for
             search_field: Specific field to search in, or empty string to search all text fields
 
@@ -217,7 +217,7 @@ class KnowledgeVaultManager:
             sensitivity: List of sensitivity levels to filter by
 
         Returns:
-            List of KnowledgeVaultItem objects ranked by relevance
+            List of KnowledgeItem objects ranked by relevance
         """
         from sqlalchemy import func
 
@@ -290,7 +290,7 @@ class KnowledgeVaultManager:
                     secret_value, caption, caption_embedding, embedding_config,
                     organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
-                FROM knowledge_vault 
+                FROM knowledge 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
                     AND user_id = :user_id{sensitivity_filter}
                 ORDER BY rank_score DESC, created_at DESC
@@ -309,7 +309,7 @@ class KnowledgeVaultManager:
 
             # If AND query returns sufficient results, use them
             if len(results) >= min(limit or 10, 10):
-                knowledge_vault = []
+                knowledge = []
                 for row in results:
                     data = dict(row._mapping)
                     # Remove the rank_score field before creating the object
@@ -330,9 +330,9 @@ class KnowledgeVaultManager:
                         if field in data and data[field] is not None:
                             data[field] = self._parse_embedding_field(data[field])
 
-                    knowledge_vault.append(KnowledgeVaultItem(**data))
+                    knowledge.append(KnowledgeItem(**data))
 
-                return [item.to_pydantic() for item in knowledge_vault]
+                return [item.to_pydantic() for item in knowledge]
 
         except Exception as e:
             logger.debug("PostgreSQL AND query error: %s", e)
@@ -345,7 +345,7 @@ class KnowledgeVaultManager:
                     secret_value, caption, caption_embedding, embedding_config,
                     organization_id, last_modify, user_id,
                     {rank_sql} as rank_score
-                FROM knowledge_vault 
+                FROM knowledge 
                 WHERE {tsvector_sql} @@ to_tsquery('english', :tsquery)
                     AND user_id = :user_id{sensitivity_filter}
                 ORDER BY rank_score DESC, created_at DESC
@@ -362,7 +362,7 @@ class KnowledgeVaultManager:
 
             results = session.execute(or_query_sql, query_params)
 
-            knowledge_vault = []
+            knowledge = []
             for row in results:
                 data = dict(row._mapping)
                 # Remove the rank_score field before creating the object
@@ -383,68 +383,68 @@ class KnowledgeVaultManager:
                     if field in data and data[field] is not None:
                         data[field] = self._parse_embedding_field(data[field])
 
-                knowledge_vault.append(KnowledgeVaultItem(**data))
+                knowledge.append(KnowledgeItem(**data))
 
-            return [item.to_pydantic() for item in knowledge_vault]
+            return [item.to_pydantic() for item in knowledge]
 
         except Exception as e:
             # If there's an error with the tsquery, fall back to simpler search
             logger.debug("PostgreSQL full-text search error: %s", e)
             # Fall back to simple ILIKE search
             fallback_field = (
-                getattr(KnowledgeVaultItem, search_field)
-                if search_field and hasattr(KnowledgeVaultItem, search_field)
-                else KnowledgeVaultItem.caption
+                getattr(KnowledgeItem, search_field)
+                if search_field and hasattr(KnowledgeItem, search_field)
+                else KnowledgeItem.caption
             )
             fallback_query = (
-                select(KnowledgeVaultItem)
+                select(KnowledgeItem)
                 .where(func.lower(fallback_field).contains(query_text.lower()))
-                .where(KnowledgeVaultItem.user_id == user_id)
+                .where(KnowledgeItem.user_id == user_id)
             )
 
             # Add sensitivity filter to fallback query if provided
             if sensitivity is not None:
                 fallback_query = fallback_query.where(
-                    KnowledgeVaultItem.sensitivity.in_(sensitivity)
+                    KnowledgeItem.sensitivity.in_(sensitivity)
                 )
 
             fallback_query = fallback_query.order_by(
-                KnowledgeVaultItem.created_at.desc()
+                KnowledgeItem.created_at.desc()
             )
 
             if limit:
                 fallback_query = fallback_query.limit(limit)
 
             results = session.execute(fallback_query)
-            knowledge_vault = results.scalars().all()
-            return [item.to_pydantic() for item in knowledge_vault]
+            knowledge = results.scalars().all()
+            return [item.to_pydantic() for item in knowledge]
 
     @update_timezone
     @enforce_types
     def get_item_by_id(
-        self, knowledge_vault_item_id: str, user: PydanticUser, timezone_str: str
-    ) -> Optional[PydanticKnowledgeVaultItem]:
-        """Fetch a knowledge vault item by ID (with Redis JSON caching)."""
+        self, knowledge_item_id: str, user: PydanticUser, timezone_str: str
+    ) -> Optional[PydanticKnowledgeItem]:
+        """Fetch a knowledge item by ID (with Redis JSON caching)."""
         # Try Redis cache first
         try:
             from mirix.database.redis_client import get_redis_client
             redis_client = get_redis_client()
             
             if redis_client:
-                redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_vault_item_id}"
+                redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_item_id}"
                 cached_data = redis_client.get_json(redis_key)
                 if cached_data:
-                    logger.debug("✅ Redis cache HIT for knowledge vault %s", knowledge_vault_item_id)
-                    return PydanticKnowledgeVaultItem(**cached_data)
+                    logger.debug("✅ Redis cache HIT for knowledge %s", knowledge_item_id)
+                    return PydanticKnowledgeItem(**cached_data)
         except Exception as e:
-            logger.warning("Redis cache read failed for knowledge vault %s: %s", knowledge_vault_item_id, e)
+            logger.warning("Redis cache read failed for knowledge %s: %s", knowledge_item_id, e)
         
         # Cache MISS - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
                 # Construct a PydanticClient for actor using user's organization_id.
                 # Note: We can pass in a PydanticClient with a default client ID because
-                # KnowledgeVaultItem.read() only uses the organization_id from the actor for
+                # KnowledgeItem.read() only uses the organization_id from the actor for
                 # access control (see apply_access_predicate in sqlalchemy_base.py).
                 # The actual client ID is not used for filtering.
                 actor = PydanticClient(
@@ -453,8 +453,8 @@ class KnowledgeVaultManager:
                     name="system-client"
                 )
                 
-                item = KnowledgeVaultItem.read(
-                    db_session=session, identifier=knowledge_vault_item_id, actor=actor
+                item = KnowledgeItem.read(
+                    db_session=session, identifier=knowledge_item_id, actor=actor
                 )
                 pydantic_item = item.to_pydantic()
                 
@@ -471,16 +471,16 @@ class KnowledgeVaultManager:
                 return pydantic_item
             except NoResultFound:
                 raise NoResultFound(
-                    f"Knowledge vault item with id {knowledge_vault_item_id} not found."
+                    f"Knowledge item with id {knowledge_item_id} not found."
                 )
 
     @update_timezone
     @enforce_types
     def get_most_recently_updated_item(
         self, user: PydanticUser, timezone_str: str = None
-    ) -> Optional[PydanticKnowledgeVaultItem]:
+    ) -> Optional[PydanticKnowledgeItem]:
         """
-        Fetch the most recently updated knowledge vault item based on last_modify timestamp.
+        Fetch the most recently updated knowledge item based on last_modify timestamp.
         Filter by user_id from actor.
         Returns None if no items exist.
         """
@@ -488,14 +488,14 @@ class KnowledgeVaultManager:
             # Use proper PostgreSQL JSON text extraction and casting for ordering
             from sqlalchemy import DateTime, cast, text
 
-            query = select(KnowledgeVaultItem).order_by(
+            query = select(KnowledgeItem).order_by(
                 cast(
-                    text("knowledge_vault.last_modify ->> 'timestamp'"), DateTime
+                    text("knowledge.last_modify ->> 'timestamp'"), DateTime
                 ).desc()
             )
 
             # Filter by user_id for multi-user support
-            query = query.where(KnowledgeVaultItem.user_id == user.id)
+            query = query.where(KnowledgeItem.user_id == user.id)
 
             result = session.execute(query.limit(1))
             item = result.scalar_one_or_none()
@@ -505,16 +505,16 @@ class KnowledgeVaultManager:
     @enforce_types
     def create_item(
         self, 
-        knowledge_vault_item: PydanticKnowledgeVaultItem, 
+        knowledge_item: PydanticKnowledgeItem, 
         actor: PydanticClient,
         client_id: Optional[str] = None,
         user_id: Optional[str] = None,
         use_cache: bool = True
-    ) -> PydanticKnowledgeVaultItem:
-        """Create a new knowledge vault item.
+    ) -> PydanticKnowledgeItem:
+        """Create a new knowledge item.
         
         Args:
-            knowledge_vault_item: The knowledge vault data to create
+            knowledge_item: The knowledge data to create
             actor: Client performing the operation (for audit trail)
             client_id: Client application identifier (defaults to actor.id)
             user_id: End-user identifier (optional)
@@ -522,21 +522,21 @@ class KnowledgeVaultManager:
         """
 
         # Ensure ID is set before model_dump
-        if not knowledge_vault_item.id:
+        if not knowledge_item.id:
             from mirix.utils import generate_unique_short_id
 
-            knowledge_vault_item.id = generate_unique_short_id(
-                self.session_maker, KnowledgeVaultItem, "kv"
+            knowledge_item.id = generate_unique_short_id(
+                self.session_maker, KnowledgeItem, "kv"
             )
 
-        item_data = knowledge_vault_item.model_dump()
+        item_data = knowledge_item.model_dump()
 
         # Validate required fields
         required_fields = ["entry_type", "secret_value", "sensitivity"]
         for field in required_fields:
             if field not in item_data:
                 raise ValueError(
-                    f"Required field '{field}' missing from knowledge vault item data"
+                    f"Required field '{field}' missing from knowledge item data"
                 )
 
         # Set client_id and user_id on the memory
@@ -548,9 +548,9 @@ class KnowledgeVaultManager:
             client_id, user_id
         )
 
-        # Create the knowledge vault item
+        # Create the knowledge item
         with self.session_maker() as session:
-            knowledge_item = KnowledgeVaultItem(**item_data)
+            knowledge_item = KnowledgeItem(**item_data)
             knowledge_item.create_with_redis(session, actor=actor, use_cache=use_cache)
 
             # Return the created item as a Pydantic model
@@ -559,11 +559,11 @@ class KnowledgeVaultManager:
     @enforce_types
     def create_many_items(
         self, 
-        knowledge_vault: List[PydanticKnowledgeVaultItem], 
+        knowledge: List[PydanticKnowledgeItem], 
         user: PydanticUser,
-    ) -> List[PydanticKnowledgeVaultItem]:
-        """Create multiple knowledge vault items."""
-        return [self.create_item(k, user) for k in knowledge_vault]
+    ) -> List[PydanticKnowledgeItem]:
+        """Create multiple knowledge items."""
+        return [self.create_item(k, user) for k in knowledge]
 
     @enforce_types
     def insert_knowledge(
@@ -581,10 +581,10 @@ class KnowledgeVaultManager:
         use_cache: bool = True,
         user_id: Optional[str] = None,
     ):
-        """Insert knowledge into the knowledge vault."""
+        """Insert knowledge into the knowledge."""
         try:
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 embed_model = embedding_model(agent_state.embedding_config)
                 caption_embedding = embed_model.get_text_embedding(caption)
                 embedding_config = agent_state.embedding_config
@@ -592,7 +592,6 @@ class KnowledgeVaultManager:
                 caption_embedding = None
                 embedding_config = None
 
-            # Set client_id from actor, user_id with fallback to DEFAULT_USER_ID
             from mirix.services.user_manager import UserManager
             
             client_id = actor.id  # Always derive from actor
@@ -600,7 +599,7 @@ class KnowledgeVaultManager:
                 user_id = UserManager.ADMIN_USER_ID
 
             knowledge = self.create_item(
-                PydanticKnowledgeVaultItem(
+                PydanticKnowledgeItem(
                     user_id=user_id,
                     agent_id=agent_id,
                     entry_type=entry_type,
@@ -618,16 +617,18 @@ class KnowledgeVaultManager:
                 user_id=user_id,
                 use_cache=use_cache,
             )
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("knowledge", "created")
             return knowledge
 
         except Exception as e:
             raise e
 
     def get_total_number_of_items(self, user: PydanticUser) -> int:
-        """Get the total number of items in the knowledge vault for the user."""
+        """Get the total number of items in the knowledge for the user."""
         with self.session_maker() as session:
-            query = select(func.count(KnowledgeVaultItem.id)).where(
-                KnowledgeVaultItem.user_id == user.id
+            query = select(func.count(KnowledgeItem.id)).where(
+                KnowledgeItem.user_id == user.id
             )
             result = session.execute(query)
             return result.scalar_one()
@@ -648,9 +649,11 @@ class KnowledgeVaultManager:
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
         similarity_threshold: Optional[float] = None,
-        ) -> List[PydanticKnowledgeVaultItem]:
+        include_faded: bool = False,
+        fade_after_days: Optional[int] = None,
+        ) -> List[PydanticKnowledgeItem]:
         """
-        Retrieve knowledge vault items according to the query.
+        Retrieve knowledge items according to the query.
 
         Args:
             agent_state: The agent state containing embedding configuration
@@ -666,9 +669,11 @@ class KnowledgeVaultManager:
             timezone_str: Timezone string for timestamp conversion
             limit: Maximum number of results to return
             sensitivity: List of sensitivity levels to filter by. Only items with sensitivity in this list will be returned.
+            include_faded: If False (default), exclude memories older than fade_after_days
+            fade_after_days: Number of days after which memories are considered faded (based on updated_at)
 
         Returns:
-            List of knowledge vault items matching the search criteria
+            List of knowledge items matching the search criteria
 
         Note:
             **For PostgreSQL users**: 'bm25' is now the recommended method for text-based searches as it uses
@@ -681,6 +686,9 @@ class KnowledgeVaultManager:
             - PostgreSQL 'bm25': Native DB search, very fast, scales well
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
+
+            **Memory decay**: When include_faded is False and fade_after_days is set, memories older than
+            the specified days (based on updated_at) will be excluded from results.
         """
         
         # Extract organization_id from user for multi-tenant isolation
@@ -691,6 +699,18 @@ class KnowledgeVaultManager:
         
         query = query.strip() if query else ""
         is_empty_query = not query or query == ""
+
+        # Apply memory decay filtering (fade cutoff based on updated_at)
+        fade_cutoff = None
+        if not include_faded and fade_after_days is not None:
+            from datetime import timedelta
+
+            fade_cutoff = datetime.now() - timedelta(days=fade_after_days)
+            logger.debug(
+                "Memory decay: applying fade cutoff at %s (%d days)",
+                fade_cutoff,
+                fade_after_days,
+            )
         
         redis_client = get_redis_client()
         
@@ -708,7 +728,7 @@ class KnowledgeVaultManager:
                         logger.debug("✅ Redis cache HIT: returned %d knowledge items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
                     # If no results, fall through to PostgreSQL (don't return empty list)
                 
                 elif search_method == "embedding":
@@ -718,7 +738,7 @@ class KnowledgeVaultManager:
                             [query], agent_state.embedding_config
                         )[0]
                     
-                    # Knowledge vault only has caption_embedding
+                    # Knowledge only has caption_embedding
                     results = redis_client.search_vector(
                         index_name=redis_client.KNOWLEDGE_INDEX,
                         embedding=embedded_text,
@@ -732,7 +752,7 @@ class KnowledgeVaultManager:
                         logger.debug("✅ Redis vector search HIT: found %d knowledge items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
                 
                 elif search_method in ["bm25", "string_match"]:
                     fields = [search_field] if search_field else ["caption", "secret_value"]
@@ -750,16 +770,16 @@ class KnowledgeVaultManager:
                         logger.debug("✅ Redis text search HIT: found %d knowledge items", len(results))
                         # Clean Redis-specific fields before Pydantic validation
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
             
             except Exception as e:
-                logger.warning("Redis search failed for knowledge vault, falling back to PostgreSQL: %s", e)
+                logger.warning("Redis search failed for knowledge, falling back to PostgreSQL: %s", e)
         
         # Log when bypassing cache or Redis unavailable
         if not use_cache:
-            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for knowledge vault")
+            logger.debug("⏭️  Bypassing Redis cache (use_cache=False), querying PostgreSQL directly for knowledge")
         elif not redis_client:
-            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for knowledge vault")
+            logger.debug("⚠️  Redis unavailable, querying PostgreSQL directly for knowledge")
 
         with self.session_maker() as session:
             if query == "":
@@ -767,12 +787,12 @@ class KnowledgeVaultManager:
                 from sqlalchemy import DateTime, cast, text
 
                 query_stmt = (
-                    select(KnowledgeVaultItem)
-                    .where(KnowledgeVaultItem.user_id == user.id)
-                    .where(KnowledgeVaultItem.organization_id == organization_id)
+                    select(KnowledgeItem)
+                    .where(KnowledgeItem.user_id == user.id)
+                    .where(KnowledgeItem.organization_id == organization_id)
                     .order_by(
                         cast(
-                            text("knowledge_vault.last_modify ->> 'timestamp'"),
+                            text("knowledge.last_modify ->> 'timestamp'"),
                             DateTime,
                         ).desc()
                     )
@@ -780,49 +800,57 @@ class KnowledgeVaultManager:
                 # Add sensitivity filter if provided
                 if sensitivity is not None:
                     query_stmt = query_stmt.where(
-                        KnowledgeVaultItem.sensitivity.in_(sensitivity)
+                        KnowledgeItem.sensitivity.in_(sensitivity)
                     )
                 
                 # Apply filter_tags if provided
                 if filter_tags:
                     for key, value in filter_tags.items():
-                        query_stmt = query_stmt.where(KnowledgeVaultItem.filter_tags[key].as_string() == str(value))
+                        query_stmt = query_stmt.where(KnowledgeItem.filter_tags[key].as_string() == str(value))
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    query_stmt = query_stmt.where(KnowledgeItem.updated_at >= fade_cutoff)
                 
                 if limit:
                     query_stmt = query_stmt.limit(limit)
                 result = session.execute(query_stmt)
-                knowledge_vault = result.scalars().all()
-                return [item.to_pydantic() for item in knowledge_vault]
+                knowledge = result.scalars().all()
+                return [item.to_pydantic() for item in knowledge]
 
             else:
                 base_query = select(
-                    KnowledgeVaultItem.id.label("id"),
-                    KnowledgeVaultItem.created_at.label("created_at"),
-                    KnowledgeVaultItem.entry_type.label("entry_type"),
-                    KnowledgeVaultItem.source.label("source"),
-                    KnowledgeVaultItem.sensitivity.label("sensitivity"),
-                    KnowledgeVaultItem.secret_value.label("secret_value"),
-                    KnowledgeVaultItem.caption.label("caption"),
-                    KnowledgeVaultItem.organization_id.label("organization_id"),
-                    KnowledgeVaultItem.last_modify.label("last_modify"),
-                    KnowledgeVaultItem.user_id.label("user_id"),
-                    KnowledgeVaultItem.agent_id.label("agent_id"),
+                    KnowledgeItem.id.label("id"),
+                    KnowledgeItem.created_at.label("created_at"),
+                    KnowledgeItem.entry_type.label("entry_type"),
+                    KnowledgeItem.source.label("source"),
+                    KnowledgeItem.sensitivity.label("sensitivity"),
+                    KnowledgeItem.secret_value.label("secret_value"),
+                    KnowledgeItem.caption.label("caption"),
+                    KnowledgeItem.organization_id.label("organization_id"),
+                    KnowledgeItem.last_modify.label("last_modify"),
+                    KnowledgeItem.user_id.label("user_id"),
+                    KnowledgeItem.agent_id.label("agent_id"),
                 ).where(
-                    KnowledgeVaultItem.user_id == user.id
+                    KnowledgeItem.user_id == user.id
                 ).where(
-                    KnowledgeVaultItem.organization_id == organization_id
+                    KnowledgeItem.organization_id == organization_id
                 )
 
                 # Add sensitivity filter to base query if provided
                 if sensitivity is not None:
                     base_query = base_query.where(
-                        KnowledgeVaultItem.sensitivity.in_(sensitivity)
+                        KnowledgeItem.sensitivity.in_(sensitivity)
                     )
                 
                 # Apply filter_tags if provided
                 if filter_tags:
                     for key, value in filter_tags.items():
-                        base_query = base_query.where(KnowledgeVaultItem.filter_tags[key].as_string() == str(value))
+                        base_query = base_query.where(KnowledgeItem.filter_tags[key].as_string() == str(value))
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    base_query = base_query.where(KnowledgeItem.updated_at >= fade_cutoff)
 
                 if search_method == "embedding":
                     embed_query = True
@@ -835,14 +863,14 @@ class KnowledgeVaultManager:
                         embed_query=embed_query,
                         embedding_config=embedding_config,
                         search_field=getattr(
-                            KnowledgeVaultItem, search_field + "_embedding"
+                            KnowledgeItem, search_field + "_embedding"
                         ),
-                        target_class=KnowledgeVaultItem,
+                        target_class=KnowledgeItem,
                         similarity_threshold=similarity_threshold,
                     )
 
                 elif search_method == "string_match":
-                    search_field = getattr(KnowledgeVaultItem, search_field)
+                    search_field = getattr(KnowledgeItem, search_field)
                     main_query = base_query.where(
                         func.lower(search_field).contains(func.lower(query))
                     )
@@ -863,14 +891,14 @@ class KnowledgeVaultManager:
                     else:
                         # Fallback to in-memory BM25 for SQLite (legacy method)
                         # Load all candidate items (memory-intensive, kept for compatibility)
-                        fuzzy_query = select(KnowledgeVaultItem).where(
-                            KnowledgeVaultItem.user_id == user.id
+                        fuzzy_query = select(KnowledgeItem).where(
+                            KnowledgeItem.user_id == user.id
                         )
 
                         # Add sensitivity filter if provided
                         if sensitivity is not None:
                             fuzzy_query = fuzzy_query.where(
-                                KnowledgeVaultItem.sensitivity.in_(sensitivity)
+                                KnowledgeItem.sensitivity.in_(sensitivity)
                             )
 
                         result = session.execute(fuzzy_query)
@@ -922,22 +950,22 @@ class KnowledgeVaultManager:
 
                         # Get top items based on limit
                         top_items = [item for score, item in scored_items[:limit]]
-                        knowledge_vault = top_items
+                        knowledge = top_items
 
                         # Return the list after converting to Pydantic
-                        return [item.to_pydantic() for item in knowledge_vault]
+                        return [item.to_pydantic() for item in knowledge]
 
                 elif search_method == "fuzzy_match":
                     # Fuzzy matching: load all candidate items into memory,
                     # then compute fuzzy matching score using RapidFuzz.
-                    fuzzy_query = select(KnowledgeVaultItem).where(
-                        KnowledgeVaultItem.user_id == user.id
+                    fuzzy_query = select(KnowledgeItem).where(
+                        KnowledgeItem.user_id == user.id
                     )
 
                     # Add sensitivity filter if provided
                     if sensitivity is not None:
                         fuzzy_query = fuzzy_query.where(
-                            KnowledgeVaultItem.sensitivity.in_(sensitivity)
+                            KnowledgeItem.sensitivity.in_(sensitivity)
                         )
 
                     result = session.execute(fuzzy_query)
@@ -966,45 +994,47 @@ class KnowledgeVaultManager:
                 if limit:
                     main_query = main_query.limit(limit)
 
-                knowledge_vault = []
+                knowledge = []
                 results = list(session.execute(main_query))
 
                 for row in results:
                     data = dict(row._mapping)
-                    knowledge_vault.append(KnowledgeVaultItem(**data))
+                    knowledge.append(KnowledgeItem(**data))
 
-                return [item.to_pydantic() for item in knowledge_vault]
+                return [item.to_pydantic() for item in knowledge]
 
     @enforce_types
     def delete_knowledge_by_id(
-        self, knowledge_vault_item_id: str, actor: PydanticClient
+        self, knowledge_item_id: str, actor: PydanticClient
     ) -> None:
-        """Delete a knowledge vault item by ID (removes from Redis cache)."""
+        """Delete a knowledge item by ID (removes from Redis cache)."""
         with self.session_maker() as session:
             try:
-                item = KnowledgeVaultItem.read(
-                    db_session=session, identifier=knowledge_vault_item_id, actor=actor
+                item = KnowledgeItem.read(
+                    db_session=session, identifier=knowledge_item_id, actor=actor
                 )
                 # Remove from Redis cache
                 from mirix.database.redis_client import get_redis_client
                 redis_client = get_redis_client()
                 if redis_client:
-                    redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_vault_item_id}"
+                    redis_key = f"{redis_client.KNOWLEDGE_PREFIX}{knowledge_item_id}"
                     redis_client.delete(redis_key)
                 item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("knowledge", "deleted")
             except NoResultFound:
                 raise NoResultFound(
-                    f"Knowledge vault item with id {knowledge_vault_item_id} not found."
+                    f"Knowledge item with id {knowledge_item_id} not found."
                 )
 
     @enforce_types
     def delete_by_client_id(self, actor: PydanticClient) -> int:
         """
-        Bulk delete all knowledge vault records for a client (removes from Redis cache).
+        Bulk delete all knowledge records for a client (removes from Redis cache).
         Optimized with single DB query and batch Redis deletion.
         
         Args:
-            actor: Client whose knowledge vault items to delete (uses actor.id as client_id)
+            actor: Client whose knowledge items to delete (uses actor.id as client_id)
             
         Returns:
             Number of records deleted
@@ -1013,8 +1043,8 @@ class KnowledgeVaultManager:
         
         with self.session_maker() as session:
             # Get IDs for Redis cleanup (only fetch IDs, not full objects)
-            item_ids = [row[0] for row in session.query(KnowledgeVaultItem.id).filter(
-                KnowledgeVaultItem.client_id == actor.id
+            item_ids = [row[0] for row in session.query(KnowledgeItem.id).filter(
+                KnowledgeItem.client_id == actor.id
             ).all()]
             
             count = len(item_ids)
@@ -1022,8 +1052,8 @@ class KnowledgeVaultManager:
                 return 0
             
             # Bulk delete in single query
-            session.query(KnowledgeVaultItem).filter(
-                KnowledgeVaultItem.client_id == actor.id
+            session.query(KnowledgeItem).filter(
+                KnowledgeItem.client_id == actor.id
             ).delete(synchronize_session=False)
             
             session.commit()
@@ -1043,10 +1073,10 @@ class KnowledgeVaultManager:
 
     def soft_delete_by_client_id(self, actor: PydanticClient) -> int:
         """
-        Bulk soft delete all knowledge vault records for a client (updates Redis cache).
+        Bulk soft delete all knowledge records for a client (updates Redis cache).
         
         Args:
-            actor: Client whose knowledge vault items to soft delete (uses actor.id as client_id)
+            actor: Client whose knowledge items to soft delete (uses actor.id as client_id)
             
         Returns:
             Number of records soft deleted
@@ -1055,9 +1085,9 @@ class KnowledgeVaultManager:
         
         with self.session_maker() as session:
             # Query all non-deleted records for this client (use actor.id)
-            items = session.query(KnowledgeVaultItem).filter(
-                KnowledgeVaultItem.client_id == actor.id,
-                KnowledgeVaultItem.is_deleted == False
+            items = session.query(KnowledgeItem).filter(
+                KnowledgeItem.client_id == actor.id,
+                KnowledgeItem.is_deleted == False
             ).all()
             
             count = len(items)
@@ -1089,10 +1119,10 @@ class KnowledgeVaultManager:
 
     def soft_delete_by_user_id(self, user_id: str) -> int:
         """
-        Bulk soft delete all knowledge vault records for a user (updates Redis cache).
+        Bulk soft delete all knowledge records for a user (updates Redis cache).
         
         Args:
-            user_id: ID of the user whose knowledge vault items to soft delete
+            user_id: ID of the user whose knowledge items to soft delete
             
         Returns:
             Number of records soft deleted
@@ -1101,9 +1131,9 @@ class KnowledgeVaultManager:
         
         with self.session_maker() as session:
             # Query all non-deleted records for this user
-            items = session.query(KnowledgeVaultItem).filter(
-                KnowledgeVaultItem.user_id == user_id,
-                KnowledgeVaultItem.is_deleted == False
+            items = session.query(KnowledgeItem).filter(
+                KnowledgeItem.user_id == user_id,
+                KnowledgeItem.is_deleted == False
             ).all()
             
             count = len(items)
@@ -1135,11 +1165,11 @@ class KnowledgeVaultManager:
 
     def delete_by_user_id(self, user_id: str) -> int:
         """
-        Bulk hard delete all knowledge vault records for a user (removes from Redis cache).
+        Bulk hard delete all knowledge records for a user (removes from Redis cache).
         Optimized with single DB query and batch Redis deletion.
         
         Args:
-            user_id: ID of the user whose knowledge vault items to delete
+            user_id: ID of the user whose knowledge items to delete
             
         Returns:
             Number of records deleted
@@ -1148,8 +1178,8 @@ class KnowledgeVaultManager:
         
         with self.session_maker() as session:
             # Get IDs for Redis cleanup (only fetch IDs, not full objects)
-            item_ids = [row[0] for row in session.query(KnowledgeVaultItem.id).filter(
-                KnowledgeVaultItem.user_id == user_id
+            item_ids = [row[0] for row in session.query(KnowledgeItem.id).filter(
+                KnowledgeItem.user_id == user_id
             ).all()]
             
             count = len(item_ids)
@@ -1157,8 +1187,8 @@ class KnowledgeVaultManager:
                 return 0
             
             # Bulk delete in single query
-            session.query(KnowledgeVaultItem).filter(
-                KnowledgeVaultItem.user_id == user_id
+            session.query(KnowledgeItem).filter(
+                KnowledgeItem.user_id == user_id
             ).delete(synchronize_session=False)
             
             session.commit()
@@ -1176,6 +1206,56 @@ class KnowledgeVaultManager:
         
         return count
 
+    def delete_expired_memories(
+        self,
+        user: PydanticUser,
+        expire_after_days: int,
+    ) -> int:
+        """
+        Delete knowledge items older than the specified number of days.
+
+        Args:
+            user: User who owns the memories
+            expire_after_days: Number of days after which memories are considered expired
+
+        Returns:
+            Number of deleted memories
+        """
+        from datetime import timedelta
+        from mirix.database.redis_client import get_redis_client
+
+        expire_cutoff = datetime.now() - timedelta(days=expire_after_days)
+
+        with self.session_maker() as session:
+            query = select(KnowledgeItem).where(
+                KnowledgeItem.user_id == user.id,
+                KnowledgeItem.updated_at < expire_cutoff,
+            )
+            result = session.execute(query)
+            expired_items = result.scalars().all()
+
+            count = len(expired_items)
+            item_ids = [item.id for item in expired_items]
+
+            for item in expired_items:
+                session.delete(item)
+
+            session.commit()
+
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.KNOWLEDGE_PREFIX}{item_id}" for item_id in item_ids]
+            if redis_keys:
+                redis_client.client.delete(*redis_keys)
+
+        logger.info(
+            "Deleted %d expired knowledge items for user %s (older than %d days)",
+            count,
+            user.id,
+            expire_after_days,
+        )
+        return count
+
     @enforce_types
     def list_knowledge_by_org(
         self,
@@ -1191,8 +1271,8 @@ class KnowledgeVaultManager:
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
         similarity_threshold: Optional[float] = None,
-        ) -> List[PydanticKnowledgeVaultItem]:
-        """List knowledge vault items across ALL users in an organization."""
+        ) -> List[PydanticKnowledgeItem]:
+        """List knowledge items across ALL users in an organization."""
         from mirix.database.redis_client import get_redis_client
         redis_client = get_redis_client()
         
@@ -1208,7 +1288,7 @@ class KnowledgeVaultManager:
                     )
                     if results:
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
                 elif search_method == "embedding":
                     if embedded_text is None:
                         from mirix.embeddings import embedding_model
@@ -1233,7 +1313,7 @@ class KnowledgeVaultManager:
                     )
                     if results:
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
                 else:
                     results = redis_client.search_text_by_org(
                         index_name=redis_client.KNOWLEDGE_INDEX,
@@ -1246,18 +1326,18 @@ class KnowledgeVaultManager:
                     )
                     if results:
                         results = redis_client.clean_redis_fields(results)
-                        return [PydanticKnowledgeVaultItem(**item) for item in results]
+                        return [PydanticKnowledgeItem(**item) for item in results]
             except Exception as e:
                 logger.warning("Redis search failed: %s", e)
         
         with self.session_maker() as session:
-            # Return full KnowledgeVaultItem objects, not individual columns
-            base_query = select(KnowledgeVaultItem).where(
-                KnowledgeVaultItem.organization_id == organization_id
+            # Return full KnowledgeItem objects, not individual columns
+            base_query = select(KnowledgeItem).where(
+                KnowledgeItem.organization_id == organization_id
             )
 
             if sensitivity is not None:
-                base_query = base_query.where(KnowledgeVaultItem.sensitivity.in_(sensitivity))
+                base_query = base_query.where(KnowledgeItem.sensitivity.in_(sensitivity))
             
             if filter_tags:
                 from sqlalchemy import func, or_
@@ -1266,17 +1346,17 @@ class KnowledgeVaultManager:
                         # Scope matching: input value must be in memory's scope field
                         base_query = base_query.where(
                             or_(
-                                func.lower(KnowledgeVaultItem.filter_tags[key].as_string()).contains(str(value).lower()),
-                                KnowledgeVaultItem.filter_tags[key].as_string() == str(value)
+                                func.lower(KnowledgeItem.filter_tags[key].as_string()).contains(str(value).lower()),
+                                KnowledgeItem.filter_tags[key].as_string() == str(value)
                             )
                         )
                     else:
                         # Other keys: exact match
-                        base_query = base_query.where(KnowledgeVaultItem.filter_tags[key].as_string() == str(value))
+                        base_query = base_query.where(KnowledgeItem.filter_tags[key].as_string() == str(value))
 
             # Handle empty query - fall back to recent sort
             if not query or query == "":
-                base_query = base_query.order_by(KnowledgeVaultItem.created_at.desc())
+                base_query = base_query.order_by(KnowledgeItem.created_at.desc())
                 if limit:
                     base_query = base_query.limit(limit)
                 result = session.execute(base_query)
@@ -1292,9 +1372,9 @@ class KnowledgeVaultManager:
                 
                 # Determine which embedding field to search
                 if search_field == "caption":
-                    embedding_field = KnowledgeVaultItem.caption_embedding
+                    embedding_field = KnowledgeItem.caption_embedding
                 else:
-                    embedding_field = KnowledgeVaultItem.caption_embedding
+                    embedding_field = KnowledgeItem.caption_embedding
                 
                 embedding_query_field = embedding_field.cosine_distance(embedded_text).label("distance")
                 base_query = base_query.add_columns(embedding_query_field)
@@ -1311,11 +1391,11 @@ class KnowledgeVaultManager:
                 
                 # Determine search field
                 if search_field == "caption":
-                    text_field = KnowledgeVaultItem.caption
+                    text_field = KnowledgeItem.caption
                 elif search_field == "secret_value":
-                    text_field = KnowledgeVaultItem.secret_value
+                    text_field = KnowledgeItem.secret_value
                 else:
-                    text_field = KnowledgeVaultItem.caption
+                    text_field = KnowledgeItem.caption
                 
                 tsquery = func.plainto_tsquery("english", query)
                 tsvector = func.to_tsvector("english", text_field)

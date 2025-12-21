@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Base URL can be set via MIRIX_API_URL environment variable or .env file
 # MirixClient will automatically read from environment variables
 BASE_URL = os.environ.get("MIRIX_API_URL", "http://localhost:8000")
-CONFIG_PATH = Path(__file__).parent.parent / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
+CONFIG_PATH = Path(__file__).parent.parent / "mirix" / "configs" / "examples" / "mirix_openai.yaml"
 
 
 def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefix: str = ""):
@@ -148,7 +148,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
     )
     logger.info(f"  ✓ Added resource memory - Result: {result}")
     
-    # Add knowledge vault memory
+    # Add knowledge memory
     result = client.add(
         user_id=user_id,
         messages=[
@@ -163,7 +163,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
                 "role": "assistant",
                 "content": [{
                     "type": "text",
-                    "text": "Saved database credentials to knowledge vault"
+                    "text": "Saved database credentials to knowledge"
                 }]
             }
         ],
@@ -171,7 +171,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
         filter_tags=filter_tags,
         occurred_at="2025-11-20T14:20:00"
     )
-    logger.info(f"  ✓ Added knowledge vault memory - Result: {result}")
+    logger.info(f"  ✓ Added knowledge memory - Result: {result}")
     
     logger.info(f"✅ All memories added for user {user_id}")
 

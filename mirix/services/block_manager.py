@@ -126,7 +126,10 @@ class BlockManager:
                 block.user_id = user.id
 
             block.update_with_redis(db_session=session, actor=actor)  # ⭐ Use Redis integration
-            
+
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("core", "updated")
+
             # ⭐ Invalidate agent caches that reference this block
             self._invalidate_agent_caches_for_block(block_id)
             
@@ -201,7 +204,7 @@ class BlockManager:
                     user.id,
                     agent_id
                 )
-                blocks = self._copy_blocks_from_default_user(
+                blocks = self._copy_blocks_from_admin_user(
                     session=session,
                     target_user=user,
                     agent_id=agent_id,
@@ -210,7 +213,7 @@ class BlockManager:
 
             return [block.to_pydantic() for block in blocks]
     
-    def _copy_blocks_from_default_user(
+    def _copy_blocks_from_admin_user(
         self,
         session,
         target_user: PydanticUser,
@@ -239,14 +242,14 @@ class BlockManager:
         # This ensures we copy blocks from the correct template within the same organization
         user_manager = UserManager()
         try:
-            org_default_user = user_manager.get_or_create_org_default_user(
+            org_admin_user = user_manager.get_or_create_org_admin_user(
                 org_id=organization_id,
                 client_id=None  # No specific client needed for lookup
             )
-            default_user_id = org_default_user.id
+            admin_user_id = org_admin_user.id
             logger.debug(
                 "Using organization default user %s as template for user %s in org %s",
-                default_user_id,
+                admin_user_id,
                 target_user.id,
                 organization_id
             )
@@ -255,12 +258,12 @@ class BlockManager:
             logger.warning(
                 "Failed to get org default user, falling back to global admin: %s", e
             )
-            default_user_id = UserManager.ADMIN_USER_ID
+            admin_user_id = UserManager.ADMIN_USER_ID
         
         # Find default user's blocks for this agent
         default_blocks = BlockModel.list(
             db_session=session,
-            user_id=default_user_id,
+            user_id=admin_user_id,
             agent_id=agent_id,
             organization_id=organization_id,
             limit=100  # Core memory typically has 2-10 blocks
@@ -270,7 +273,7 @@ class BlockManager:
             "Found %d default template blocks for agent %s (user_id=%s, org_id=%s)",
             len(default_blocks),
             agent_id,
-            default_user_id,
+            admin_user_id,
             organization_id
         )
         

@@ -7,7 +7,10 @@ from mirix.orm.client_api_key import ClientApiKey
 from mirix.orm.cloud_file_mapping import CloudFileMapping
 from mirix.orm.episodic_memory import EpisodicEvent
 from mirix.orm.file import FileMetadata
-from mirix.orm.knowledge_vault import KnowledgeVaultItem
+from mirix.orm.knowledge import KnowledgeItem
+from mirix.orm.memory_agent_tool_call import MemoryAgentToolCall
+from mirix.orm.memory_agent_trace import MemoryAgentTrace
+from mirix.orm.memory_queue_trace import MemoryQueueTrace
 from mirix.orm.message import Message
 from mirix.orm.organization import Organization
 from mirix.orm.procedural_memory import ProceduralMemoryItem
@@ -29,7 +32,10 @@ __all__ = [
     "CloudFileMapping",
     "EpisodicEvent",
     "FileMetadata",
-    "KnowledgeVaultItem",
+    "KnowledgeItem",
+    "MemoryAgentToolCall",
+    "MemoryAgentTrace",
+    "MemoryQueueTrace",
     "Message",
     "Organization",
     "ProceduralMemoryItem",

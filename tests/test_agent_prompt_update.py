@@ -2,7 +2,7 @@
 Agent System Prompt Update Integration Tests for Mirix
 
 Tests system prompt updates for all memory agent types:
-- Episodic, Semantic, Core, Procedural, Resource, Knowledge Vault, Reflexion, Meta Memory
+- Episodic, Semantic, Core, Procedural, Resource, Knowledge, Reflexion, Meta Memory
 - Verifies updates in: running agents, PostgreSQL database, Redis cache
 - Verifies system message (message_ids[0]) is updated
 
@@ -280,7 +280,7 @@ AGENT_NAMES = [
     "core",
     "procedural",
     "resource",
-    "knowledge_vault",
+    "knowledge",
     "reflexion",
     "meta_memory_agent",
 ]

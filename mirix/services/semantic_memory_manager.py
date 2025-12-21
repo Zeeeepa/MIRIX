@@ -1,13 +1,13 @@
 import json
 import re
 import string
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
 from sqlalchemy import func, select, text
 
-from mirix.constants import BUILD_EMBEDDINGS_FOR_MEMORY
 from mirix.embeddings import embedding_model
 from mirix.log import get_logger
 from mirix.orm.errors import NoResultFound
@@ -551,6 +551,8 @@ class SemanticMemoryManager:
                     setattr(item, k, v)
             # updated_at is automatically set to current UTC time by item.update()
             item.update_with_redis(session, actor=user)  # ⭐ Updates Redis JSON cache
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("semantic", "updated")
             return item.to_pydantic()
 
     @enforce_types
@@ -585,6 +587,8 @@ class SemanticMemoryManager:
         timezone_str: str = None,
         filter_tags: Optional[dict] = None,
         use_cache: bool = True,
+        include_faded: bool = False,
+        fade_after_days: Optional[int] = None,
         similarity_threshold: Optional[float] = None,
         ) -> List[PydanticSemanticMemoryItem]:
         """
@@ -604,6 +608,8 @@ class SemanticMemoryManager:
             limit: Maximum number of results to return
             timezone_str: Timezone string for timestamp conversion
             use_cache: If True, try Redis cache first. If False, skip cache and query PostgreSQL directly.
+            include_faded: If False (default), exclude memories older than fade_after_days
+            fade_after_days: Number of days after which memories are considered faded (based on updated_at)
 
         Returns:
             List of semantic memory items matching the search criteria
@@ -619,7 +625,21 @@ class SemanticMemoryManager:
             - PostgreSQL 'bm25': Native DB search, very fast, scales well
             - Fallback 'bm25' (SQLite): In-memory processing, slower for large datasets but still provides
               proper BM25 ranking
+             
+            **Memory decay**: When include_faded is False and fade_after_days is set, memories older than
+            the specified days (based on updated_at) will be excluded from results.
         """
+        # Apply memory decay filtering (fade cutoff based on updated_at)
+        fade_cutoff = None
+        if not include_faded and fade_after_days is not None:
+            from datetime import timedelta
+
+            fade_cutoff = datetime.now() - timedelta(days=fade_after_days)
+            logger.debug(
+                "Memory decay: applying fade cutoff at %s (%d days)",
+                fade_cutoff,
+                fade_after_days,
+            )
         query = query.strip() if query else ""
         is_empty_query = not query or query == ""
         
@@ -729,6 +749,10 @@ class SemanticMemoryManager:
                 if filter_tags:
                     for key, value in filter_tags.items():
                         query_stmt = query_stmt.where(SemanticMemoryItem.filter_tags[key].as_string() == str(value))
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    query_stmt = query_stmt.where(SemanticMemoryItem.updated_at >= fade_cutoff)
                 
                 if limit:
                     query_stmt = query_stmt.limit(limit)
@@ -763,6 +787,10 @@ class SemanticMemoryManager:
                 if filter_tags:
                     for key, value in filter_tags.items():
                         base_query = base_query.where(SemanticMemoryItem.filter_tags[key].as_string() == str(value))
+
+                # Apply memory decay filter (fade cutoff based on updated_at)
+                if fade_cutoff is not None:
+                    base_query = base_query.where(SemanticMemoryItem.updated_at >= fade_cutoff)
 
                 if search_method == "embedding":
                     embed_query = True
@@ -921,10 +949,10 @@ class SemanticMemoryManager:
                 client_id = actor.id
             if user_id is None:
                 user_id = UserManager.ADMIN_USER_ID
-                logger.debug("user_id not provided, using DEFAULT_USER_ID: %s", user_id)
+                logger.debug("user_id not provided, using ADMIN_USER_ID: %s", user_id)
             
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
-            if BUILD_EMBEDDINGS_FOR_MEMORY:
+            if settings.build_embeddings_for_memory:
                 # TODO: need to check if we need to chunk the text
                 embed_model = embedding_model(agent_state.embedding_config)
                 name_embedding = embed_model.get_text_embedding(name)
@@ -959,6 +987,9 @@ class SemanticMemoryManager:
                 user_id=user_id,
             )
 
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("semantic", "created")
+
             # Note: Item is already added to clustering tree in create_item()
             return semantic_item
         except Exception as e:
@@ -980,6 +1011,8 @@ class SemanticMemoryManager:
                     redis_key = f"{redis_client.SEMANTIC_PREFIX}{semantic_memory_id}"
                     redis_client.delete(redis_key)
                 item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("semantic", "deleted")
             except NoResultFound:
                 raise NoResultFound(
                     f"Semantic memory item with id {semantic_memory_id} not found."
@@ -1162,6 +1195,56 @@ class SemanticMemoryManager:
                 batch = redis_keys[i:i + BATCH_SIZE]
                 redis_client.client.delete(*batch)
         
+        return count
+
+    def delete_expired_memories(
+        self,
+        user: PydanticUser,
+        expire_after_days: int,
+    ) -> int:
+        """
+        Delete semantic memories older than the specified number of days.
+
+        Args:
+            user: User who owns the memories
+            expire_after_days: Number of days after which memories are considered expired
+
+        Returns:
+            Number of deleted memories
+        """
+        from datetime import timedelta
+        from mirix.database.redis_client import get_redis_client
+
+        expire_cutoff = datetime.now() - timedelta(days=expire_after_days)
+
+        with self.session_maker() as session:
+            query = select(SemanticMemoryItem).where(
+                SemanticMemoryItem.user_id == user.id,
+                SemanticMemoryItem.updated_at < expire_cutoff,
+            )
+            result = session.execute(query)
+            expired_items = result.scalars().all()
+
+            count = len(expired_items)
+            item_ids = [item.id for item in expired_items]
+
+            for item in expired_items:
+                session.delete(item)
+
+            session.commit()
+
+        redis_client = get_redis_client()
+        if redis_client and item_ids:
+            redis_keys = [f"{redis_client.SEMANTIC_PREFIX}{item_id}" for item_id in item_ids]
+            if redis_keys:
+                redis_client.client.delete(*redis_keys)
+
+        logger.info(
+            "Deleted %d expired semantic memories for user %s (older than %d days)",
+            count,
+            user.id,
+            expire_after_days,
+        )
         return count
 
     @update_timezone

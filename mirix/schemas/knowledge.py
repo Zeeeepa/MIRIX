@@ -9,12 +9,12 @@ from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.mirix_base import MirixBase
 
 
-class KnowledgeVaultItemBase(MirixBase):
+class KnowledgeItemBase(MirixBase):
     """
-    Base schema for knowledge vault items containing common fields.
+    Base schema for knowledge items containing common fields.
     """
 
-    __id_prefix__ = "kv_item"
+    __id_prefix__ = "kn_item"
     entry_type: str = Field(
         ..., description="Category (e.g., 'credential', 'bookmark', 'api_key')"
     )
@@ -25,38 +25,38 @@ class KnowledgeVaultItemBase(MirixBase):
     secret_value: str = Field(..., description="The actual credential or data value")
     caption: str = Field(
         ...,
-        description="Description of the knowledge vault item (e.g. 'API key for OpenAI Service')",
+        description="Description of the knowledge item (e.g. 'API key for OpenAI Service')",
     )
 
 
-class KnowledgeVaultItem(KnowledgeVaultItemBase):
+class KnowledgeItem(KnowledgeItemBase):
     """
-    Representation of a knowledge vault item for storing credentials, bookmarks, etc.
+    Representation of a knowledge item for storing credentials, bookmarks, etc.
 
     Additional Parameters:
-        id (str): Unique ID for this knowledge vault entry.
+        id (str): Unique ID for this knowledge entry.
         created_at (datetime): Creation timestamp.
         updated_at (Optional[datetime]): Last update timestamp.
     """
 
     id: Optional[str] = Field(
-        None, description="Unique identifier for the knowledge vault item"
+        None, description="Unique identifier for the knowledge item"
     )
     agent_id: Optional[str] = Field(
-        None, description="The id of the agent this knowledge vault item belongs to"
+        None, description="The id of the agent this knowledge item belongs to"
     )
     client_id: Optional[str] = Field(
         None, description="The id of the client application that created this item"
     )
     user_id: str = Field(
-        ..., description="The id of the user who generated the knowledge vault item"
+        ..., description="The id of the user who generated the knowledge item"
     )
     created_at: datetime = Field(
         default_factory=get_utc_time,
-        description="The creation date of the knowledge vault item",
+        description="The creation date of the knowledge item",
     )
     updated_at: Optional[datetime] = Field(
-        None, description="The last update date of the knowledge vault item"
+        None, description="The last update date of the knowledge item"
     )
     last_modify: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -121,26 +121,26 @@ class KnowledgeVaultItem(KnowledgeVaultItemBase):
         return embedding
 
 
-class KnowledgeVaultItemCreate(KnowledgeVaultItemBase):
+class KnowledgeItemCreate(KnowledgeItemBase):
     """
-    Schema for creating a new knowledge vault item.
+    Schema for creating a new knowledge item.
 
-    Inherits all required fields from KnowledgeVaultItemBase.
+    Inherits all required fields from KnowledgeItemBase.
     """
 
     pass
 
 
-class KnowledgeVaultItemUpdate(MirixBase):
+class KnowledgeItemUpdate(MirixBase):
     """
-    Schema for updating an existing knowledge vault item.
+    Schema for updating an existing knowledge item.
 
     All fields (except id) are optional so that only provided fields are updated.
     """
 
-    id: str = Field(..., description="Unique ID for this knowledge vault entry")
+    id: str = Field(..., description="Unique ID for this knowledge entry")
     agent_id: Optional[str] = Field(
-        None, description="The id of the agent this knowledge vault item belongs to"
+        None, description="The id of the agent this knowledge item belongs to"
     )
     entry_type: Optional[str] = Field(
         None, description="Category (e.g., 'credential', 'bookmark', 'api_key')"
@@ -176,9 +176,9 @@ class KnowledgeVaultItemUpdate(MirixBase):
         None, description="Custom filter tags for filtering and categorization"
     )
 
-class KnowledgeVaultItemResponse(KnowledgeVaultItem):
+class KnowledgeItemResponse(KnowledgeItem):
     """
-    Response schema for knowledge vault items with additional fields that might be needed by the API.
+    Response schema for knowledge items with additional fields that might be needed by the API.
     """
 
     pass

@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -11,9 +11,10 @@ from mirix.constants import (
     CORE_MEMORY_TOOLS,
     EPISODIC_MEMORY_TOOLS,
     EXTRAS_TOOLS,
-    KNOWLEDGE_VAULT_TOOLS,
+    KNOWLEDGE_MEMORY_TOOLS,
     MCP_TOOLS,
     META_MEMORY_TOOLS,
+    META_MEMORY_TOOLS_DIRECT,
     PROCEDURAL_MEMORY_TOOLS,
     RESOURCE_MEMORY_TOOLS,
     SEARCH_MEMORY_TOOLS,
@@ -30,6 +31,7 @@ from mirix.schemas.agent import (
     AgentType,
     CreateAgent,
     CreateMetaAgent,
+    MemoryConfig,
     UpdateAgent,
     UpdateMetaAgent,
 )
@@ -54,6 +56,7 @@ from mirix.services.helpers.agent_manager_helper import (
 from mirix.services.message_manager import MessageManager
 from mirix.services.tool_manager import ToolManager
 from mirix.services.user_manager import UserManager
+from mirix.settings import settings
 from mirix.utils import create_random_username, enforce_types, get_utc_time
 
 logger = get_logger(__name__)
@@ -116,8 +119,13 @@ class AgentManager:
             agent_type=agent_create.agent_type, system=agent_create.system
         )
 
-        if not agent_create.llm_config or not agent_create.embedding_config:
-            raise ValueError("llm_config and embedding_config are required")
+        if not agent_create.llm_config:
+            raise ValueError("llm_config is required")
+
+        if settings.build_embeddings_for_memory and not agent_create.embedding_config:
+            raise ValueError(
+                "embedding_config is required when build_embeddings_for_memory is true"
+            )
 
         # Check tool rules are valid
         if agent_create.tool_rules:
@@ -140,14 +148,14 @@ class AgentManager:
             tool_names.extend(PROCEDURAL_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.resource_memory_agent:
             tool_names.extend(RESOURCE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_create.agent_type == AgentType.knowledge_vault_memory_agent:
-            tool_names.extend(KNOWLEDGE_VAULT_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        if agent_create.agent_type == AgentType.knowledge_memory_agent:
+            tool_names.extend(KNOWLEDGE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.core_memory_agent:
             tool_names.extend(CORE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.semantic_memory_agent:
             tool_names.extend(SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_create.agent_type == AgentType.meta_memory_agent:
-            tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        # NOTE: meta_memory_agent tools are NOT added here - they are configured in create_meta_agent
+        # based on whether the agent has children (trigger_memory_update) or not (direct tools)
         if agent_create.agent_type == AgentType.reflexion_agent:
             tool_names.extend(
                 SEARCH_MEMORY_TOOLS
@@ -177,6 +185,7 @@ class AgentManager:
             agent_type=agent_create.agent_type,
             llm_config=agent_create.llm_config,
             embedding_config=agent_create.embedding_config,
+            memory_config=agent_create.memory_config,
             tool_ids=tool_ids,
             tool_rules=agent_create.tool_rules,
             parent_id=agent_create.parent_id,
@@ -208,8 +217,13 @@ class AgentManager:
                                            including the "meta_memory_agent" parent
         """
 
-        if not meta_agent_create.llm_config or not meta_agent_create.embedding_config:
-            raise ValueError("llm_config and embedding_config are required")
+        if not meta_agent_create.llm_config:
+            raise ValueError("llm_config is required")
+
+        if settings.build_embeddings_for_memory and not meta_agent_create.embedding_config:
+            raise ValueError(
+                "embedding_config is required when build_embeddings_for_memory is true"
+            )
 
         # ✅ NEW: Get or create organization-specific default user for block templates
         user_manager = UserManager()
@@ -225,13 +239,13 @@ class AgentManager:
                     e,
                 )
                 # Fall back to organization's default user (not global admin)
-                user = user_manager.get_or_create_org_default_user(
+                user = user_manager.get_or_create_org_admin_user(
                     org_id=actor.organization_id, client_id=actor.id
                 )
         else:
             # No user_id provided - use organization's default template user
             # This user will serve as the template for copying blocks to new users
-            user = user_manager.get_or_create_org_default_user(
+            user = user_manager.get_or_create_org_admin_user(
                 org_id=actor.organization_id, client_id=actor.id
             )
             logger.debug(
@@ -250,12 +264,17 @@ class AgentManager:
             "semantic_memory_agent": AgentType.semantic_memory_agent,
             "episodic_memory_agent": AgentType.episodic_memory_agent,
             "procedural_memory_agent": AgentType.procedural_memory_agent,
-            "knowledge_vault_memory_agent": AgentType.knowledge_vault_memory_agent,
+            "knowledge_memory_agent": AgentType.knowledge_memory_agent,
             "meta_memory_agent": AgentType.meta_memory_agent,
             "reflexion_agent": AgentType.reflexion_agent,
             "background_agent": AgentType.background_agent,
             "chat_agent": AgentType.chat_agent,
         }
+
+        # Check if all agent names are valid
+        for agent_name in meta_agent_create.agents:
+            if agent_name not in agent_name_to_type:
+                raise ValueError(f"Agent '{agent_name}' is not recognized.")
 
         # Load default system prompts from base folder
         default_system_prompts = {}
@@ -270,6 +289,12 @@ class AgentManager:
                 with open(prompt_file, "r", encoding="utf-8") as f:
                     default_system_prompts[agent_name] = f.read()
 
+        # Check if we have child agents (excluding meta_memory_agent itself)
+        child_agents = [
+            name for name in meta_agent_create.agents if name != "meta_memory_agent"
+        ]
+        has_child_agents = len(child_agents) > 0
+
         # First, create the meta_memory_agent as the parent
         meta_agent_name = meta_agent_create.name or "meta_memory_agent"
         meta_system_prompt = None
@@ -278,8 +303,31 @@ class AgentManager:
             and "meta_memory_agent" in meta_agent_create.system_prompts
         ):
             meta_system_prompt = meta_agent_create.system_prompts["meta_memory_agent"]
-        else:
+        elif has_child_agents:
+            # Use the standard meta_memory_agent prompt with trigger_memory_update
             meta_system_prompt = default_system_prompts["meta_memory_agent"]
+        else:
+            # No child agents - use the direct prompt with episodic memory tools
+            meta_system_prompt = default_system_prompts.get(
+                "meta_memory_agent_direct",
+                default_system_prompts["meta_memory_agent"]  # Fallback
+            )
+
+        # Build memory_config dict from the MemoryConfig (if decay settings provided)
+        memory_config_dict = None
+        if meta_agent_create.memory and meta_agent_create.memory.decay:
+            decay = meta_agent_create.memory.decay
+            memory_config_dict = {
+                "decay": {
+                    "fade_after_days": decay.fade_after_days,
+                    "expire_after_days": decay.expire_after_days,
+                }
+            }
+            logger.debug(
+                "Memory decay config set: fade_after_days=%s, expire_after_days=%s",
+                decay.fade_after_days,
+                decay.expire_after_days,
+            )
 
         meta_agent_create_schema = CreateAgent(
             name=meta_agent_name,
@@ -294,6 +342,16 @@ class AgentManager:
             agent_create=meta_agent_create_schema,
             actor=actor,
         )
+
+        # Store memory_config on the meta agent if decay settings were provided
+        if memory_config_dict:
+            self.update_agent(
+                agent_id=meta_agent_state.id,
+                agent_update=UpdateAgent(memory_config=memory_config_dict),
+                actor=actor,
+            )
+            logger.debug("Stored memory_config on meta agent %s", meta_agent_state.id)
+
         logger.debug(
             f"Created meta_memory_agent: {meta_agent_name} with id: {meta_agent_state.id}"
         )
@@ -302,30 +360,13 @@ class AgentManager:
         created_agents = {}
 
         # Now create all sub-agents with parent_id set to the meta_memory_agent
-        for agent_item in meta_agent_create.agents:
-            # Parse agent_item - can be string or dict
-            agent_name = None
-            agent_config = {}
-
-            if isinstance(agent_item, str):
-                agent_name = agent_item
-            elif isinstance(agent_item, dict):
-                # Dict format: {agent_name: {config}}
-                agent_name = list(agent_item.keys())[0]
-                agent_config = agent_item[agent_name] or {}
-            else:
-                logger.warning("Invalid agent item format: %s, skipping...", agent_item)
-                continue
-
+        for agent_name in meta_agent_create.agents:
             # Skip meta_memory_agent since we already created it as the parent
             if agent_name == "meta_memory_agent":
                 continue
 
             # Get the agent type
-            agent_type = agent_name_to_type.get(agent_name)
-            if not agent_type:
-                logger.warning("Unknown agent type: %s, skipping...", agent_name)
-                continue
+            agent_type = agent_name_to_type[agent_name]
 
             # Get custom system prompt if provided, fallback to default
             custom_system = None
@@ -358,24 +399,22 @@ class AgentManager:
                 f"Created sub-agent: {agent_name} with id: {agent_state.id}, parent_id: {meta_agent_state.id}"
             )
 
-            # ✅ FIX: Process agent-specific initialization (e.g., blocks for core_memory_agent)
-            # This handles any agent configuration provided in the meta_agent creation request
-            if "blocks" in agent_config:
-                # Create memory blocks for this agent (typically core_memory_agent)
-                memory_block_configs = agent_config["blocks"]
-                for block in memory_block_configs:
+            # Create memory blocks for core_memory_agent from the separate memory config
+            if agent_name == "core_memory_agent" and meta_agent_create.memory:
+                memory_config = meta_agent_create.memory
+                for block_config in memory_config.core:
                     self.block_manager.create_or_update_block(
                         block=Block(
-                            value=block["value"],
-                            limit=block.get("limit", CORE_MEMORY_BLOCK_CHAR_LIMIT),
-                            label=block["label"],
+                            value=block_config.value,
+                            limit=block_config.limit or CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            label=block_config.label,
                         ),
                         actor=actor,
-                        agent_id=agent_state.id,  # ✅ Use child agent's ID, not parent's
-                        user=user,  # ✅ Pass user for block creation
+                        agent_id=None,  # Core memory blocks are user-scoped, not agent-scoped
+                        user=user,  # Pass user for block creation
                     )
                 logger.debug(
-                    f"Created {len(memory_block_configs)} memory blocks for {agent_name} (agent_id: {agent_state.id})"
+                    f"Created {len(memory_config.core)} memory blocks for user (user_id: {user.id})"
                 )
 
                 # ✅ Ensure blocks are committed to database before proceeding
@@ -388,9 +427,65 @@ class AgentManager:
 
             # Future: Add handling for other agent-specific configs here if needed
             # E.g., if 'initial_data' in agent_config: ...
+        
+        # Configure meta_memory_agent tools based on whether it has children
+        # (This is done here because create_agent doesn't add meta_memory tools)
+        tool_ids_to_add = []
+        existing_tool_ids = [t.id for t in meta_agent_state.tools]
 
         if created_agents:
+            # Has child agents - use trigger_memory_update to delegate to children
             meta_agent_state.children = list(created_agents.values())
+            logger.info(
+                "Child agents specified - configuring meta_memory_agent with trigger_memory_update"
+            )
+            for tool_name in META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS:
+                tool = self.tool_manager.get_tool_by_name(tool_name=tool_name, actor=actor)
+                if tool:
+                    tool_ids_to_add.append(tool.id)
+                else:
+                    logger.debug("Tool %s not found", tool_name)
+        else:
+            # No child agents - use direct memory tools
+            logger.info(
+                "No child agents specified - configuring meta_memory_agent with direct memory tools"
+            )
+            for tool_name in META_MEMORY_TOOLS_DIRECT + UNIVERSAL_MEMORY_TOOLS:
+                tool = self.tool_manager.get_tool_by_name(tool_name=tool_name, actor=actor)
+                if tool:
+                    tool_ids_to_add.append(tool.id)
+                else:
+                    logger.debug("Tool %s not found", tool_name)
+
+            # Create memory blocks on meta_memory_agent itself (since no core_memory_agent exists)
+            if meta_agent_create.memory:
+                memory_config = meta_agent_create.memory
+                for block_config in memory_config.core:
+                    self.block_manager.create_or_update_block(
+                        block=Block(
+                            value=block_config.value,
+                            limit=block_config.limit or CORE_MEMORY_BLOCK_CHAR_LIMIT,
+                            label=block_config.label,
+                        ),
+                        actor=actor,
+                        agent_id=None,  # Core memory blocks are user-scoped, not agent-scoped
+                        user=user,  # Pass user for block creation
+                    )
+                logger.debug(
+                    f"Created {len(memory_config.core)} memory blocks for user (user_id: {user.id})"
+                )
+
+        # Update agent tools
+        new_tool_ids = list(set(existing_tool_ids + tool_ids_to_add))
+        self.update_agent(
+            agent_id=meta_agent_state.id,
+            agent_update=UpdateAgent(tool_ids=new_tool_ids),
+            actor=actor,
+        )
+
+        # Refresh the agent state to get updated tools
+        meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_state.id, actor=actor)
+
         return meta_agent_state
 
     def update_meta_agent(
@@ -424,12 +519,18 @@ class AgentManager:
             "semantic_memory_agent": AgentType.semantic_memory_agent,
             "episodic_memory_agent": AgentType.episodic_memory_agent,
             "procedural_memory_agent": AgentType.procedural_memory_agent,
-            "knowledge_vault_memory_agent": AgentType.knowledge_vault_memory_agent,
+            "knowledge_memory_agent": AgentType.knowledge_memory_agent,
             "meta_memory_agent": AgentType.meta_memory_agent,
             "reflexion_agent": AgentType.reflexion_agent,
             "background_agent": AgentType.background_agent,
             "chat_agent": AgentType.chat_agent,
         }
+
+        # Check if all agent names are valid
+        if meta_agent_update.agents is not None:
+            for agent_name in meta_agent_update.agents:
+                if agent_name not in agent_name_to_type:
+                    raise ValueError(f"Agent '{agent_name}' is not recognized.")
 
         # Load default system prompts from base folder
         default_system_prompts = {}
@@ -454,6 +555,9 @@ class AgentManager:
             meta_agent_update_fields["embedding_config"] = (
                 meta_agent_update.embedding_config
             )
+        elif meta_agent_update.clear_embedding_config:
+            meta_agent_update_fields["embedding_config"] = None
+            meta_agent_update_fields["clear_embedding_config"] = True
 
         # Update meta agent with all fields at once
         if meta_agent_update_fields:
@@ -503,21 +607,8 @@ class AgentManager:
         if meta_agent_update.agents is not None:
             # Parse the desired agent names from the update request
             desired_agent_names = set()
-            agent_configs = {}
 
-            for agent_item in meta_agent_update.agents:
-                if isinstance(agent_item, str):
-                    agent_name = agent_item
-                    agent_configs[agent_name] = {}
-                elif isinstance(agent_item, dict):
-                    agent_name = list(agent_item.keys())[0]
-                    agent_configs[agent_name] = agent_item[agent_name] or {}
-                else:
-                    logger.warning(
-                        "Invalid agent item format: %s, skipping...", agent_item
-                    )
-                    continue
-
+            for agent_name in meta_agent_update.agents:
                 # Skip meta_memory_agent as it's the parent
                 if agent_name != "meta_memory_agent":
                     desired_agent_names.add(agent_name)
@@ -537,10 +628,7 @@ class AgentManager:
 
             # Create new agents
             for agent_name in agents_to_create:
-                agent_type = agent_name_to_type.get(agent_name)
-                if not agent_type:
-                    logger.warning("Unknown agent type: %s, skipping...", agent_name)
-                    continue
+                agent_type = agent_name_to_type[agent_name]
 
                 # Get custom system prompt if provided, fallback to default
                 custom_system = None
@@ -554,10 +642,13 @@ class AgentManager:
 
                 # Use the updated configs or fall back to meta agent's configs
                 llm_config = meta_agent_update.llm_config or meta_agent_state.llm_config
-                embedding_config = (
-                    meta_agent_update.embedding_config
-                    or meta_agent_state.embedding_config
-                )
+                if meta_agent_update.clear_embedding_config:
+                    embedding_config = None
+                else:
+                    embedding_config = (
+                        meta_agent_update.embedding_config
+                        or meta_agent_state.embedding_config
+                    )
 
                 # Create the agent using CreateAgent schema with parent_id
                 agent_create = CreateAgent(
@@ -600,7 +691,11 @@ class AgentManager:
                         )
 
         # Update llm_config and embedding_config for all sub-agents if provided
-        if meta_agent_update.llm_config or meta_agent_update.embedding_config:
+        if (
+            meta_agent_update.llm_config
+            or meta_agent_update.embedding_config
+            or meta_agent_update.clear_embedding_config
+        ):
             for agent_name, child_agent in existing_agents_by_name.items():
                 update_fields = {}
                 if meta_agent_update.llm_config is not None:
@@ -609,6 +704,8 @@ class AgentManager:
                     update_fields["embedding_config"] = (
                         meta_agent_update.embedding_config
                     )
+                elif meta_agent_update.clear_embedding_config:
+                    update_fields["clear_embedding_config"] = True
 
                 if update_fields:
                     logger.debug("Updating configs for sub-agent: %s", agent_name)
@@ -649,14 +746,21 @@ class AgentManager:
             tool_names.extend(PROCEDURAL_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.resource_memory_agent:
             tool_names.extend(RESOURCE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_state.agent_type == AgentType.knowledge_vault_memory_agent:
-            tool_names.extend(KNOWLEDGE_VAULT_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        if agent_state.agent_type == AgentType.knowledge_memory_agent:
+            tool_names.extend(KNOWLEDGE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.core_memory_agent:
             tool_names.extend(CORE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.semantic_memory_agent:
             tool_names.extend(SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.meta_memory_agent:
-            tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+            # Check if this meta_memory_agent has children
+            # If no children, use direct tools instead of trigger_memory_update
+            children = self.list_agents(parent_id=agent_state.id, actor=actor)
+            if children:
+                tool_names.extend(META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+            else:
+                # No children - use direct episodic memory tools
+                tool_names.extend(META_MEMORY_TOOLS_DIRECT + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.chat_agent:
             tool_names.extend(BASE_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS)
         if agent_state.agent_type == AgentType.reflexion_agent:
@@ -794,7 +898,8 @@ class AgentManager:
         system: str,
         agent_type: AgentType,
         llm_config: LLMConfig,
-        embedding_config: EmbeddingConfig,
+        embedding_config: Optional[EmbeddingConfig],
+        memory_config: Optional[Dict[str, Any]],
         tool_ids: List[str],
         tool_rules: Optional[List[PydanticToolRule]] = None,
         parent_id: Optional[str] = None,
@@ -812,6 +917,7 @@ class AgentManager:
                 "agent_type": agent_type,
                 "llm_config": llm_config,
                 "embedding_config": embedding_config,
+                "memory_config": memory_config,
                 "organization_id": actor.organization_id,
                 "tool_rules": tool_rules,
                 "parent_id": parent_id,
@@ -952,6 +1058,8 @@ class AgentManager:
             # Track old parent_id for cache invalidation
             old_parent_id = agent.parent_id
 
+            clear_embedding_config = getattr(agent_update, "clear_embedding_config", False)
+
             # Update scalar fields directly
             scalar_fields = {
                 "name",
@@ -962,11 +1070,15 @@ class AgentManager:
                 "tool_rules",
                 "mcp_tools",
                 "parent_id",
+                "memory_config",
             }
             for field in scalar_fields:
                 value = getattr(agent_update, field, None)
                 if value is not None:
                     setattr(agent, field, value)
+                elif field == "embedding_config" and clear_embedding_config:
+                    logger.info("Clearing embedding_config for agent %s", agent_id)
+                    setattr(agent, field, None)
 
             # Update relationships using _process_relationship
             if agent_update.tool_ids is not None:

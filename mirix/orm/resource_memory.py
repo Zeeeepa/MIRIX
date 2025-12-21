@@ -109,6 +109,8 @@ class ResourceMemoryItem(SqlalchemyBase, OrganizationMixin, UserMixin):
         filter(
             None,
             [
+                # Index for memory decay filtering (updated_at for resource memory)
+                Index("ix_resource_memory_updated_at", "updated_at"),
                 # Organization-level query optimization indexes
                 Index("ix_resource_memory_organization_id", "organization_id")
                 if settings.mirix_pg_uri_no_default

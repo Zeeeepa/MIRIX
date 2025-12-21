@@ -27,9 +27,9 @@ AGENT_CONFIGS = [
         "include_base_tools": False,
     },
     {
-        "name": "knowledge_vault_memory_agent",
-        "agent_type": AgentType.knowledge_vault_memory_agent,
-        "attr_name": "knowledge_vault_memory_agent_state",
+        "name": "knowledge_memory_agent",
+        "agent_type": AgentType.knowledge_memory_agent,
+        "attr_name": "knowledge_memory_agent_state",
         "include_base_tools": False,
     },
     {

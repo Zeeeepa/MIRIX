@@ -17,7 +17,6 @@ class UserManager:
 
     ADMIN_USER_NAME = "admin_user"
     ADMIN_USER_ID = "user-00000000-0000-4000-8000-000000000000"
-    DEFAULT_USER_NAME = "default_user"  # Organization-specific default user for block templates
     DEFAULT_TIME_ZONE = "UTC (UTC+00:00)"
 
     def __init__(self):
@@ -126,6 +125,30 @@ class UserManager:
             return existing_user.to_pydantic()
 
     @enforce_types
+    def update_last_self_reflection_time(self, user_id: str, reflection_time: "datetime") -> PydanticUser:
+        """Update the last_self_reflection_time of a user (with Redis cache invalidation).
+
+        Args:
+            user_id: ID of the user to update
+            reflection_time: The datetime when self-reflection was performed
+
+        Returns:
+            Updated user object
+        """
+        from datetime import datetime
+
+        with self.session_maker() as session:
+            # Retrieve the existing user by ID
+            existing_user = UserModel.read(db_session=session, identifier=user_id)
+
+            # Update the last_self_reflection_time
+            existing_user.last_self_reflection_time = reflection_time
+
+            # Commit the updated user and update cache
+            existing_user.update_with_redis(session, actor=None)  # ⭐ Updates Redis cache
+            return existing_user.to_pydantic()
+
+    @enforce_types
     def delete_user_by_id(self, user_id: str):
         """
         Soft delete a user and cascade soft delete to all associated records using memory managers.
@@ -136,7 +159,7 @@ class UserManager:
            - Semantic memories
            - Procedural memories
            - Resource memories
-           - Knowledge vault items
+           - Knowledge items
            - Messages
            - Blocks
         
@@ -161,7 +184,7 @@ class UserManager:
         from mirix.services.semantic_memory_manager import SemanticMemoryManager
         from mirix.services.procedural_memory_manager import ProceduralMemoryManager
         from mirix.services.resource_memory_manager import ResourceMemoryManager
-        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
         from mirix.services.message_manager import MessageManager
         from mirix.services.block_manager import BlockManager
 
@@ -170,7 +193,7 @@ class UserManager:
         semantic_manager = SemanticMemoryManager()
         procedural_manager = ProceduralMemoryManager()
         resource_manager = ResourceMemoryManager()
-        knowledge_manager = KnowledgeVaultManager()
+        knowledge_manager = KnowledgeMemoryManager()
         message_manager = MessageManager()
         block_manager = BlockManager()
 
@@ -187,7 +210,7 @@ class UserManager:
         logger.debug("Soft deleted %d resource memories for user %s", resource_count, user_id)
 
         knowledge_count = knowledge_manager.soft_delete_by_user_id(user_id=user_id)
-        logger.debug("Soft deleted %d knowledge vault items for user %s", knowledge_count, user_id)
+        logger.debug("Soft deleted %d knowledge items for user %s", knowledge_count, user_id)
 
         message_count = message_manager.soft_delete_by_user_id(user_id=user_id)
         logger.debug("Soft deleted %d messages for user %s", message_count, user_id)
@@ -224,7 +247,7 @@ class UserManager:
 
                     logger.info(
                         "✅ User %s and all associated records soft deleted: "
-                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks",
+                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge, %d messages, %d blocks",
                         user_id, episodic_count, semantic_count, procedural_count,
                         resource_count, knowledge_count, message_count, block_count
                     )
@@ -244,7 +267,7 @@ class UserManager:
            - SemanticMemoryManager.delete_by_user_id()
            - ProceduralMemoryManager.delete_by_user_id()
            - ResourceMemoryManager.delete_by_user_id()
-           - KnowledgeVaultManager.delete_by_user_id()
+           - KnowledgeMemoryManager.delete_by_user_id()
            - MessageManager.delete_by_user_id()
            - BlockManager.delete_by_user_id()
         2. Each manager handles:
@@ -266,7 +289,7 @@ class UserManager:
         from mirix.services.semantic_memory_manager import SemanticMemoryManager
         from mirix.services.procedural_memory_manager import ProceduralMemoryManager
         from mirix.services.resource_memory_manager import ResourceMemoryManager
-        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
         from mirix.services.message_manager import MessageManager
         from mirix.services.block_manager import BlockManager
 
@@ -275,7 +298,7 @@ class UserManager:
         semantic_manager = SemanticMemoryManager()
         procedural_manager = ProceduralMemoryManager()
         resource_manager = ResourceMemoryManager()
-        knowledge_manager = KnowledgeVaultManager()
+        knowledge_manager = KnowledgeMemoryManager()
         message_manager = MessageManager()
         block_manager = BlockManager()
 
@@ -295,7 +318,7 @@ class UserManager:
             logger.debug("Bulk deleted %d resource memories", resource_count)
 
             knowledge_count = knowledge_manager.delete_by_user_id(user_id=user_id)
-            logger.debug("Bulk deleted %d knowledge vault items", knowledge_count)
+            logger.debug("Bulk deleted %d knowledge items", knowledge_count)
 
             message_count = message_manager.delete_by_user_id(user_id=user_id)
             logger.debug("Bulk deleted %d messages", message_count)
@@ -342,7 +365,7 @@ class UserManager:
 
             logger.info(
                 "✅ Bulk deleted all memories for user %s: "
-                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks "
+                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge, %d messages, %d blocks "
                 "(user record preserved)",
                 user_id, episodic_count, semantic_count, procedural_count,
                 resource_count, knowledge_count, message_count, block_count
@@ -406,7 +429,7 @@ class UserManager:
             return self.create_admin_user(org_id=OrganizationManager.DEFAULT_ORG_ID)
 
     @enforce_types
-    def get_or_create_org_default_user(self, org_id: str, client_id: Optional[str] = None) -> PydanticUser:
+    def get_or_create_org_admin_user(self, org_id: str, client_id: Optional[str] = None) -> PydanticUser:
         """
         Get or create the default template user for an organization.
         This user serves as the template for copying blocks to new users.
@@ -422,7 +445,7 @@ class UserManager:
         with self.session_maker() as session:
             try:
                 user = session.query(UserModel).filter(
-                    UserModel.name == self.DEFAULT_USER_NAME,
+                    UserModel.name == self.ADMIN_USER_NAME,
                     UserModel.organization_id == org_id,
                     UserModel.is_deleted == False
                 ).first()
@@ -437,27 +460,46 @@ class UserManager:
         logger.info("Creating default template user for organization %s", org_id)
         
         # Generate a deterministic user_id for the default user
-        default_user_id = f"user-default-{org_id}"
+        admin_user_id = f"user-default-{org_id}"
         
         try:
             # Try to get by ID first (in case it exists with that ID)
-            return self.get_user_by_id(default_user_id)
+            return self.get_user_by_id(admin_user_id)
         except NoResultFound:
             pass
         
         # Create the default user
         with self.session_maker() as session:
             user = UserModel(
-                id=default_user_id,
-                name=self.DEFAULT_USER_NAME,
+                id=admin_user_id,
+                name=self.ADMIN_USER_NAME,
                 status="active",
                 timezone=self.DEFAULT_TIME_ZONE,
                 organization_id=org_id,
                 client_id=client_id,  # Optional - which client created this user
             )
             user.create(session)
-            logger.info("✅ Created default template user %s for organization %s", default_user_id, org_id)
+            logger.info("✅ Created default template user %s for organization %s", admin_user_id, org_id)
             return user.to_pydantic()
+    def get_admin_user_for_client(self, client_id: str) -> Optional[PydanticUser]:
+        """Fetch the admin user for a specific client.
+
+        Args:
+            client_id: The client ID to find the admin user for
+
+        Returns:
+            The admin user for the client, or None if not found
+        """
+        with self.session_maker() as session:
+            admin_user = session.query(UserModel).filter(
+                UserModel.client_id == client_id,
+                UserModel.is_admin == True,
+                UserModel.is_deleted == False,
+            ).first()
+
+            if admin_user:
+                return admin_user.to_pydantic()
+            return None
 
     @enforce_types
     def get_user_or_admin(self, user_id: Optional[str] = None):

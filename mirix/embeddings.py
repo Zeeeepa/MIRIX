@@ -273,9 +273,13 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
     if endpoint_type == "openai":
         from mirix.services.provider_manager import ProviderManager
 
-        # Check for database-stored API key first, fall back to model_settings
-        override_key = ProviderManager().get_openai_override_key()
-        api_key = override_key if override_key else model_settings.openai_api_key
+        custom_api_key = getattr(config, "api_key", None)
+        if custom_api_key:
+            api_key = custom_api_key
+        else:
+            # Check for database-stored API key first, fall back to model_settings
+            override_key = ProviderManager().get_openai_override_key()
+            api_key = override_key if override_key else model_settings.openai_api_key
 
         # Use direct OpenAI SDK if auth_provider is configured
         if hasattr(config, "auth_provider") and config.auth_provider:
@@ -303,10 +307,13 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
 
         from mirix.services.provider_manager import ProviderManager
 
-        # Check for database-stored API key first, fall back to model_settings
-
-        override_key = ProviderManager().get_gemini_override_key()
-        api_key = override_key if override_key else model_settings.gemini_api_key
+        custom_api_key = getattr(config, "api_key", None)
+        if custom_api_key:
+            api_key = custom_api_key
+        else:
+            # Check for database-stored API key first, fall back to model_settings
+            override_key = ProviderManager().get_gemini_override_key()
+            api_key = override_key if override_key else model_settings.gemini_api_key
 
         model = GoogleGenAIEmbedding(
             model_name=config.embedding_model,
@@ -316,11 +323,14 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
         return model
 
     elif endpoint_type == "azure":
+        api_key = getattr(config, "api_key", None) or model_settings.azure_api_key
+        api_endpoint = config.azure_endpoint or model_settings.azure_base_url
+        api_version = config.azure_version or model_settings.azure_api_version
         assert all(
             [
-                model_settings.azure_api_key is not None,
-                model_settings.azure_base_url is not None,
-                model_settings.azure_api_version is not None,
+                api_key is not None,
+                api_endpoint is not None,
+                api_version is not None,
             ]
         )
         # from llama_index.embeddings.azure_openai import AzureOpenAIEmbedding
@@ -337,9 +347,9 @@ def embedding_model(config: EmbeddingConfig, user_id: Optional[uuid.UUID] = None
         # )
 
         return AzureOpenAIEmbedding(
-            api_endpoint=model_settings.azure_base_url,
-            api_key=model_settings.azure_api_key,
-            api_version=model_settings.azure_api_version,
+            api_endpoint=api_endpoint,
+            api_key=api_key,
+            api_version=api_version,
             model=config.embedding_model,
         )
 
