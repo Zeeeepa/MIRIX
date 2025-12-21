@@ -3,7 +3,7 @@
 Mirix Load Test - Add Messages
 
 This script performs a load test by adding messages to the Mirix system,
-covering all memory types: core, episodic, semantic, procedural, resource, and knowledge vault.
+covering all memory types: core, episodic, semantic, procedural, resource, and knowledge.
 
 Prerequisites:
 - Start the server first: python scripts/start_server.py --reload

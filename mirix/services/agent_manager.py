@@ -11,7 +11,7 @@ from mirix.constants import (
     CORE_MEMORY_TOOLS,
     EPISODIC_MEMORY_TOOLS,
     EXTRAS_TOOLS,
-    KNOWLEDGE_VAULT_TOOLS,
+    KNOWLEDGE_MEMORY_TOOLS,
     MCP_TOOLS,
     META_MEMORY_TOOLS,
     META_MEMORY_TOOLS_DIRECT,
@@ -148,8 +148,8 @@ class AgentManager:
             tool_names.extend(PROCEDURAL_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.resource_memory_agent:
             tool_names.extend(RESOURCE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_create.agent_type == AgentType.knowledge_vault_memory_agent:
-            tool_names.extend(KNOWLEDGE_VAULT_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        if agent_create.agent_type == AgentType.knowledge_memory_agent:
+            tool_names.extend(KNOWLEDGE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.core_memory_agent:
             tool_names.extend(CORE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_create.agent_type == AgentType.semantic_memory_agent:
@@ -239,13 +239,13 @@ class AgentManager:
                     e,
                 )
                 # Fall back to organization's default user (not global admin)
-                user = user_manager.get_or_create_org_default_user(
+                user = user_manager.get_or_create_org_admin_user(
                     org_id=actor.organization_id, client_id=actor.id
                 )
         else:
             # No user_id provided - use organization's default template user
             # This user will serve as the template for copying blocks to new users
-            user = user_manager.get_or_create_org_default_user(
+            user = user_manager.get_or_create_org_admin_user(
                 org_id=actor.organization_id, client_id=actor.id
             )
             logger.debug(
@@ -264,12 +264,17 @@ class AgentManager:
             "semantic_memory_agent": AgentType.semantic_memory_agent,
             "episodic_memory_agent": AgentType.episodic_memory_agent,
             "procedural_memory_agent": AgentType.procedural_memory_agent,
-            "knowledge_vault_memory_agent": AgentType.knowledge_vault_memory_agent,
+            "knowledge_memory_agent": AgentType.knowledge_memory_agent,
             "meta_memory_agent": AgentType.meta_memory_agent,
             "reflexion_agent": AgentType.reflexion_agent,
             "background_agent": AgentType.background_agent,
             "chat_agent": AgentType.chat_agent,
         }
+
+        # Check if all agent names are valid
+        for agent_name in meta_agent_create.agents:
+            if agent_name not in agent_name_to_type:
+                raise ValueError(f"Agent '{agent_name}' is not recognized.")
 
         # Load default system prompts from base folder
         default_system_prompts = {}
@@ -361,10 +366,7 @@ class AgentManager:
                 continue
 
             # Get the agent type
-            agent_type = agent_name_to_type.get(agent_name)
-            if not agent_type:
-                logger.warning("Unknown agent type: %s, skipping...", agent_name)
-                continue
+            agent_type = agent_name_to_type[agent_name]
 
             # Get custom system prompt if provided, fallback to default
             custom_system = None
@@ -517,12 +519,18 @@ class AgentManager:
             "semantic_memory_agent": AgentType.semantic_memory_agent,
             "episodic_memory_agent": AgentType.episodic_memory_agent,
             "procedural_memory_agent": AgentType.procedural_memory_agent,
-            "knowledge_vault_memory_agent": AgentType.knowledge_vault_memory_agent,
+            "knowledge_memory_agent": AgentType.knowledge_memory_agent,
             "meta_memory_agent": AgentType.meta_memory_agent,
             "reflexion_agent": AgentType.reflexion_agent,
             "background_agent": AgentType.background_agent,
             "chat_agent": AgentType.chat_agent,
         }
+
+        # Check if all agent names are valid
+        if meta_agent_update.agents is not None:
+            for agent_name in meta_agent_update.agents:
+                if agent_name not in agent_name_to_type:
+                    raise ValueError(f"Agent '{agent_name}' is not recognized.")
 
         # Load default system prompts from base folder
         default_system_prompts = {}
@@ -620,10 +628,7 @@ class AgentManager:
 
             # Create new agents
             for agent_name in agents_to_create:
-                agent_type = agent_name_to_type.get(agent_name)
-                if not agent_type:
-                    logger.warning("Unknown agent type: %s, skipping...", agent_name)
-                    continue
+                agent_type = agent_name_to_type[agent_name]
 
                 # Get custom system prompt if provided, fallback to default
                 custom_system = None
@@ -741,8 +746,8 @@ class AgentManager:
             tool_names.extend(PROCEDURAL_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.resource_memory_agent:
             tool_names.extend(RESOURCE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
-        if agent_state.agent_type == AgentType.knowledge_vault_memory_agent:
-            tool_names.extend(KNOWLEDGE_VAULT_TOOLS + UNIVERSAL_MEMORY_TOOLS)
+        if agent_state.agent_type == AgentType.knowledge_memory_agent:
+            tool_names.extend(KNOWLEDGE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.core_memory_agent:
             tool_names.extend(CORE_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS)
         if agent_state.agent_type == AgentType.semantic_memory_agent:

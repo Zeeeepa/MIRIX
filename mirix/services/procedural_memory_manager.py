@@ -537,6 +537,8 @@ class ProceduralMemoryManager:
                     setattr(item, k, v)
             # updated_at is automatically set to current UTC time by item.update()
             item.update_with_redis(session, actor=user)  # ⭐ Updates Redis JSON cache
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("procedural", "updated")
             return item.to_pydantic()
 
     @enforce_types
@@ -946,7 +948,7 @@ class ProceduralMemoryManager:
                 steps_embedding = None
                 embedding_config = None
 
-            # Set client_id from actor, user_id with fallback to DEFAULT_USER_ID
+            # Set client_id from actor, user_id with fallback to admin user
             from mirix.services.user_manager import UserManager
             
             client_id = actor.id  # Always derive from actor
@@ -971,6 +973,8 @@ class ProceduralMemoryManager:
                 user_id=user_id,
                 use_cache=use_cache,
             )
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("procedural", "created")
             return procedure
 
         except Exception as e:
@@ -990,6 +994,8 @@ class ProceduralMemoryManager:
                     redis_key = f"{redis_client.PROCEDURAL_PREFIX}{procedure_id}"
                     redis_client.delete(redis_key)
                 item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("procedural", "deleted")
             except NoResultFound:
                 raise NoResultFound(
                     f"Procedural memory item with id {procedure_id} not found."

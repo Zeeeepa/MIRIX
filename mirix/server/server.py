@@ -27,7 +27,7 @@ from mirix.agent import (
     BackgroundAgent,
     CoreMemoryAgent,
     EpisodicMemoryAgent,
-    KnowledgeVaultAgent,
+    KnowledgeMemoryAgent,
     MetaMemoryAgent,
     ProceduralMemoryAgent,
     ReflexionAgent,
@@ -74,7 +74,7 @@ from mirix.services.block_manager import BlockManager
 from mirix.services.client_manager import ClientManager
 from mirix.services.cloud_file_mapping_manager import CloudFileMappingManager
 from mirix.services.episodic_memory_manager import EpisodicMemoryManager
-from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
 from mirix.services.message_manager import MessageManager
 from mirix.services.organization_manager import OrganizationManager
 from mirix.services.per_agent_lock_manager import PerAgentLockManager
@@ -483,7 +483,7 @@ class SyncServer(Server):
         self.step_manager = StepManager()
 
         # Newly added managers
-        self.knowledge_vault_manager = KnowledgeVaultManager()
+        self.knowledge_memory_manager = KnowledgeMemoryManager()
         self.episodic_memory_manager = EpisodicMemoryManager()
         self.procedural_memory_manager = ProceduralMemoryManager()
         self.resource_memory_manager = ResourceMemoryManager()
@@ -526,8 +526,8 @@ class SyncServer(Server):
                 agent = EpisodicMemoryAgent(
                     agent_state=agent_state, interface=interface, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
                 )
-            elif agent_state.agent_type == AgentType.knowledge_vault_memory_agent:
-                agent = KnowledgeVaultAgent(
+            elif agent_state.agent_type == AgentType.knowledge_memory_agent:
+                agent = KnowledgeMemoryAgent(
                     agent_state=agent_state, interface=interface, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
                 )
             elif agent_state.agent_type == AgentType.procedural_memory_agent:
@@ -583,6 +583,12 @@ class SyncServer(Server):
         """Send the input message through the agent"""
         logger.debug("Got input messages: %s", input_messages)
         mirix_agent = None
+        trace_manager = None
+        agent_trace = None
+        agent_trace_token = None
+        counts_token = None
+        trace_success = False
+        trace_error = None
         try:
             mirix_agent = self.load_agent(
                 agent_id=agent_id, interface=None, actor=actor, filter_tags=filter_tags, use_cache=use_cache, user=user
@@ -596,6 +602,30 @@ class SyncServer(Server):
             # Store occurred_at on agent instance for use during memory extraction
             if occurred_at is not None:
                 mirix_agent.occurred_at = occurred_at
+
+            # Initialize per-agent trace context if queue tracing is active
+            from mirix.services.memory_agent_trace_manager import MemoryAgentTraceManager
+            from mirix.services.queue_trace_context import (
+                get_parent_agent_trace_id,
+                get_queue_trace_id,
+                get_memory_update_counts,
+                init_memory_update_counts,
+                reset_agent_trace_id,
+                reset_memory_update_counts,
+                set_agent_trace_id,
+            )
+
+            queue_trace_id = get_queue_trace_id()
+            if queue_trace_id:
+                trace_manager = MemoryAgentTraceManager()
+                agent_trace = trace_manager.start_trace(
+                    queue_trace_id=queue_trace_id,
+                    parent_trace_id=get_parent_agent_trace_id(),
+                    agent_state=mirix_agent.agent_state,
+                    actor=actor,
+                )
+                agent_trace_token = set_agent_trace_id(agent_trace.id)
+                counts_token = init_memory_update_counts()
 
             # Determine whether or not to token stream based on the capability of the interface
             token_streaming = (
@@ -613,7 +643,7 @@ class SyncServer(Server):
             if mirix_agent.agent_state.agent_type == AgentType.meta_memory_agent:
                 meta_message = MessageCreate(
                     role="user",
-                    content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)",
+                    content="[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge, semantic, core, and resource)",
                     filter_tags=filter_tags,  # Also attach to message for reference
                 )
                 logger.debug("Created meta_message with filter_tags=%s", filter_tags)
@@ -632,12 +662,27 @@ class SyncServer(Server):
                 actor=actor,  # Client for write operations (audit trail)
                 user=user     # User for read operations (data filtering)
             )
+            trace_success = True
 
         except Exception as e:
             logger.error("Error in server._step: %s", e)
             logger.error(traceback.print_exc())
+            trace_error = str(e)
             raise
         finally:
+            if trace_manager and agent_trace:
+                counts = get_memory_update_counts()
+                trace_manager.finish_trace(
+                    agent_trace.id,
+                    success=trace_success,
+                    error_message=trace_error,
+                    memory_update_counts=counts,
+                    actor=actor,
+                )
+            if counts_token:
+                reset_memory_update_counts(counts_token)
+            if agent_trace_token:
+                reset_agent_trace_id(agent_trace_token)
             logger.debug("Calling step_yield()")
             if mirix_agent:
                 mirix_agent.interface.step_yield()

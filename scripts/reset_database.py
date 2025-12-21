@@ -353,7 +353,7 @@ def reset_postgresql(
             tables text[] := ARRAY[
                 'message', 'tools_agents', 'agents_tags',
                 'episodic_memory', 'semantic_memory', 'procedural_memory',
-                'knowledge_vault', 'resource_memory', 'cloud_file_mapping',
+                'knowledge', 'resource_memory', 'cloud_file_mapping',
                 'step', 'block', 'tool', 'agent', 'sandbox_config',
                 'sandbox_environment_variables', 'agent_environment_variables',
                 'provider', 'organization', 'user'

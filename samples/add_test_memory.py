@@ -256,17 +256,17 @@ Total estimated cost: $150K
         traceback.print_exc()
 
 
-def test_knowledge_vault(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
-    """Add knowledge vault memory."""
+def test_knowledge(client: MirixClient, user_id: str, filter_tags: Optional[dict] = None):
+    """Add knowledge memory."""
     logger.info("\n%s", "="*80)
-    logger.info("TEST 6: ADDING KNOWLEDGE VAULT MEMORY")
+    logger.info("TEST 6: ADDING KNOWLEDGE MEMORY")
     if filter_tags:
         logger.info("Filter tags: %s", filter_tags)
     logger.info("%s", "="*80)
     
     try:
         # Provide structured, discrete data points that can be looked up later
-        # These are credentials and connection strings - perfect for Knowledge Vault
+        # These are credentials and connection strings - perfect for Knowledge
         result = client.add(
             user_id=user_id,
             messages=[
@@ -286,7 +286,7 @@ def test_knowledge_vault(client: MirixClient, user_id: str, filter_tags: Optiona
                     "role": "assistant",
                     "content": [{
                         "type": "text",
-                        "text": "I've securely saved the MirixDB production credentials to the knowledge vault, including database connection strings, Redis URL, API key, and admin dashboard URLs."
+                        "text": "I've securely saved the MirixDB production credentials to the knowledge, including database connection strings, Redis URL, API key, and admin dashboard URLs."
                     }]
                 }
             ],
@@ -294,9 +294,9 @@ def test_knowledge_vault(client: MirixClient, user_id: str, filter_tags: Optiona
             filter_tags=filter_tags,
             occurred_at="2025-11-16T10:30:00"
         )
-        logger.info("✅ Knowledge vault memory added successfully: %s", result.get('success', False))
+        logger.info("✅ Knowledge memory added successfully: %s", result.get('success', False))
     except Exception as e:  # pylint: disable=broad-except
-        logger.error("❌ Failed to add knowledge vault memory: %s", e)
+        logger.error("❌ Failed to add knowledge memory: %s", e)
         import traceback
         traceback.print_exc()
 
@@ -370,7 +370,7 @@ def main():
         test_resource_memory(client, user_id, filter_tags)  
 
         filter_tags = {"expert_id": "expert-234", "scope": "write"}
-        test_knowledge_vault(client, user_id, filter_tags)
+        test_knowledge(client, user_id, filter_tags)
     except KeyboardInterrupt:
         logger.info("\n\nTest interrupted by user")
         sys.exit(1)
@@ -391,7 +391,7 @@ def main():
     logger.info("  - Procedural Memory: Code deployment workflow")
     logger.info("  - Semantic Memory: MirixDB database system concept")
     logger.info("  - Resource Memory: Q4 AI Assistant Rollout Plan document")
-    logger.info("  - Knowledge Vault: MirixDB production credentials and URLs")
+    logger.info("  - Knowledge: MirixDB production credentials and URLs")
     logger.info("%s", "="*80)
 
 

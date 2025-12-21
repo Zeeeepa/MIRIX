@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from mirix.orm.cloud_file_mapping import CloudFileMapping
     from mirix.orm.episodic_memory import EpisodicEvent
     from mirix.orm.file import FileMetadata
-    from mirix.orm.knowledge_vault import KnowledgeVaultItem
+    from mirix.orm.knowledge import KnowledgeItem
     from mirix.orm.message import Message
     from mirix.orm.procedural_memory import ProceduralMemoryItem
     from mirix.orm.provider import Provider
@@ -55,9 +55,9 @@ class Organization(SqlalchemyBase):
         "Provider", back_populates="organization", cascade="all, delete-orphan"
     )
 
-    # Add knowledge vault relationship
-    knowledge_vault: Mapped[List["KnowledgeVaultItem"]] = relationship(
-        "KnowledgeVaultItem",
+    # Add knowledge relationship
+    knowledge: Mapped[List["KnowledgeItem"]] = relationship(
+        "KnowledgeItem",
         back_populates="organization",
         cascade="all, delete-orphan",
     )

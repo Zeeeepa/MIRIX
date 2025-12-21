@@ -128,18 +128,23 @@ class EpisodicMemoryManager:
     @update_timezone
     @enforce_types
     def get_episodic_memory_by_id(
-        self, episodic_memory_id: str, user: PydanticUser, timezone_str: str = None
+        self,
+        episodic_memory_id: str,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None,
     ) -> Optional[PydanticEpisodicEvent]:
         """
         Fetch a single episodic memory record by ID (with Redis JSON caching).
         
         Args:
             episodic_memory_id: ID of the memory to fetch
-            user: User who owns this memory
+            actor: Client who is fetching this memory
+            user_id: User who is fetching this memory
             timezone_str: Optional timezone string
             
-        Raises:
-            NoResultFound: If the record doesn't exist or doesn't belong to user
+        Returns:
+            PydanticEpisodicEvent: The episodic event if found and accessible, otherwise None
         """
         # Try Redis cache first (JSON-based for memory tables)
         try:
@@ -152,7 +157,23 @@ class EpisodicMemoryManager:
                 if cached_data:
                     # Cache HIT - return from Redis
                     logger.debug("✅ Redis cache HIT for episodic memory %s", episodic_memory_id)
-                    return PydanticEpisodicEvent(**cached_data)
+                    pydantic_event = PydanticEpisodicEvent(**cached_data)
+                    
+                    # Check accessibility
+                    if pydantic_event.user_id == user_id:
+                        return pydantic_event
+                    
+                    # If not the owner, check if the requester is an admin in the same client
+                    from mirix.services.user_manager import UserManager
+                    user_manager = UserManager()
+                    try:
+                        requester = user_manager.get_user_by_id(user_id)
+                        if requester.is_admin and requester.client_id == pydantic_event.client_id:
+                            return pydantic_event
+                    except NoResultFound:
+                        pass
+                    
+                    return None
         except Exception as e:
             # Log but continue to PostgreSQL on Redis error
             logger.warning("Redis cache read failed for episodic memory %s: %s", episodic_memory_id, e)
@@ -160,22 +181,30 @@ class EpisodicMemoryManager:
         # Cache MISS or Redis unavailable - fetch from PostgreSQL
         with self.session_maker() as session:
             try:
-                # Construct a PydanticClient for actor using user's organization_id.
-                # Note: We can pass in a PydanticClient with a default client ID because
-                # EpisodicEvent.read() only uses the organization_id from the actor for
-                # access control (see apply_access_predicate in sqlalchemy_base.py).
-                # The actual client ID is not used for filtering.
-                actor = PydanticClient(
-                    id="system-default-client",
-                    organization_id=user.organization_id,
-                    name="system-client"
-                )
-                
+                # Use the passed actor for access control (filtered by organization)
                 episodic_memory_item = EpisodicEvent.read(
                     db_session=session, identifier=episodic_memory_id, actor=actor
                 )
                 pydantic_event = episodic_memory_item.to_pydantic()
                 
+                # Accessibility check logic
+                accessible = False
+                if pydantic_event.user_id == user_id:
+                    accessible = True
+                else:
+                    # Check if requester is admin and shares the same client
+                    from mirix.services.user_manager import UserManager
+                    user_manager = UserManager()
+                    try:
+                        requester = user_manager.get_user_by_id(user_id)
+                        if requester.is_admin and requester.client_id == pydantic_event.client_id:
+                            accessible = True
+                    except NoResultFound:
+                        pass
+                
+                if not accessible:
+                    return None
+
                 # Populate Redis cache for next time
                 try:
                     if redis_client:
@@ -188,9 +217,7 @@ class EpisodicMemoryManager:
                 
                 return pydantic_event
             except NoResultFound:
-                raise NoResultFound(
-                    f"Episodic episodic_memory record with id {episodic_memory_id} not found."
-                )
+                return None
 
     @update_timezone
     @enforce_types
@@ -329,6 +356,8 @@ class EpisodicMemoryManager:
                     redis_key = f"{redis_client.EPISODIC_PREFIX}{id}"
                     redis_client.delete(redis_key)
                 episodic_memory_item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("episodic", "deleted")
             except NoResultFound:
                 raise NoResultFound(
                     f"Episodic episodic_memory record with id {id} not found."
@@ -644,6 +673,9 @@ class EpisodicMemoryManager:
                 user_id=user_id,
                 use_cache=use_cache,
             )
+
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("episodic", "created")
 
             return event
 
@@ -1367,6 +1399,8 @@ class EpisodicMemoryManager:
             }
 
             selected_event.update_with_redis(session, actor=actor)  # ⭐ Updates Redis JSON cache
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("episodic", "updated")
             return selected_event.to_pydantic()
 
     def _parse_embedding_field(self, embedding_value):

@@ -8,7 +8,7 @@ from sqlalchemy import and_, desc, select
 from mirix.log import get_logger
 from mirix.orm.block import Block as BlockModel
 from mirix.orm.episodic_memory import EpisodicEvent
-from mirix.orm.knowledge_vault import KnowledgeVaultItem
+from mirix.orm.knowledge import KnowledgeItem
 from mirix.orm.procedural_memory import ProceduralMemoryItem
 from mirix.orm.resource_memory import ResourceMemoryItem
 from mirix.orm.semantic_memory import SemanticMemoryItem
@@ -73,9 +73,9 @@ def retrieve_memories_by_updated_at_range(
         end_time=end_time,
         limit=limit,
     )
-    knowledge_vault = _list_updated_between(
-        session_maker=server.knowledge_vault_manager.session_maker,
-        model=KnowledgeVaultItem,
+    knowledge = _list_updated_between(
+        session_maker=server.knowledge_memory_manager.session_maker,
+        model=KnowledgeItem,
         user=user,
         start_time=start_time,
         end_time=end_time,
@@ -104,9 +104,9 @@ def retrieve_memories_by_updated_at_range(
             "total_count": len(resource),
             "items": [_serialize_resource_item(i) for i in resource],
         },
-        "knowledge_vault": {
-            "total_count": len(knowledge_vault),
-            "items": [_serialize_knowledge_vault_item(i) for i in knowledge_vault],
+        "knowledge": {
+            "total_count": len(knowledge),
+            "items": [_serialize_knowledge_item(i) for i in knowledge],
         },
         "procedural": {
             "total_count": len(procedural),
@@ -123,7 +123,7 @@ def retrieve_specific_memories_by_ids(
     episodic_ids: Optional[List[str]] = None,
     semantic_ids: Optional[List[str]] = None,
     resource_ids: Optional[List[str]] = None,
-    knowledge_vault_ids: Optional[List[str]] = None,
+    knowledge_ids: Optional[List[str]] = None,
     procedural_ids: Optional[List[str]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
@@ -156,10 +156,10 @@ def retrieve_specific_memories_by_ids(
         ids=_dedupe_preserve_order(resource_ids or []),
     )
     knowledge_models = _list_by_ids(
-        session_maker=server.knowledge_vault_manager.session_maker,
-        model=KnowledgeVaultItem,
+        session_maker=server.knowledge_memory_manager.session_maker,
+        model=KnowledgeItem,
         user=user,
-        ids=_dedupe_preserve_order(knowledge_vault_ids or []),
+        ids=_dedupe_preserve_order(knowledge_ids or []),
     )
     procedural_models = _list_by_ids(
         session_maker=server.procedural_memory_manager.session_maker,
@@ -185,9 +185,9 @@ def retrieve_specific_memories_by_ids(
             "total_count": len(resource_models),
             "items": [_serialize_resource_item(i) for i in resource_models],
         },
-        "knowledge_vault": {
+        "knowledge": {
             "total_count": len(knowledge_models),
-            "items": [_serialize_knowledge_vault_item(i) for i in knowledge_models],
+            "items": [_serialize_knowledge_item(i) for i in knowledge_models],
         },
         "procedural": {
             "total_count": len(procedural_models),
@@ -203,7 +203,7 @@ def build_self_reflection_prompt(
 ) -> str:
     """
     Build a single prompt for the Reflexion Agent with memories in a fixed order:
-    core, episodic, semantic, resource, knowledge_vault, procedural.
+    core, episodic, semantic, resource, knowledge, procedural.
     """
     header_lines = [
         "SELF-REFLECTION INPUT (Memory Optimization)",
@@ -223,7 +223,7 @@ def build_self_reflection_prompt(
         "episodic",
         "semantic",
         "resource",
-        "knowledge_vault",
+        "knowledge",
         "procedural",
     ]:
         data = memories.get(memory_type, {}) or {}
@@ -374,7 +374,7 @@ def _serialize_resource_item(item: ResourceMemoryItem) -> Dict[str, Any]:
     }
 
 
-def _serialize_knowledge_vault_item(item: KnowledgeVaultItem) -> Dict[str, Any]:
+def _serialize_knowledge_item(item: KnowledgeItem) -> Dict[str, Any]:
     return {
         "id": item.id,
         "updated_at": _dt_iso(getattr(item, "updated_at", None)),
@@ -410,7 +410,7 @@ def _format_section(*, memory_type: str, items: Sequence[Dict[str, Any]]) -> str
         "episodic": {"details": 3000, "summary": 500},
         "semantic": {"details": 3000, "summary": 800},
         "resource": {"content": 3000, "summary": 800},
-        "knowledge_vault": {"caption": 800},
+        "knowledge": {"caption": 800},
         "procedural": {"summary": 800},
     }
     per_type_limits = limits.get(memory_type, {})
@@ -460,7 +460,7 @@ def _format_section(*, memory_type: str, items: Sequence[Dict[str, Any]]) -> str
             for cline in (content or "").splitlines() or [""]:
                 lines.append(f"    {cline}")
 
-        elif memory_type == "knowledge_vault":
+        elif memory_type == "knowledge":
             lines.append(f"  entry_type: {item.get('entry_type')}")
             lines.append(f"  sensitivity: {item.get('sensitivity')}")
             lines.append(f"  source: {item.get('source')}")

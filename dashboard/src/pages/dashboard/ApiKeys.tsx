@@ -227,7 +227,7 @@ export const ApiKeys: React.FC = () => {
               >
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.name} {u.id === user?.default_user_id ? '(Default)' : ''}
+                    {u.name} {u.id === user?.admin_user_id ? '(Default)' : ''}
                   </option>
                 ))}
               </select>

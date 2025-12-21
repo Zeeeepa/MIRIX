@@ -148,7 +148,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
     )
     logger.info(f"  ✓ Added resource memory - Result: {result}")
     
-    # Add knowledge vault memory
+    # Add knowledge memory
     result = client.add(
         user_id=user_id,
         messages=[
@@ -163,7 +163,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
                 "role": "assistant",
                 "content": [{
                     "type": "text",
-                    "text": "Saved database credentials to knowledge vault"
+                    "text": "Saved database credentials to knowledge"
                 }]
             }
         ],
@@ -171,7 +171,7 @@ def add_all_memories(client: MirixClient, user_id: str, filter_tags: dict, prefi
         filter_tags=filter_tags,
         occurred_at="2025-11-20T14:20:00"
     )
-    logger.info(f"  ✓ Added knowledge vault memory - Result: {result}")
+    logger.info(f"  ✓ Added knowledge memory - Result: {result}")
     
     logger.info(f"✅ All memories added for user {user_id}")
 

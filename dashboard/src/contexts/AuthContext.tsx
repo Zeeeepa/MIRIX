@@ -8,7 +8,7 @@ interface ClientUser {
   email: string;
   scope: string;
   status: string;
-  default_user_id: string;  // Default user for memory operations
+  admin_user_id: string;  // Default user for memory operations
   created_at: string;
   credits: number;  // Available credits for LLM API calls
 }

@@ -30,7 +30,7 @@ class AgentType(str, Enum):
     episodic_memory_agent = "episodic_memory_agent"
     procedural_memory_agent = "procedural_memory_agent"
     resource_memory_agent = "resource_memory_agent"
-    knowledge_vault_memory_agent = "knowledge_vault_memory_agent"
+    knowledge_memory_agent = "knowledge_memory_agent"
     meta_memory_agent = "meta_memory_agent"
     semantic_memory_agent = "semantic_memory_agent"
     core_memory_agent = "core_memory_agent"
@@ -347,7 +347,7 @@ class CreateMetaAgent(BaseModel):
             "semantic_memory_agent",
             "episodic_memory_agent",
             "procedural_memory_agent",
-            "knowledge_vault_memory_agent",
+            "knowledge_memory_agent",
             "meta_memory_agent",
             "reflexion_agent",
             "background_agent",

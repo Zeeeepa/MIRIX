@@ -210,8 +210,8 @@ CREATE TABLE providers (
     FOREIGN KEY (organization_id) REFERENCES organizations(id)
 );
 
--- Knowledge vault table
-CREATE TABLE knowledge_vault (
+-- Knowledge table
+CREATE TABLE knowledge (
     id VARCHAR PRIMARY KEY,
     organization_id VARCHAR NOT NULL,
     entry_type VARCHAR NOT NULL,
@@ -317,7 +317,7 @@ CREATE INDEX idx_semantic_memory_organization ON semantic_memory(organization_id
 CREATE INDEX idx_episodic_memory_organization ON episodic_memory(organization_id);
 CREATE INDEX idx_procedural_memory_organization ON procedural_memory(organization_id);
 CREATE INDEX idx_resource_memory_organization ON resource_memory(organization_id);
-CREATE INDEX idx_knowledge_vault_organization ON knowledge_vault(organization_id);
+CREATE INDEX idx_knowledge_organization ON knowledge(organization_id);
 CREATE INDEX idx_files_organization ON files(organization_id);
 
 -- Insert default organization if not exists

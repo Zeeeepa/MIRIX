@@ -74,7 +74,7 @@ from mirix.services.helpers.agent_manager_helper import (
     check_supports_structured_output,
     compile_memory_metadata_block,
 )
-from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
 from mirix.services.message_manager import MessageManager
 from mirix.services.procedural_memory_manager import ProceduralMemoryManager
 from mirix.services.resource_memory_manager import ResourceMemoryManager
@@ -217,7 +217,7 @@ class Agent(BaseAgent):
 
         # Create the memory managers
         self.episodic_memory_manager = EpisodicMemoryManager()
-        self.knowledge_vault_manager = KnowledgeVaultManager()
+        self.knowledge_memory_manager = KnowledgeMemoryManager()
         self.procedural_memory_manager = ProceduralMemoryManager()
         self.resource_memory_manager = ResourceMemoryManager()
         self.semantic_memory_manager = SemanticMemoryManager()
@@ -787,6 +787,49 @@ class Agent(BaseAgent):
         messages = []  # append these to the history when done
         function_name = None
 
+        from mirix.services.queue_trace_context import get_agent_trace_id, get_queue_trace_id
+        from mirix.services.memory_agent_trace_manager import MemoryAgentTraceManager
+        from mirix.services.memory_agent_tool_call_trace_manager import (
+            MemoryAgentToolCallTraceManager,
+        )
+        from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
+
+        agent_trace_id = get_agent_trace_id()
+        queue_trace_id = get_queue_trace_id()
+        agent_trace_manager = MemoryAgentTraceManager() if agent_trace_id else None
+        tool_call_trace_manager = (
+            MemoryAgentToolCallTraceManager() if agent_trace_id else None
+        )
+        queue_trace_manager = MemoryQueueTraceManager() if queue_trace_id else None
+
+        def _record_assistant_message(
+            response: ChatCompletionMessage,
+        ) -> None:
+            if not agent_trace_id or not agent_trace_manager:
+                return
+            tool_call_names = []
+            if response.tool_calls:
+                tool_call_names = [
+                    call.function.name
+                    for call in response.tool_calls
+                    if call and call.function
+                ]
+            agent_trace_manager.append_assistant_message(
+                agent_trace_id,
+                content=response.content,
+                reasoning_content=response.reasoning_content,
+                tool_calls=tool_call_names,
+                actor=self.actor,
+            )
+            if queue_trace_id and queue_trace_manager:
+                from mirix.schemas.agent import AgentType
+
+                if self.agent_state.agent_type == AgentType.meta_memory_agent:
+                    meta_output = response.content or response.reasoning_content
+                    queue_trace_manager.set_meta_agent_output(
+                        queue_trace_id, meta_output, actor=self.actor
+                    )
+
         # Step 2: check if LLM wanted to call a function
         if response_message.function_call or (
             response_message.tool_calls is not None
@@ -848,6 +891,8 @@ class Agent(BaseAgent):
                 )
                 nonnull_content = True
 
+            _record_assistant_message(response_message)
+
             # Step 3: Process each tool call
             continue_chaining = True
             overall_function_failed = False
@@ -874,6 +919,20 @@ class Agent(BaseAgent):
 
                 if not target_mirix_tool:
                     error_msg = f"No function named {function_name}"
+                    if tool_call_trace_manager:
+                        trace = tool_call_trace_manager.start_tool_call(
+                            agent_trace_id,
+                            function_name=function_name,
+                            function_args={"raw": function_call.arguments},
+                            tool_call_id=tool_call_id,
+                            actor=self.actor,
+                        )
+                        tool_call_trace_manager.finish_tool_call(
+                            trace.id,
+                            success=False,
+                            error_message=error_msg,
+                            actor=self.actor,
+                        )
                     function_response = package_function_response(False, error_msg)
                     messages.append(
                         Message.dict_to_message(
@@ -899,6 +958,20 @@ class Agent(BaseAgent):
                     function_args = parse_json(raw_function_args)
                 except Exception:
                     error_msg = f"Error parsing JSON for function '{function_name}' arguments: {function_call.arguments}"
+                    if tool_call_trace_manager:
+                        trace = tool_call_trace_manager.start_tool_call(
+                            agent_trace_id,
+                            function_name=function_name,
+                            function_args={"raw": raw_function_args},
+                            tool_call_id=tool_call_id,
+                            actor=self.actor,
+                        )
+                        tool_call_trace_manager.finish_tool_call(
+                            trace.id,
+                            success=False,
+                            error_message=error_msg,
+                            actor=self.actor,
+                        )
                     function_response = package_function_response(False, error_msg)
                     messages.append(
                         Message.dict_to_message(
@@ -917,6 +990,48 @@ class Agent(BaseAgent):
                     )
                     overall_function_failed = True
                     continue  # Continue with next tool call
+
+                function_args_for_trace = copy.deepcopy(function_args)
+                if function_name == "trigger_memory_update":
+                    memory_types = function_args.get("memory_types")
+                    if agent_trace_manager and memory_types:
+                        agent_trace_manager.set_triggered_memory_types(
+                            agent_trace_id,
+                            list(memory_types),
+                            actor=self.actor,
+                        )
+                    if queue_trace_manager and memory_types:
+                        queue_trace_manager.set_triggered_memory_types(
+                            queue_trace_id,
+                            list(memory_types),
+                            actor=self.actor,
+                        )
+                elif function_name == "trigger_memory_update_with_instruction":
+                    memory_type = function_args.get("memory_type")
+                    memory_types = [memory_type] if memory_type else None
+                    if agent_trace_manager and memory_types:
+                        agent_trace_manager.set_triggered_memory_types(
+                            agent_trace_id,
+                            memory_types,
+                            actor=self.actor,
+                        )
+                    if queue_trace_manager and memory_types:
+                        queue_trace_manager.set_triggered_memory_types(
+                            queue_trace_id,
+                            memory_types,
+                            actor=self.actor,
+                        )
+
+                tool_call_trace_id = None
+                if tool_call_trace_manager:
+                    trace = tool_call_trace_manager.start_tool_call(
+                        agent_trace_id,
+                        function_name=function_name,
+                        function_args=function_args_for_trace,
+                        tool_call_id=tool_call_id,
+                        actor=self.actor,
+                    )
+                    tool_call_trace_id = trace.id
 
                 if function_name == "trigger_memory_update":
                     function_args["user_message"] = {
@@ -1027,6 +1142,13 @@ class Agent(BaseAgent):
                     )
                     function_response = package_function_response(False, error_msg)
                     self.last_function_response = function_response
+                    if tool_call_trace_manager and tool_call_trace_id:
+                        tool_call_trace_manager.finish_tool_call(
+                            tool_call_trace_id,
+                            success=False,
+                            error_message=error_msg,
+                            actor=self.actor,
+                        )
                     # TODO: truncate error message somehow
                     messages.append(
                         Message.dict_to_message(
@@ -1054,6 +1176,13 @@ class Agent(BaseAgent):
                     function_response = package_function_response(
                         False, function_response_string
                     )
+                    if tool_call_trace_manager and tool_call_trace_id:
+                        tool_call_trace_manager.finish_tool_call(
+                            tool_call_trace_id,
+                            success=False,
+                            error_message=function_response_string,
+                            actor=self.actor,
+                        )
                     # TODO: truncate error message somehow
                     messages.append(
                         Message.dict_to_message(
@@ -1078,6 +1207,13 @@ class Agent(BaseAgent):
 
                 # If no failures happened along the way: ...
                 # Step 5: send the info on the function call and function response to GPT
+                if tool_call_trace_manager and tool_call_trace_id:
+                    tool_call_trace_manager.finish_tool_call(
+                        tool_call_trace_id,
+                        success=True,
+                        response_text=function_response_string,
+                        actor=self.actor,
+                    )
                 messages.append(
                     Message.dict_to_message(
                         agent_id=self.agent_state.id,
@@ -1144,7 +1280,7 @@ class Agent(BaseAgent):
 
                     if self.agent_state.name == "episodic_memory_agent":
                         memory_item = self.episodic_memory_manager.get_most_recently_updated_event(
-                            actor=self.user,
+                            user=self.user,
                             timezone_str=self.user.timezone,
                         )
                         if memory_item:
@@ -1240,9 +1376,9 @@ class Agent(BaseAgent):
                             )
                             memory_item_str = memory_item_str.strip()
 
-                    elif self.agent_state.name == "knowledge_vault_memory_agent":
+                    elif self.agent_state.name == "knowledge_memory_agent":
                         memory_item = (
-                            self.knowledge_vault_manager.get_most_recently_updated_item(
+                            self.knowledge_memory_manager.get_most_recently_updated_item(
                                 actor=self.user,
                                 timezone_str=self.user.timezone,
                             )
@@ -1253,13 +1389,13 @@ class Agent(BaseAgent):
                             "finish_memory_update" in executed_function_names
                             and memory_item is None
                         ):
-                            memory_item_str = "No new knowledge vault items were added."
+                            memory_item_str = "No new knowledge items were added."
 
                         if memory_item:
                             memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
-                                "[Knowledge Vault ID]: " + memory_item.id + "\n"
+                                "[Knowledge ID]: " + memory_item.id + "\n"
                             )
                             memory_item_str += (
                                 "[Entry Type]: " + memory_item.entry_type + "\n"
@@ -1422,6 +1558,8 @@ class Agent(BaseAgent):
                 printv(
                     f"[Mirix.Agent.{self.agent_state.name}] INFO: Content (no function call): {response_message.content}"
                 )
+
+            _record_assistant_message(response_message)
 
             continue_chaining = True
             function_failed = False
@@ -1843,14 +1981,14 @@ class Agent(BaseAgent):
             retrieved_memories["core"] = core_memory
 
         if (
-            self.agent_state.agent_type == AgentType.knowledge_vault_memory_agent
-            or "knowledge_vault" not in retrieved_memories
+            self.agent_state.agent_type == AgentType.knowledge_memory_agent
+            or "knowledge" not in retrieved_memories
         ):
             if (
-                self.agent_state.agent_type == AgentType.knowledge_vault_memory_agent
+                self.agent_state.agent_type == AgentType.knowledge_memory_agent
                 or self.agent_state.agent_type == AgentType.reflexion_agent
             ):
-                current_knowledge_vault = self.knowledge_vault_manager.list_knowledge(
+                current_knowledge = self.knowledge_memory_manager.list_knowledge(
                     agent_state=self.agent_state,
                     user=self.user,
                     embedded_text=embedded_text,
@@ -1862,7 +2000,7 @@ class Agent(BaseAgent):
                     fade_after_days=fade_after_days,
                 )
             else:
-                current_knowledge_vault = self.knowledge_vault_manager.list_knowledge(
+                current_knowledge = self.knowledge_memory_manager.list_knowledge(
                     agent_state=self.agent_state,
                     user=self.user,
                     embedded_text=embedded_text,
@@ -1875,16 +2013,16 @@ class Agent(BaseAgent):
                     fade_after_days=fade_after_days,
                 )
 
-            knowledge_vault_memory = ""
-            if len(current_knowledge_vault) > 0:
-                for idx, knowledge_vault_item in enumerate(current_knowledge_vault):
-                    knowledge_vault_memory += f"[{idx}] Knowledge Vault Item ID: {knowledge_vault_item.id}; Caption: {knowledge_vault_item.caption}\n"
-            retrieved_memories["knowledge_vault"] = {
-                "total_number_of_items": self.knowledge_vault_manager.get_total_number_of_items(
+            knowledge_memory = ""
+            if len(current_knowledge) > 0:
+                for idx, knowledge_item in enumerate(current_knowledge):
+                    knowledge_memory += f"[{idx}] Knowledge Item ID: {knowledge_item.id}; Caption: {knowledge_item.caption}\n"
+            retrieved_memories["knowledge"] = {
+                "total_number_of_items": self.knowledge_memory_manager.get_total_number_of_items(
                     user=self.user
                 ),
-                "current_count": len(current_knowledge_vault),
-                "text": knowledge_vault_memory,
+                "current_count": len(current_knowledge),
+                "text": knowledge_memory,
             }
 
         # Retrieve episodic memory
@@ -2096,7 +2234,7 @@ These keywords have been used to retrieve relevant memories from the database.
         resource_memory = retrieved_memories["resource"]
         semantic_memory = retrieved_memories["semantic"]
         procedural_memory = retrieved_memories["procedural"]
-        knowledge_vault = retrieved_memories["knowledge_vault"]
+        knowledge = retrieved_memories["knowledge"]
 
         system_prompt = template.format(
             current_time=current_time,
@@ -2124,18 +2262,18 @@ These keywords have been used to retrieve relevant memories from the database.
                 + "\n</episodic_memory>\n"
             )
 
-        # Add knowledge vault with counts
-        knowledge_vault_total = (
-            knowledge_vault["total_number_of_items"] if knowledge_vault else 0
+        # Add knowledge with counts
+        knowledge_total = (
+            knowledge["total_number_of_items"] if knowledge else 0
         )
-        knowledge_vault_text = knowledge_vault["text"] if knowledge_vault else ""
-        knowledge_vault_count = (
-            knowledge_vault["current_count"] if knowledge_vault else 0
+        knowledge_text = knowledge["text"] if knowledge else ""
+        knowledge_count = (
+            knowledge["current_count"] if knowledge else 0
         )
         system_prompt += (
-            f"\n<knowledge_vault> ({knowledge_vault_count} out of {knowledge_vault_total} Items):\n"
-            + (knowledge_vault_text if knowledge_vault_text else "Empty")
-            + "\n</knowledge_vault>\n"
+            f"\n<knowledge> ({knowledge_count} out of {knowledge_total} Items):\n"
+            + (knowledge_text if knowledge_text else "Empty")
+            + "\n</knowledge>\n"
         )
 
         # Add semantic memory with counts

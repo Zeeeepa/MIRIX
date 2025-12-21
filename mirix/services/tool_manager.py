@@ -9,7 +9,7 @@ from mirix.constants import (
     CORE_MEMORY_TOOLS,
     EPISODIC_MEMORY_TOOLS,
     EXTRAS_TOOLS,
-    KNOWLEDGE_VAULT_TOOLS,
+    KNOWLEDGE_MEMORY_TOOLS,
     MCP_TOOLS,
     META_MEMORY_TOOLS,
     PROCEDURAL_MEMORY_TOOLS,
@@ -197,7 +197,7 @@ class ToolManager:
                     + EPISODIC_MEMORY_TOOLS
                     + PROCEDURAL_MEMORY_TOOLS
                     + RESOURCE_MEMORY_TOOLS
-                    + KNOWLEDGE_VAULT_TOOLS
+                    + KNOWLEDGE_MEMORY_TOOLS
                     + META_MEMORY_TOOLS
                     + SEMANTIC_MEMORY_TOOLS
                     + UNIVERSAL_MEMORY_TOOLS
@@ -215,7 +215,7 @@ class ToolManager:
                     tags = [tool_type.value, "mcp_wrapper"]
                 else:
                     raise ValueError(
-                        f"Tool name {name} is not in the list of tool names: {BASE_TOOLS + CORE_MEMORY_TOOLS + EPISODIC_MEMORY_TOOLS + PROCEDURAL_MEMORY_TOOLS + KNOWLEDGE_VAULT_TOOLS + RESOURCE_MEMORY_TOOLS + META_MEMORY_TOOLS + SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS + MCP_TOOLS}"
+                        f"Tool name {name} is not in the list of tool names: {BASE_TOOLS + CORE_MEMORY_TOOLS + EPISODIC_MEMORY_TOOLS + PROCEDURAL_MEMORY_TOOLS + KNOWLEDGE_MEMORY_TOOLS + RESOURCE_MEMORY_TOOLS + META_MEMORY_TOOLS + SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS + MCP_TOOLS}"
                     )
 
                 # create to tool

@@ -39,7 +39,7 @@ class RedisMemoryClient:
     SEMANTIC_INDEX = "idx:semantic_memory"
     PROCEDURAL_INDEX = "idx:procedural_memory"
     RESOURCE_INDEX = "idx:resource_memory"
-    KNOWLEDGE_INDEX = "idx:knowledge_vault"
+    KNOWLEDGE_INDEX = "idx:knowledge"
     ORGANIZATION_INDEX = "idx:organizations"
     USER_INDEX = "idx:users"
     AGENT_INDEX = "idx:agents"
@@ -825,7 +825,7 @@ class RedisMemoryClient:
             logger.warning("Failed to create resource index: %s", e)
     
     def _create_knowledge_index(self) -> None:
-        """Create JSON-based index for knowledge vault with 1 VECTOR field."""
+        """Create JSON-based index for knowledge with 1 VECTOR field."""
         try:
             from redis.commands.search.field import TextField, NumericField, TagField, VectorField
             from redis.commands.search.index_definition import IndexDefinition, IndexType

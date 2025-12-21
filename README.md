@@ -4,6 +4,15 @@
 
 Your personal AI that builds memory through screen observation and natural conversation
 
+<table>
+  <tr>
+    <td style="border-left: 6px solid #d35400; background: #fff3e0; padding: 12px;">
+      <strong>Important Update: 0.1.4 (Main) vs 0.1.3 (Desktop Agent)</strong><br/>
+      Starting with <code>0.1.4</code>, the <code>main</code> branch is a brand-new release line where Mirix is a pure memory system that can be plugged into any existing agents. The desktop personal assistant (frontend + backend) has been deprecated and is no longer shipped on <code>main</code>. If you need the earlier desktop application with the built-in agent, use the <code>desktop-agent</code> branch.
+    </td>
+  </tr>
+</table>
+
 | 🌐 [Website](https://mirix.io) | 📚 [Documentation](https://docs.mirix.io) | 📄 [Paper](https://arxiv.org/abs/2507.07957) | 💬 [Discord](https://discord.gg/S6CeHNrJ) 
 <!-- | [Twitter/X](https://twitter.com/mirix_ai) | [Discord](https://discord.gg/S6CeHNrJ) | -->
 
@@ -11,7 +20,7 @@ Your personal AI that builds memory through screen observation and natural conve
 
 ### Key Features 🔥
 
-- **Multi-Agent Memory System:** Six specialized memory components (Core, Episodic, Semantic, Procedural, Resource, Knowledge Vault) managed by dedicated agents
+- **Multi-Agent Memory System:** Six specialized memory components (Core, Episodic, Semantic, Procedural, Resource, Knowledge) managed by dedicated agents
 - **Screen Activity Tracking:** Continuous visual data capture and intelligent consolidation into structured memories  
 - **Privacy-First Design:** All long-term data stored locally with user-controlled privacy settings
 - **Advanced Search:** PostgreSQL-native BM25 full-text search with vector similarity support
@@ -44,35 +53,40 @@ client = MirixClient(
 client.initialize_meta_agent(
     config={
         "llm_config": {
-            "model": "gemini-2.0-flash",
-            "model_endpoint_type": "google_ai",
-            "api_key": "your-api-key-here",
-            "model_endpoint": "https://generativelanguage.googleapis.com",
-            "context_window": 1_000_000,
+            "model": "gpt-4o-mini",
+            "model_endpoint_type": "openai",
+            "model_endpoint": "https://api.openai.com/v1",
+            "context_window": 128000,
         },
+        "build_embeddings_for_memory": True,
         "embedding_config": {
-            "embedding_model": "text-embedding-004",
-            "embedding_endpoint_type": "google_ai",
-            "api_key": "your-api-key-here",
-            "embedding_endpoint": "https://generativelanguage.googleapis.com",
-            "embedding_dim": 768,
+            "embedding_model": "text-embedding-3-small",
+            "embedding_endpoint": "https://api.openai.com/v1",
+            "embedding_endpoint_type": "openai",
+            "embedding_dim": 1536,
         },
         "meta_agent_config": {
+            "system_prompts_folder": "mirix\\prompts\\system\\base",
             "agents": [
-                {
-                    "core_memory_agent": {
-                        "blocks": [
-                            {"label": "human", "value": ""},
-                            {"label": "persona", "value": "I am a helpful assistant."},
-                        ]
-                    }
-                },
+                "core_memory_agent",
                 "resource_memory_agent",
                 "semantic_memory_agent",
                 "episodic_memory_agent",
                 "procedural_memory_agent",
-                "knowledge_vault_memory_agent",
+                "knowledge_memory_agent",
+                "reflexion_agent",
+                "background_agent",
             ],
+            "memory": {
+                "core": [
+                    {"label": "human", "value": ""},
+                    {"label": "persona", "value": "I am a helpful assistant."},
+                ],
+                "decay": {
+                    "fade_after_days": 30,
+                    "expire_after_days": 90,
+                },
+            },
         },
     }
 )
@@ -110,7 +124,7 @@ Connect with other Mirix users, share your thoughts, and get support:
 
 ### 💬 Discord Community
 Join our Discord server for real-time discussions, support, and community updates:
-**[https://discord.gg/S6CeHNrJ](https://discord.gg/S6CeHNrJ)**
+**[https://discord.gg/FXtXJuRf](https://discord.gg/FXtXJuRf)**
 
 ### 🎯 Weekly Discussion Sessions
 We host weekly discussion sessions where you can:

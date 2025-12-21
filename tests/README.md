@@ -42,7 +42,7 @@ Comprehensive coverage of all 5 memory types with all search methods:
 - ✅ **Episodic Memory**: Insert events, search by summary/details (bm25, embedding)
 - ✅ **Procedural Memory**: Insert procedures, search by summary/steps (bm25, embedding)
 - ✅ **Resource Memory**: Insert resources, search by summary (bm25, embedding) / content (bm25 only)
-- ✅ **Knowledge Vault**: Insert knowledge, search by caption (bm25, embedding) / secret_value (bm25)
+- ✅ **Knowledge**: Insert knowledge, search by caption (bm25, embedding) / secret_value (bm25)
 - ✅ **Semantic Memory**: Insert items, search by name/summary/details (bm25, embedding)
 - ✅ **Cross-memory search**: Search across all memory types
 
@@ -65,7 +65,7 @@ set GEMINI_API_KEY=your_api_key_here
 
 **Automatic Initialization**: Both test files will automatically:
 - Create `demo-user` in `demo-org` organization
-- Initialize meta agent and all sub-agents (episodic, procedural, resource, knowledge vault, semantic)
+- Initialize meta agent and all sub-agents (episodic, procedural, resource, knowledge, semantic)
 - No manual setup needed!
 
 ## Running Integration Tests

@@ -175,8 +175,8 @@ def print_memories(memories):
                             print("      Content: Not included in response (use search API for full details)")
                         print()
                 
-                elif memory_type == "knowledge_vault":
-                    # Knowledge vault: API only returns id and caption in retrieve endpoint
+                elif memory_type == "knowledge":
+                    # Knowledge: API only returns id and caption in retrieve endpoint
                     for i, item in enumerate(items, 1):
                         caption = item.get('caption', 'N/A')
                         # API doesn't return entry_type, source, sensitivity in retrieve endpoint
@@ -390,14 +390,17 @@ def main():
     
     # Create MirixClient (connects to server via REST API)
     client_id = 'sales-loader-client' #'demo-client-app'  # Identifies the client application
-    user_id = 'caring cathy' #'demo-user'  # Identifies the end-user within the client app
+    # user_id = 'demo-user' #'demo-user'  # Identifies the end-user within the client app
     org_id = 'demo-org'
+    api_key = os.environ.get("MIRIX_API_KEY")
+    if not api_key:
+        raise ValueError("MIRIX_API_KEY is required to run this sample.")
     
     client = MirixClient(
-        #api_key=api_key,
-        client_id="sales-loader-client",
-        client_scope="Sales",
-        org_id="demo-org",
+        api_key=api_key,
+        # client_id="sales-loader-client",
+        # client_scope="Sales",
+        # org_id="demo-org",
         debug=True,
     )
 
@@ -407,7 +410,7 @@ def main():
     )
     
     result = client.add(
-       user_id=user_id,  # Optional - uses admin user if None
+    #    user_id=user_id,  # Optional - uses admin user if None
        messages=[
            {
                "role": "user",
@@ -584,8 +587,8 @@ def main():
     #                             print("      Content: Not included in response (use search API for full details)")
     #                         print()
                     
-    #                 elif memory_type == "knowledge_vault":
-    #                     # Knowledge vault: API only returns id and caption in retrieve endpoint
+    #                 elif memory_type == "knowledge":
+    #                     # Knowledge: API only returns id and caption in retrieve endpoint
     #                     for i, item in enumerate(items, 1):
     #                         caption = item.get('caption', 'N/A')
     #                         # API doesn't return entry_type, source, sensitivity in retrieve endpoint

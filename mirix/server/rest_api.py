@@ -16,6 +16,7 @@ from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Requ
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from mirix.helpers.message_helpers import prepare_input_message_create
 from mirix.embeddings import embedding_model
@@ -36,6 +37,9 @@ from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
+from mirix.schemas.memory_agent_tool_call import MemoryAgentToolCall as MemoryAgentToolCallSchema
+from mirix.schemas.memory_agent_trace import MemoryAgentTrace as MemoryAgentTraceSchema
+from mirix.schemas.memory_queue_trace import MemoryQueueTrace as MemoryQueueTraceSchema
 from mirix.schemas.organization import Organization
 from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
 from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
@@ -45,8 +49,12 @@ from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
 from mirix.server.server import SyncServer
+from mirix.server.server import db_context
 from mirix.settings import model_settings, settings
 from mirix.utils import convert_message_to_mirix_message
+from mirix.orm.memory_agent_tool_call import MemoryAgentToolCall
+from mirix.orm.memory_agent_trace import MemoryAgentTrace
+from mirix.orm.memory_queue_trace import MemoryQueueTrace
 
 logger = get_logger(__name__)
 
@@ -149,26 +157,55 @@ app.add_middleware(
 @app.middleware("http")
 async def inject_client_org_headers(request: Request, call_next):
     """
-    If a request includes X-API-Key, resolve it to client/org and inject
-    X-Client-Id and X-Org-Id headers so downstream endpoints don't need to
-    handle X-API-Key directly.
+    Resolve API key or JWT into client/org headers for all endpoints.
     """
+    public_paths = {
+        "/admin/auth/register",
+        "/admin/auth/login",
+        "/admin/auth/check-setup",
+    }
+
+    if request.url.path in public_paths:
+        return await call_next(request)
+
     x_api_key = request.headers.get("x-api-key")
+    authorization = request.headers.get("authorization")
+    server = get_server()
+
     if x_api_key:
         try:
             client_id, org_id = get_client_and_org(x_api_key=x_api_key)
-
-            # Replace or add headers so FastAPI dependencies can read them
-            headers = [
-                (name, value)
-                for name, value in request.scope.get("headers", [])
-                if name.lower() not in {b"x-client-id", b"x-org-id"}
-            ]
-            headers.append((b"x-client-id", client_id.encode()))
-            headers.append((b"x-org-id", org_id.encode()))
-            request.scope["headers"] = headers
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    elif authorization:
+        try:
+            admin_payload = get_current_admin(authorization)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+        client_id = admin_payload["sub"]
+        client = server.client_manager.get_client_by_id(client_id)
+        if not client:
+            return JSONResponse(
+                status_code=404,
+                content={"detail": f"Client {client_id} not found"},
+            )
+        org_id = client.organization_id or server.organization_manager.DEFAULT_ORG_ID
+    else:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "X-API-Key or Authorization header is required for this endpoint"},
+        )
+
+    # Replace or add headers so FastAPI dependencies can read them
+    headers = [
+        (name, value)
+        for name, value in request.scope.get("headers", [])
+        if name.lower() not in {b"x-client-id", b"x-org-id"}
+    ]
+    headers.append((b"x-client-id", client_id.encode()))
+    headers.append((b"x-org-id", org_id.encode()))
+    request.scope["headers"] = headers
 
     return await call_next(request)
 
@@ -694,7 +731,7 @@ async def update_agent_system_prompt_by_name(
     - "meta_memory_agent_core_memory_agent" → short name: "core"
     - "meta_memory_agent_procedural_memory_agent" → short name: "procedural"
     - "meta_memory_agent_resource_memory_agent" → short name: "resource"
-    - "meta_memory_agent_knowledge_vault_memory_agent" → short name: "knowledge_vault"
+    - "meta_memory_agent_knowledge_memory_agent" → short name: "knowledge"
     - "meta_memory_agent_reflexion_agent" → short name: "reflexion"
     
     Args:
@@ -864,7 +901,7 @@ async def send_message_to_agent(
         
     Note:
         If user_id is not provided in the request, messages will be associated with
-        the default user (DEFAULT_USER_ID).
+        the admin user.
     """
     server = get_server()
     client_id, org_id = get_client_and_org(x_client_id, x_org_id)
@@ -1247,7 +1284,7 @@ async def delete_user(user_id: str):
     - Semantic memories for this user
     - Procedural memories for this user
     - Resource memories for this user
-    - Knowledge vault items for this user
+    - Knowledge items for this user
     - Messages for this user
     - Blocks for this user
     """
@@ -1280,7 +1317,7 @@ async def delete_user_memories(user_id: str):
     - Semantic memories for this user
     - Procedural memories for this user
     - Resource memories for this user
-    - Knowledge vault items for this user
+    - Knowledge items for this user
     - Messages for this user
     - Blocks for this user
     
@@ -1513,7 +1550,7 @@ async def delete_client_memories(client_id: str):
     - Semantic memories for this client
     - Procedural memories for this client
     - Resource memories for this client
-    - Knowledge vault items for this client
+    - Knowledge items for this client
     - Messages for this client
     - Blocks created by this client
     
@@ -1960,7 +1997,7 @@ async def add_memory(
     # Queue for async processing instead of synchronous execution
     # Note: actor is Client for org-level access control
     #       user_id represents the actual end-user (or admin user if not provided)
-    put_messages(
+    trace_id = put_messages(
         actor=client,
         agent_id=meta_agent.id,
         input_messages=input_messages,
@@ -1980,7 +2017,108 @@ async def add_memory(
         "status": "queued",
         "agent_id": meta_agent.id,
         "message_count": len(input_messages),
+        "trace_id": trace_id,
     }
+
+
+class MemoryAgentTraceWithTools(BaseModel):
+    agent_trace: MemoryAgentTraceSchema
+    tool_calls: List[MemoryAgentToolCallSchema]
+
+
+class MemoryQueueTraceDetailResponse(BaseModel):
+    trace: MemoryQueueTraceSchema
+    agent_traces: List[MemoryAgentTraceWithTools]
+
+
+@router.get("/memory/queue-traces", response_model=List[MemoryQueueTraceSchema])
+async def list_memory_queue_traces(
+    user_id: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    List memory queue traces for the authenticated client.
+
+    **Requires API key or JWT authentication.**
+    """
+    client_id, _ = get_client_and_org(x_client_id, x_org_id)
+
+    with db_context() as session:
+        query = select(MemoryQueueTrace).where(MemoryQueueTrace.client_id == client_id)
+        if user_id:
+            query = query.where(MemoryQueueTrace.user_id == user_id)
+        if status:
+            query = query.where(MemoryQueueTrace.status == status)
+        query = query.order_by(MemoryQueueTrace.queued_at.desc()).limit(limit)
+        traces = session.execute(query).scalars().all()
+        return [trace.to_pydantic() for trace in traces]
+
+
+@router.get(
+    "/memory/queue-traces/{trace_id}",
+    response_model=MemoryQueueTraceDetailResponse,
+)
+async def get_memory_queue_trace(
+    trace_id: str,
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Get a queue trace with its agent runs and tool calls.
+
+    **Requires API key or JWT authentication.**
+    """
+    client_id, _ = get_client_and_org(x_client_id, x_org_id)
+
+    with db_context() as session:
+        trace = session.get(MemoryQueueTrace, trace_id)
+        if not trace or trace.client_id != client_id:
+            raise HTTPException(status_code=404, detail="Trace not found")
+
+        agent_traces = (
+            session.execute(
+                select(MemoryAgentTrace)
+                .where(MemoryAgentTrace.queue_trace_id == trace_id)
+                .order_by(MemoryAgentTrace.started_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+
+        agent_trace_ids = [agent_trace.id for agent_trace in agent_traces]
+        tool_calls: List[MemoryAgentToolCall] = []
+        if agent_trace_ids:
+            tool_calls = (
+                session.execute(
+                    select(MemoryAgentToolCall)
+                    .where(MemoryAgentToolCall.agent_trace_id.in_(agent_trace_ids))
+                    .order_by(MemoryAgentToolCall.started_at.asc())
+                )
+                .scalars()
+                .all()
+            )
+
+        tool_calls_by_agent: Dict[str, List[MemoryAgentToolCallSchema]] = {}
+        for tool_call in tool_calls:
+            tool_calls_by_agent.setdefault(tool_call.agent_trace_id, []).append(
+                tool_call.to_pydantic()
+            )
+
+        response_agent_traces = [
+            MemoryAgentTraceWithTools(
+                agent_trace=agent_trace.to_pydantic(),
+                tool_calls=tool_calls_by_agent.get(agent_trace.id, []),
+            )
+            for agent_trace in agent_traces
+        ]
+
+        return MemoryQueueTraceDetailResponse(
+            trace=trace.to_pydantic(),
+            agent_traces=response_agent_traces,
+        )
 
 
 class SelfReflectionRequest(BaseModel):
@@ -2000,7 +2138,7 @@ class SelfReflectionRequest(BaseModel):
     episodic_ids: Optional[List[str]] = None  # Episodic memory event IDs
     semantic_ids: Optional[List[str]] = None  # Semantic memory item IDs
     resource_ids: Optional[List[str]] = None  # Resource memory item IDs
-    knowledge_vault_ids: Optional[List[str]] = None  # Knowledge vault item IDs
+    knowledge_ids: Optional[List[str]] = None  # Knowledge item IDs
     procedural_ids: Optional[List[str]] = None  # Procedural memory item IDs
 
 
@@ -2024,7 +2162,7 @@ async def trigger_self_reflection(
     This endpoint performs the following steps:
     1. Check the last_self_reflection_time for the user
     2. Retrieve all memories updated between last_self_reflection_time and current_time
-    3. Build a comprehensive prompt with all memories (in order: core, episodic, semantic, resource, knowledge_vault, procedural)
+    3. Build a comprehensive prompt with all memories (in order: core, episodic, semantic, resource, knowledge, procedural)
     4. Send the prompt to the reflexion_agent for processing
     5. Update the user's last_self_reflection_time to current_time
 
@@ -2114,7 +2252,7 @@ async def trigger_self_reflection(
         request.episodic_ids,
         request.semantic_ids,
         request.resource_ids,
-        request.knowledge_vault_ids,
+        request.knowledge_ids,
         request.procedural_ids,
     ])
 
@@ -2124,13 +2262,13 @@ async def trigger_self_reflection(
         # Retrieve only the specific memories requested
         logger.info(
             "Targeted self-reflection for user %s with specific memories: "
-            "core=%s, episodic=%s, semantic=%s, resource=%s, knowledge_vault=%s, procedural=%s",
+            "core=%s, episodic=%s, semantic=%s, resource=%s, knowledge=%s, procedural=%s",
             user_id,
             len(request.core_ids) if request.core_ids else 0,
             len(request.episodic_ids) if request.episodic_ids else 0,
             len(request.semantic_ids) if request.semantic_ids else 0,
             len(request.resource_ids) if request.resource_ids else 0,
-            len(request.knowledge_vault_ids) if request.knowledge_vault_ids else 0,
+            len(request.knowledge_ids) if request.knowledge_ids else 0,
             len(request.procedural_ids) if request.procedural_ids else 0,
         )
 
@@ -2141,7 +2279,7 @@ async def trigger_self_reflection(
             episodic_ids=request.episodic_ids,
             semantic_ids=request.semantic_ids,
             resource_ids=request.resource_ids,
-            knowledge_vault_ids=request.knowledge_vault_ids,
+            knowledge_ids=request.knowledge_ids,
             procedural_ids=request.procedural_ids,
         )
     else:
@@ -2236,7 +2374,7 @@ async def trigger_self_reflection(
             "episodic_ids": request.episodic_ids,
             "semantic_ids": request.semantic_ids,
             "resource_ids": request.resource_ids,
-            "knowledge_vault_ids": request.knowledge_vault_ids,
+            "knowledge_ids": request.knowledge_ids,
             "procedural_ids": request.procedural_ids,
         }
     else:
@@ -2460,11 +2598,11 @@ def retrieve_memories_by_keywords(
         logger.error("Error retrieving procedural memories: %s", e)
         memories["procedural"] = {"total_count": 0, "items": []}
 
-    # Get knowledge vault items
+    # Get knowledge items
     try:
-        knowledge_vault_manager = server.knowledge_vault_manager
+        knowledge_memory_manager = server.knowledge_memory_manager
 
-        knowledge_items = knowledge_vault_manager.list_knowledge(
+        knowledge_items = knowledge_memory_manager.list_knowledge(
             agent_state=agent_state,  # Not accessed during BM25 search
             user=user,
             query=key_words,
@@ -2474,8 +2612,8 @@ def retrieve_memories_by_keywords(
             timezone_str=timezone_str,
         )
 
-        memories["knowledge_vault"] = {
-            "total_count": knowledge_vault_manager.get_total_number_of_items(user=user),
+        memories["knowledge"] = {
+            "total_count": knowledge_memory_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,
@@ -2485,8 +2623,8 @@ def retrieve_memories_by_keywords(
             ],
         }
     except Exception as e:
-        logger.error("Error retrieving knowledge vault items: %s", e)
-        memories["knowledge_vault"] = {"total_count": 0, "items": []}
+        logger.error("Error retrieving knowledge items: %s", e)
+        memories["knowledge"] = {"total_count": 0, "items": []}
 
     # Get core memory blocks
     try:
@@ -2776,12 +2914,12 @@ async def search_memory(
         user_id: The user ID to retrieve memories for (uses admin user if not provided)
         query: The search query string
         memory_type: Type of memory to search. Options: "episodic", "resource", "procedural", 
-                    "knowledge_vault", "semantic", "all" (default: "all")
+                    "knowledge", "semantic", "all" (default: "all")
         search_field: Field to search in. Options vary by memory type:
                      - episodic: "summary", "details"
                      - resource: "summary", "content"
                      - procedural: "summary", "steps"
-                     - knowledge_vault: "caption", "secret_value"
+                     - knowledge: "caption", "secret_value"
                      - semantic: "name", "summary", "details"
                      - For "all": use "null" (default)
         search_method: Search method. Options: "bm25" (default), "embedding"
@@ -2896,10 +3034,10 @@ async def search_memory(
             "count": 0,
         }
 
-    if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
+    if memory_type == "knowledge" and search_field == "secret_value" and search_method == "embedding":
         return {
             "success": False,
-            "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "error": "embedding is not supported for knowledge memory's 'secret_value' field.",
             "query": query,
             "results": [],
             "count": 0,
@@ -3006,10 +3144,10 @@ async def search_memory(
         except Exception as e:
             logger.error("Error searching procedural memories: %s", e)
 
-    # Search knowledge vault
-    if memory_type in ["knowledge_vault", "all"]:
+    # Search knowledge
+    if memory_type in ["knowledge", "all"]:
         try:
-            knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge(
+            knowledge_memories = server.knowledge_memory_manager.list_knowledge(
                 agent_state=agent_state,
                 user=user,
                 query=query,
@@ -3022,7 +3160,7 @@ async def search_memory(
             )
             all_results.extend([
                 {
-                    "memory_type": "knowledge_vault",
+                    "memory_type": "knowledge",
                     "id": x.id,
                     "entry_type": x.entry_type,
                     "source": x.source,
@@ -3030,10 +3168,10 @@ async def search_memory(
                     "secret_value": x.secret_value,
                     "caption": x.caption,
                 }
-                for x in knowledge_vault_memories
+                for x in knowledge_memories
             ])
         except Exception as e:
-            logger.error("Error searching knowledge vault: %s", e)
+            logger.error("Error searching knowledge: %s", e)
 
     # Search semantic memories
     if memory_type in ["semantic", "all"]:
@@ -3105,7 +3243,7 @@ async def search_memory_all_users(
     Args:
         query: The search query string
         memory_type: Type of memory to search. Options: "episodic", "resource", 
-                    "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+                    "procedural", "knowledge", "semantic", "all" (default: "all")
         search_field: Field to search in. Options vary by memory type
         search_method: Search method. Options: "bm25" (default), "embedding"
         limit: Maximum number of results (total across all users)
@@ -3207,10 +3345,10 @@ async def search_memory_all_users(
             "count": 0,
         }
 
-    if memory_type == "knowledge_vault" and search_field == "secret_value" and search_method == "embedding":
+    if memory_type == "knowledge" and search_field == "secret_value" and search_method == "embedding":
         return {
             "success": False,
-            "error": "embedding is not supported for knowledge_vault memory's 'secret_value' field.",
+            "error": "embedding is not supported for knowledge memory's 'secret_value' field.",
             "query": query,
             "results": [],
             "count": 0,
@@ -3320,10 +3458,10 @@ async def search_memory_all_users(
         except Exception as e:
             logger.error("Error searching procedural memories across organization: %s", e)
 
-    # Search knowledge vault across organization
-    if memory_type in ["knowledge_vault", "all"]:
+    # Search knowledge across organization
+    if memory_type in ["knowledge", "all"]:
         try:
-            knowledge_vault_memories = server.knowledge_vault_manager.list_knowledge_by_org(
+            knowledge_memories = server.knowledge_memory_manager.list_knowledge_by_org(
                 agent_state=agent_state,
                 organization_id=effective_org_id,
                 query=query,
@@ -3336,7 +3474,7 @@ async def search_memory_all_users(
             )
             all_results.extend([
                 {
-                    "memory_type": "knowledge_vault",
+                    "memory_type": "knowledge",
                     "user_id": x.user_id,
                     "id": x.id,
                     "entry_type": x.entry_type,
@@ -3345,10 +3483,10 @@ async def search_memory_all_users(
                     "secret_value": x.secret_value,
                     "caption": x.caption,
                 }
-                for x in knowledge_vault_memories
+                for x in knowledge_memories
             ])
         except Exception as e:
-            logger.error("Error searching knowledge vault across organization: %s", e)
+            logger.error("Error searching knowledge across organization: %s", e)
 
     # Search semantic memories across organization
     if memory_type in ["semantic", "all"]:
@@ -3413,7 +3551,7 @@ async def list_memory_components(
 
     Args:
         user_id: End-user whose memories should be listed (defaults to the client's admin user)
-        memory_type: One of ["episodic","semantic","procedural","resource","knowledge_vault","core","all"]
+        memory_type: One of ["episodic","semantic","procedural","resource","knowledge","core","all"]
         limit: Maximum number of items to return per memory type
     """
     valid_memory_types = {
@@ -3421,7 +3559,7 @@ async def list_memory_components(
         "semantic",
         "procedural",
         "resource",
-        "knowledge_vault",
+        "knowledge",
         "core",
         "all",
     }
@@ -3442,8 +3580,11 @@ async def list_memory_components(
         user_id = ClientAuthManager.get_admin_user_id_for_client(client.id)
         logger.debug("No user_id provided, using admin user: %s", user_id)
 
-    user = server.user_manager.get_user_by_id(user_id)
-    if not user:
+    from mirix.orm.errors import NoResultFound
+
+    try:
+        user = server.user_manager.get_user_by_id(user_id)
+    except NoResultFound:
         raise HTTPException(status_code=404, detail=f"User {user_id} not found")
 
     timezone_str = getattr(user, "timezone", None) or "UTC"
@@ -3452,7 +3593,13 @@ async def list_memory_components(
     # Need an agent state for memory manager configuration
     agents = server.agent_manager.list_agents(actor=client, limit=1)
     if not agents:
-        raise HTTPException(status_code=404, detail="No agents found for this client")
+        return {
+            "success": False,
+            "error": "No agents found for this client",
+            "memories": {},
+            "user_id": user_id,
+            "memory_type": memory_type,
+        }
     agent_state = agents[0]
 
     fetch_all = memory_type == "all"
@@ -3559,8 +3706,8 @@ async def list_memory_components(
             ],
         }
 
-    if fetch_all or memory_type == "knowledge_vault":
-        knowledge_items = server.knowledge_vault_manager.list_knowledge(
+    if fetch_all or memory_type == "knowledge":
+        knowledge_items = server.knowledge_memory_manager.list_knowledge(
             agent_state=agent_state,
             user=user,
             query="",
@@ -3569,8 +3716,8 @@ async def list_memory_components(
             limit=limit,
             timezone_str=timezone_str,
         )
-        memories["knowledge_vault"] = {
-            "total_count": server.knowledge_vault_manager.get_total_number_of_items(user=user),
+        memories["knowledge"] = {
+            "total_count": server.knowledge_memory_manager.get_total_number_of_items(user=user),
             "items": [
                 {
                     "id": item.id,
@@ -3628,7 +3775,7 @@ async def list_memory_fields(
         "semantic": ["name", "summary", "details"],
         "procedural": ["summary", "steps"],
         "resource": ["summary", "content"],
-        "knowledge_vault": ["caption", "secret_value"],
+        "knowledge": ["caption", "secret_value"],
         "core": ["label", "value"],
     }
 
@@ -4038,14 +4185,14 @@ async def delete_resource_memory(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.delete("/memory/knowledge_vault/{memory_id}")
-async def delete_knowledge_vault_memory(
+@router.delete("/memory/knowledge/{memory_id}")
+async def delete_knowledge_memory(
     memory_id: str,
     authorization: Optional[str] = Header(None),
     http_request: Request = None,
 ):
     """
-    Delete a knowledge vault item by ID.
+    Delete a knowledge item by ID.
     
     **Accepts both JWT (dashboard) and Client API Key (programmatic).**
     """
@@ -4054,10 +4201,10 @@ async def delete_knowledge_vault_memory(
     server = get_server()
     
     try:
-        server.knowledge_vault_manager.delete_knowledge_by_id(memory_id, actor=client)
+        server.knowledge_memory_manager.delete_knowledge_by_id(memory_id, actor=client)
         return {
             "success": True,
-            "message": f"Knowledge vault item {memory_id} deleted"
+            "message": f"Knowledge item {memory_id} deleted"
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -4480,7 +4627,7 @@ async def cleanup_expired_memories(
         "procedural": server.procedural_memory_manager.delete_expired_memories(
             user, expire_after_days
         ),
-        "knowledge_vault": server.knowledge_vault_manager.delete_expired_memories(
+        "knowledge": server.knowledge_memory_manager.delete_expired_memories(
             user, expire_after_days
         ),
     }

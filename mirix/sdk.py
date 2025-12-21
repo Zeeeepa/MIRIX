@@ -899,28 +899,28 @@ class Mirix:
 
             # Get credentials memory
             try:
-                knowledge_vault_manager = (
-                    self._client.server.knowledge_vault_manager
+                knowledge_memory_manager = (
+                    self._client.server.knowledge_memory_manager
                 )
-                # Find knowledge vault agent from meta agent's children
-                knowledge_vault_memory_agent = None
+                # Find knowledge agent from meta agent's children
+                knowledge_memory_agent = None
                 for agent in child_agents:
-                    if agent.agent_type == AgentType.knowledge_vault_memory_agent:
-                        knowledge_vault_memory_agent = agent
+                    if agent.agent_type == AgentType.knowledge_memory_agent:
+                        knowledge_memory_agent = agent
                         break
                 
-                if knowledge_vault_memory_agent:
-                    vault_items = knowledge_vault_manager.list_knowledge(
+                if knowledge_memory_agent:
+                    knowledge_items = knowledge_memory_manager.list_knowledge(
                         actor=target_user,
-                        agent_state=knowledge_vault_memory_agent,
+                        agent_state=knowledge_memory_agent,
                         limit=50,
                         timezone_str=target_user.timezone,
                     )
                 else:
-                    vault_items = []
+                    knowledge_items = []
 
                 memories["credentials"] = []
-                for item in vault_items:
+                for item in knowledge_items:
                     memories["credentials"].append(
                         {
                             "caption": item.caption,

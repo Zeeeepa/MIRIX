@@ -8,7 +8,7 @@ class AgentStates:
         self.agent_state = None
         self.episodic_memory_agent_state = None
         self.procedural_memory_agent_state = None
-        self.knowledge_vault_memory_agent_state = None
+        self.knowledge_memory_agent_state = None
         self.meta_memory_agent_state = None
         self.semantic_memory_agent_state = None
         self.core_memory_agent_state = None
@@ -36,7 +36,7 @@ class AgentStates:
             "agent_state": self.agent_state,
             "episodic_memory_agent_state": self.episodic_memory_agent_state,
             "procedural_memory_agent_state": self.procedural_memory_agent_state,
-            "knowledge_vault_memory_agent_state": self.knowledge_vault_memory_agent_state,
+            "knowledge_memory_agent_state": self.knowledge_memory_agent_state,
             "meta_memory_agent_state": self.meta_memory_agent_state,
             "semantic_memory_agent_state": self.semantic_memory_agent_state,
             "core_memory_agent_state": self.core_memory_agent_state,

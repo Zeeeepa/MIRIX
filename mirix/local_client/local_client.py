@@ -2194,10 +2194,10 @@ class LocalClient(AbstractClient):
             agent_id (str): ID of the agent to retrieve memories for
             query (str): The keywords/query used to search in the memory
             memory_type (str): The type of memory to search in. Options: "episodic", "resource", "procedural",
-                              "knowledge_vault", "semantic", "all". Defaults to "all".
+                              "knowledge", "semantic", "all". Defaults to "all".
             search_field (str): The field to search in the memory. For "episodic": 'summary', 'details';
                                for "resource": 'summary', 'content'; for "procedural": 'summary', 'steps';
-                               for "knowledge_vault": 'secret_value', 'caption'; for "semantic": 'name', 'summary', 'details'.
+                               for "knowledge": 'secret_value', 'caption'; for "semantic": 'name', 'summary', 'details'.
                                Use "null" for default fields. Defaults to "null".
             search_method (str): The method to search. Options: 'bm25' (keyword-based), 'embedding' (semantic).
                                 Defaults to "embedding".
@@ -2219,12 +2219,12 @@ class LocalClient(AbstractClient):
                 "embedding is not supported for resource memory's 'content' field."
             )
         if (
-            memory_type == "knowledge_vault"
+            memory_type == "knowledge"
             and search_field == "secret_value"
             and search_method == "embedding"
         ):
             raise ValueError(
-                "embedding is not supported for knowledge_vault memory's 'secret_value' field."
+                "embedding is not supported for knowledge memory's 'secret_value' field."
             )
 
         # Get the agent to access its memory managers
@@ -2329,10 +2329,10 @@ class LocalClient(AbstractClient):
                 }
             formatted_results.extend(formatted_results_procedural)
 
-        # Search knowledge vault
-        if memory_type == "knowledge_vault" or memory_type == "all":
-            knowledge_vault_memories = (
-                self.server.knowledge_vault_manager.list_knowledge(
+        # Search knowledge
+        if memory_type == "knowledge" or memory_type == "all":
+            knowledge_memories = (
+                self.server.knowledge_memory_manager.list_knowledge(
                     user=self.user,
                     agent_state=agent_state,
                     query=query,
@@ -2342,9 +2342,9 @@ class LocalClient(AbstractClient):
                     timezone_str=timezone_str,
                 )
             )
-            formatted_results_knowledge_vault = [
+            formatted_results_knowledge = [
                 {
-                    "memory_type": "knowledge_vault",
+                    "memory_type": "knowledge",
                     "id": x.id,
                     "entry_type": x.entry_type,
                     "source": x.source,
@@ -2352,14 +2352,14 @@ class LocalClient(AbstractClient):
                     "secret_value": x.secret_value,
                     "caption": x.caption,
                 }
-                for x in knowledge_vault_memories
+                for x in knowledge_memories
             ]
-            if memory_type == "knowledge_vault":
+            if memory_type == "knowledge":
                 return {
-                    "results": formatted_results_knowledge_vault,
-                    "count": len(formatted_results_knowledge_vault),
+                    "results": formatted_results_knowledge,
+                    "count": len(formatted_results_knowledge),
                 }
-            formatted_results.extend(formatted_results_knowledge_vault)
+            formatted_results.extend(formatted_results_knowledge)
 
         # Search semantic memory
         if memory_type == "semantic" or memory_type == "all":

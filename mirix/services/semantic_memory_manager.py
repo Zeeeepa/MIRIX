@@ -551,6 +551,8 @@ class SemanticMemoryManager:
                     setattr(item, k, v)
             # updated_at is automatically set to current UTC time by item.update()
             item.update_with_redis(session, actor=user)  # ⭐ Updates Redis JSON cache
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("semantic", "updated")
             return item.to_pydantic()
 
     @enforce_types
@@ -947,7 +949,7 @@ class SemanticMemoryManager:
                 client_id = actor.id
             if user_id is None:
                 user_id = UserManager.ADMIN_USER_ID
-                logger.debug("user_id not provided, using DEFAULT_USER_ID: %s", user_id)
+                logger.debug("user_id not provided, using ADMIN_USER_ID: %s", user_id)
             
             # Conditionally calculate embeddings based on BUILD_EMBEDDINGS_FOR_MEMORY flag
             if settings.build_embeddings_for_memory:
@@ -985,6 +987,9 @@ class SemanticMemoryManager:
                 user_id=user_id,
             )
 
+            from mirix.services.queue_trace_context import increment_memory_update_count
+            increment_memory_update_count("semantic", "created")
+
             # Note: Item is already added to clustering tree in create_item()
             return semantic_item
         except Exception as e:
@@ -1006,6 +1011,8 @@ class SemanticMemoryManager:
                     redis_key = f"{redis_client.SEMANTIC_PREFIX}{semantic_memory_id}"
                     redis_client.delete(redis_key)
                 item.hard_delete(session)
+                from mirix.services.queue_trace_context import increment_memory_update_count
+                increment_memory_update_count("semantic", "deleted")
             except NoResultFound:
                 raise NoResultFound(
                     f"Semantic memory item with id {semantic_memory_id} not found."

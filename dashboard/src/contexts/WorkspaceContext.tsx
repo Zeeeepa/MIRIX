@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import apiClient from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -32,26 +33,50 @@ export const useWorkspace = () => {
 };
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user: clientUser } = useAuth(); // This is the Client (Admin) - includes default_user_id
+  const { user: clientUser } = useAuth(); // This is the Client (Admin) - includes admin_user_id
+  const [searchParams] = useSearchParams();
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const selectedUserRef = useRef<User | null>(null);
+  const requestedUserParam = searchParams.get('user') || searchParams.get('user_id');
+
+  useEffect(() => {
+    selectedUserRef.current = selectedUser;
+  }, [selectedUser]);
+
+  const normalizeUserToken = (value: string) => value.replace(/_/g, '-');
+
+  const findUserFromParam = (userList: User[], param: string | null) => {
+    if (!param) return null;
+    const normalizedParam = normalizeUserToken(param);
+    return (
+      userList.find((user) => user.id === param || user.name === param) ||
+      userList.find((user) => normalizeUserToken(user.id) === normalizedParam) ||
+      userList.find((user) => normalizeUserToken(user.name) === normalizedParam) ||
+      null
+    );
+  };
 
   const fetchUsers = async () => {
     if (!clientUser) return;
     setIsLoading(true);
     try {
-      // The clientUser now includes default_user_id from the backend
-      const defaultUserId = clientUser.default_user_id;
+      // The clientUser now includes admin_user_id from the backend
+      const defaultUserId = clientUser.admin_user_id;
       
       // List all users
       const response = await apiClient.get('/users');
       const userList = response.data;
       setUsers(userList);
       
-      // Auto-select the default user if none is selected yet
-      if (!selectedUser && userList.length > 0) {
-        // Find the default user by ID
+      const matchedUser = findUserFromParam(userList, requestedUserParam);
+      const currentSelected = selectedUserRef.current;
+
+      if (matchedUser && currentSelected?.id !== matchedUser.id) {
+        setSelectedUser(matchedUser);
+      } else if (!currentSelected && userList.length > 0) {
+        // Auto-select the default user if none is selected yet
         const defaultUser = userList.find((u: User) => u.id === defaultUserId);
         if (defaultUser) {
           setSelectedUser(defaultUser);
@@ -90,7 +115,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const remainingUsers = users.filter(u => u.id !== userId);
       if (remainingUsers.length > 0) {
         // Try to select the default user, otherwise first available
-        const defaultUser = remainingUsers.find(u => u.id === clientUser.default_user_id);
+        const defaultUser = remainingUsers.find(u => u.id === clientUser.admin_user_id);
         setSelectedUser(defaultUser || remainingUsers[0]);
       } else {
         setSelectedUser(null);
@@ -105,6 +130,14 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       fetchUsers();
     }
   }, [clientUser]);
+
+  useEffect(() => {
+    if (!requestedUserParam || users.length === 0) return;
+    const matchedUser = findUserFromParam(users, requestedUserParam);
+    if (matchedUser && selectedUserRef.current?.id !== matchedUser.id) {
+      setSelectedUser(matchedUser);
+    }
+  }, [requestedUserParam, users]);
 
   return (
     <WorkspaceContext.Provider value={{ 

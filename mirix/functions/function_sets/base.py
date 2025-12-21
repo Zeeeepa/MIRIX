@@ -102,9 +102,9 @@ def search_in_memory(
     Choose which memory to search. All memory types support multiple search methods with different performance characteristics. Most of the time, you should use search over 'details' for episodic memory and semantic memory, 'content' for resource memory (but for resource memory, `embedding` is not supported for content field so you have to use other search methods), 'description' for procedural memory. This is because these fields have the richest information and is more likely to contain the keywords/query. You can always start from a thorough search over the whole memory by setting memory_type as 'all' and search_field as 'null', and then narrow down to specific fields and specific memories.
 
     Args:
-        memory_type: The type of memory to search in. It should be chosen from the following: "episodic", "resource", "procedural", "knowledge_vault", "semantic", "all". Here "all" means searching in all the memories.
+        memory_type: The type of memory to search in. It should be chosen from the following: "episodic", "resource", "procedural", "knowledge", "semantic", "all". Here "all" means searching in all the memories.
         query: The keywords/query used to search in the memory.
-        search_field: The field to search in the memory. It should be chosen from the attributes of the corresponding memory. For "episodic" memory, it can be 'summary', 'details'; for "resource" memory, it can be 'summary', 'content'; for "procedural" memory, it can be 'summary', 'steps'; for "knowledge_vault", it can be 'secret_value', 'caption'; for semantic memory, it can be 'name', 'summary', 'details'. For "all", it should also be "null" as the system will search all memories with default fields.
+        search_field: The field to search in the memory. It should be chosen from the attributes of the corresponding memory. For "episodic" memory, it can be 'summary', 'details'; for "resource" memory, it can be 'summary', 'content'; for "procedural" memory, it can be 'summary', 'steps'; for "knowledge", it can be 'secret_value', 'caption'; for semantic memory, it can be 'name', 'summary', 'details'. For "all", it should also be "null" as the system will search all memories with default fields.
         search_method: The method to search in the memory. Choose from:
             - 'bm25': BM25 ranking-based full-text search (fast and effective for keyword-based searches)
             - 'embedding': Vector similarity search using embeddings (most powerful, good for conceptual matches)
@@ -124,12 +124,12 @@ def search_in_memory(
             "embedding is not supported for resource memory's 'content' field."
         )
     if (
-        memory_type == "knowledge_vault"
+        memory_type == "knowledge"
         and search_field == "secret_value"
         and search_method == "embedding"
     ):
         raise ValueError(
-            "embedding is not supported for knowledge_vault memory's 'secret_value' field."
+            "embedding is not supported for knowledge memory's 'secret_value' field."
         )
 
     if memory_type == "all":
@@ -227,8 +227,8 @@ def search_in_memory(
         if memory_type == "procedural":
             return formatted_results_procedural, len(formatted_results_procedural)
 
-    if memory_type == "knowledge_vault" or memory_type == "all":
-        knowledge_vault_memories = self.knowledge_vault_manager.list_knowledge(
+    if memory_type == "knowledge" or memory_type == "all":
+        knowledge_memories = self.knowledge_memory_manager.list_knowledge(
             agent_state=self.agent_state,
             user=self.user,
             query=query,
@@ -239,9 +239,9 @@ def search_in_memory(
             include_faded=include_faded,
             fade_after_days=fade_after_days,
         )
-        formatted_results_knowledge_vault = [
+        formatted_results_knowledge = [
             {
-                "memory_type": "knowledge_vault",
+                "memory_type": "knowledge",
                 "id": x.id,
                 "entry_type": x.entry_type,
                 "source": x.source,
@@ -249,11 +249,11 @@ def search_in_memory(
                 "secret_value": x.secret_value,
                 "caption": x.caption,
             }
-            for x in knowledge_vault_memories
+            for x in knowledge_memories
         ]
-        if memory_type == "knowledge_vault":
-            return formatted_results_knowledge_vault, len(
-                formatted_results_knowledge_vault
+        if memory_type == "knowledge":
+            return formatted_results_knowledge, len(
+                formatted_results_knowledge
             )
 
     if memory_type == "semantic" or memory_type == "all":
@@ -285,18 +285,18 @@ def search_in_memory(
 
     else:
         raise ValueError(
-            f"Memory type '{memory_type}' is not supported. Please choose from 'episodic', 'resource', 'procedural', 'knowledge_vault', 'semantic'."
+            f"Memory type '{memory_type}' is not supported. Please choose from 'episodic', 'resource', 'procedural', 'knowledge', 'semantic'."
         )
     return (
         formatted_results_from_episodic
         + formatted_results_resource
         + formatted_results_procedural
-        + formatted_results_knowledge_vault
+        + formatted_results_knowledge
         + formatted_results_semantic,
         len(formatted_results_from_episodic)
         + len(formatted_results_resource)
         + len(formatted_results_procedural)
-        + len(formatted_results_knowledge_vault)
+        + len(formatted_results_knowledge)
         + len(formatted_results_semantic),
     )
 
@@ -307,7 +307,7 @@ def list_memory_within_timerange(
     """
     List memories around a specific timestamp
     Args:
-        memory_type (str): The type of memory to search in. It should be chosen from the following: "episodic", "resource", "procedural", "knowledge_vault", "semantic", "all". Here "all" means searching in all the memories.
+        memory_type (str): The type of memory to search in. It should be chosen from the following: "episodic", "resource", "procedural", "knowledge", "semantic", "all". Here "all" means searching in all the memories.
         start_time (str): The start time of the time range. It has to be in the form of "%Y-%m-%d %H:%M:%S"
         end_time (str): The end time of the time range. It has to be in the form of "%Y-%m-%d %H:%M:%S"
     """

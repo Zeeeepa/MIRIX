@@ -101,7 +101,7 @@ DEFAULT_PRESET = "memgpt_chat"
 # Base tools that cannot be edited, as they access agent state directly
 # Note that we don't include "conversation_search_date" for now
 BASE_TOOLS = [
-    "send_intermediate_message",
+    # "send_intermediate_message",
     "conversation_search",
     "search_in_memory",
     "list_memory_within_timerange",
@@ -116,7 +116,7 @@ EPISODIC_MEMORY_TOOLS = [
 ]
 PROCEDURAL_MEMORY_TOOLS = ["procedural_memory_insert", "procedural_memory_update"]
 RESOURCE_MEMORY_TOOLS = ["resource_memory_insert", "resource_memory_update"]
-KNOWLEDGE_VAULT_TOOLS = ["knowledge_vault_insert", "knowledge_vault_update"]
+KNOWLEDGE_MEMORY_TOOLS = ["knowledge_insert", "knowledge_update"]
 SEMANTIC_MEMORY_TOOLS = [
     "semantic_memory_insert",
     "semantic_memory_update",
@@ -139,8 +139,8 @@ META_MEMORY_TOOLS_DIRECT = [
     "semantic_memory_insert",
     # Procedural memory tools
     "procedural_memory_insert",
-    # Knowledge vault tools
-    "knowledge_vault_insert",
+    # Knowledge tools
+    "knowledge_insert",
     # Resource memory tools
     "resource_memory_insert",
 ]
@@ -157,7 +157,7 @@ ALL_TOOLS = list(
         + EPISODIC_MEMORY_TOOLS
         + PROCEDURAL_MEMORY_TOOLS
         + RESOURCE_MEMORY_TOOLS
-        + KNOWLEDGE_VAULT_TOOLS
+        + KNOWLEDGE_MEMORY_TOOLS
         + SEMANTIC_MEMORY_TOOLS
         + META_MEMORY_TOOLS
         + UNIVERSAL_MEMORY_TOOLS

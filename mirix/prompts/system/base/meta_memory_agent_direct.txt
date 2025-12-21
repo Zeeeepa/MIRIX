@@ -14,7 +14,7 @@ AVAILABLE TOOLS (CALL IN THIS ORDER)
 2) Episodic Memory: `episodic_memory_insert` (optionally use `episodic_memory_merge` only if needed to remove obvious duplicates)
 3) Semantic Memory: `semantic_memory_insert`
 4) Resource Memory: `resource_memory_insert`
-5) Knowledge Vault: `knowledge_vault_insert`
+5) Knowledge: `knowledge_insert`
 6) Procedural Memory: `procedural_memory_insert`
 Final: `finish_memory_update`
 
@@ -67,7 +67,7 @@ Examples:
 - "Screenshot of error message from application crash"
 Classification Rule: Update when user shares ANY file, document, image, or references specific materials. Keep instructions simple: "Save the file [filename]."
 
-5. Knowledge Vault - Static Reference Data & Contact Information
+5. Knowledge - Static Reference Data & Contact Information
 WHERE to find specific factual information when needed.
 Purpose: Stores static factual reference data for future lookup.
 Contains: Contact details, passwords, addresses, IDs, static reference data that doesn't change often.
@@ -115,7 +115,7 @@ When processing messages, think step by step, evaluate each memory type in this 
 (4) Resource Memory: Does this involve WHAT files or documents?
 - Shared files, documents, images, reference materials
 
-(5) Knowledge Vault: Does this contain static REFERENCE DATA?
+(5) Knowledge: Does this contain static REFERENCE DATA?
 - Contact info, passwords, IDs, addresses, credentials
 - Static facts that don't change often but might be needed later
 

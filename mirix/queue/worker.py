@@ -8,6 +8,8 @@ from datetime import datetime
 
 from mirix.queue.message_pb2 import QueueMessage
 from mirix.log import get_logger
+from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
+from mirix.services.queue_trace_context import reset_queue_trace_id, set_queue_trace_id
 from mirix.services.user_manager import UserManager
 
 if TYPE_CHECKING:
@@ -144,6 +146,24 @@ class QueueWorker:
             )
             return
         
+        trace_id = None
+        trace_token = None
+        trace_manager = None
+        error_message = None
+        success = False
+
+        # Extract filter_tags from protobuf Struct early so we can pull trace id
+        filter_tags = None
+        if message.HasField('filter_tags') and message.filter_tags:
+            filter_tags = dict(message.filter_tags)
+            trace_id = filter_tags.pop("__queue_trace_id", None)
+            if not filter_tags:
+                filter_tags = None
+
+        if trace_id:
+            trace_manager = MemoryQueueTraceManager()
+            trace_token = set_queue_trace_id(trace_id)
+
         try:
             # Validate actor exists before processing
             if not message.HasField('actor') or not message.actor.id:
@@ -153,6 +173,9 @@ class QueueWorker:
             
             # Convert protobuf to Pydantic Client (actor for write operations)
             actor = self._convert_proto_user_to_pydantic(message.actor)
+
+            if trace_manager and trace_id:
+                trace_manager.mark_started(trace_id, actor=actor)
             
             input_messages = [
                 self._convert_proto_message_to_pydantic(msg) 
@@ -207,11 +230,6 @@ class QueueWorker:
                 user_manager = UserManager()
                 user = user_manager.get_admin_user()            
             
-            # Extract filter_tags from protobuf Struct
-            filter_tags = None
-            if message.HasField('filter_tags') and message.filter_tags:
-                filter_tags = dict(message.filter_tags)
-            
             # Extract use_cache
             use_cache = message.use_cache if message.HasField('use_cache') else True
             
@@ -241,6 +259,8 @@ class QueueWorker:
                 use_cache=use_cache,
                 occurred_at=occurred_at,  # Optional timestamp for episodic memory
             )
+
+            success = True
             
             # Log successful processing
             logger.debug(
@@ -256,6 +276,20 @@ class QueueWorker:
                 e,
                 exc_info=True
             )
+            error_message = str(e)
+            success = False
+        finally:
+            if trace_manager and trace_id:
+                counts = trace_manager.aggregate_memory_update_counts(trace_id)
+                trace_manager.mark_completed(
+                    trace_id,
+                    success=success,
+                    error_message=error_message,
+                    memory_update_counts=counts,
+                    actor=actor if 'actor' in locals() else None,
+                )
+            if trace_token:
+                reset_queue_trace_id(trace_token)
     
     def _consume_messages(self) -> None:
         """

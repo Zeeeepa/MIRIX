@@ -516,9 +516,9 @@ class TemporaryMessageAccumulator:
         else:
             # Add system instruction for meta memory manager
             if user_message_added:
-                system_message = "[System Message] As the meta memory manager, analyze the provided content and the conversations between the user and the chat agent. Based on what the user is doing, determine which memory should be updated (episodic, procedural, knowledge vault, semantic, core, and resource)."
+                system_message = "[System Message] As the meta memory manager, analyze the provided content and the conversations between the user and the chat agent. Based on what the user is doing, determine which memory should be updated (episodic, procedural, knowledge, semantic, core, and resource)."
             else:
-                system_message = "[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge vault, semantic, core, and resource)"
+                system_message = "[System Message] As the meta memory manager, analyze the provided content. Based on the content, determine what memories need to be updated (episodic, procedural, knowledge, semantic, core, and resource)"
 
         message.append({"type": "text", "text": system_message})
 
@@ -549,7 +549,7 @@ class TemporaryMessageAccumulator:
         #     'chaining': CHAINING_FOR_MEMORY_UPDATE
         # }
 
-        # for agent_type in ['episodic_memory', 'procedural_memory', 'knowledge_vault',
+        # for agent_type in ['episodic_memory', 'procedural_memory', 'knowledge',
         #                  'semantic_memory', 'core_memory', 'resource_memory']:
         #     self.message_queue.send_message_in_queue(
         #         self.client,
@@ -744,7 +744,7 @@ class TemporaryMessageAccumulator:
         memory_agent_types = [
             "episodic_memory",
             "procedural_memory",
-            "knowledge_vault",
+            "knowledge",
             "semantic_memory",
             "core_memory",
             "resource_memory",

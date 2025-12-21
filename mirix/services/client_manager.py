@@ -244,7 +244,7 @@ class ClientManager:
            - Semantic memories
            - Procedural memories
            - Resource memories
-           - Knowledge vault items
+           - Knowledge items
            - Messages
         
         2. Database (PostgreSQL):
@@ -275,7 +275,7 @@ class ClientManager:
         from mirix.services.semantic_memory_manager import SemanticMemoryManager
         from mirix.services.procedural_memory_manager import ProceduralMemoryManager
         from mirix.services.resource_memory_manager import ResourceMemoryManager
-        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
         from mirix.services.message_manager import MessageManager
 
         # 1. Soft delete all memory records using memory managers
@@ -283,7 +283,7 @@ class ClientManager:
         semantic_manager = SemanticMemoryManager()
         procedural_manager = ProceduralMemoryManager()
         resource_manager = ResourceMemoryManager()
-        knowledge_manager = KnowledgeVaultManager()
+        knowledge_manager = KnowledgeMemoryManager()
         message_manager = MessageManager()
 
         episodic_count = episodic_manager.soft_delete_by_client_id(actor=client)
@@ -299,7 +299,7 @@ class ClientManager:
         logger.debug("Soft deleted %d resource memories", resource_count)
 
         knowledge_count = knowledge_manager.soft_delete_by_client_id(actor=client)
-        logger.debug("Soft deleted %d knowledge vault items", knowledge_count)
+        logger.debug("Soft deleted %d knowledge items", knowledge_count)
 
         message_count = message_manager.soft_delete_by_client_id(actor=client)
         logger.debug("Soft deleted %d messages", message_count)
@@ -382,7 +382,7 @@ class ClientManager:
 
                     logger.info(
                         "✅ Client %s and all associated records soft deleted: "
-                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages",
+                        "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge, %d messages",
                         client_id, episodic_count, semantic_count, procedural_count,
                         resource_count, knowledge_count, message_count
                     )
@@ -402,7 +402,7 @@ class ClientManager:
            - SemanticMemoryManager.delete_by_client_id()
            - ProceduralMemoryManager.delete_by_client_id()
            - ResourceMemoryManager.delete_by_client_id()
-           - KnowledgeVaultManager.delete_by_client_id()
+           - KnowledgeMemoryManager.delete_by_client_id()
            - MessageManager.delete_by_client_id()
         2. Delete blocks (via _created_by_id)
         3. Each manager handles:
@@ -424,7 +424,7 @@ class ClientManager:
         from mirix.services.semantic_memory_manager import SemanticMemoryManager
         from mirix.services.procedural_memory_manager import ProceduralMemoryManager
         from mirix.services.resource_memory_manager import ResourceMemoryManager
-        from mirix.services.knowledge_vault_manager import KnowledgeVaultManager
+        from mirix.services.knowledge_memory_manager import KnowledgeMemoryManager
         from mirix.services.message_manager import MessageManager
 
         # Initialize managers
@@ -432,7 +432,7 @@ class ClientManager:
         semantic_manager = SemanticMemoryManager()
         procedural_manager = ProceduralMemoryManager()
         resource_manager = ResourceMemoryManager()
-        knowledge_manager = KnowledgeVaultManager()
+        knowledge_manager = KnowledgeMemoryManager()
         message_manager = MessageManager()
 
         # Get client as actor for manager methods
@@ -457,7 +457,7 @@ class ClientManager:
             logger.debug("Bulk deleted %d resource memories", resource_count)
 
             knowledge_count = knowledge_manager.delete_by_client_id(actor=client)
-            logger.debug("Bulk deleted %d knowledge vault items", knowledge_count)
+            logger.debug("Bulk deleted %d knowledge items", knowledge_count)
 
             message_count = message_manager.delete_by_client_id(actor=client)
             logger.debug("Bulk deleted %d messages", message_count)
@@ -532,7 +532,7 @@ class ClientManager:
 
             logger.info(
                 "✅ Bulk deleted all memories for client %s: "
-                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge_vault, %d messages, %d blocks "
+                "%d episodic, %d semantic, %d procedural, %d resource, %d knowledge, %d messages, %d blocks "
                 "(client, agents, tools preserved)",
                 client_id, episodic_count, semantic_count, procedural_count,
                 resource_count, knowledge_count, message_count, block_count

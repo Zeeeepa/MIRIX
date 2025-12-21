@@ -150,40 +150,21 @@ class MirixClient(AbstractClient):
         self.timeout = timeout
         self._known_users: Set[str] = set()
         self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient."
+            )
 
         # Create session with retry logic
         self.session = requests.Session()
 
-        # If no api_key, check for client_id and org_id for backwards compatibility with older versions of the client
-        
-        #if not self.api_key:
-        #    raise ValueError("api_key is required; set MIRIX_API_KEY or pass api_key to MirixClient.")
-
-        if self.api_key:
-            # Set headers - API key identifies client and org
-            self.session.headers.update({"X-API-Key": self.api_key}) 
-        else:
-            # Generate IDs if not provided
-            # Using client_id and org_id for backwards compatibility with older versions of the client
-            if not client_id:
-                import uuid
-
-                client_id = f"client-{uuid.uuid4().hex[:8]}"
-
-            if not org_id:
-                import uuid
-
-                org_id = f"org-{uuid.uuid4().hex[:8]}"
+        # Set headers - API key identifies client and org
+        self.session.headers.update({"X-API-Key": self.api_key})
 
         self.client_id = client_id
         self.client_name = client_name or client_id
-        self.session.headers.update({"X-Client-ID": self.client_id})                
         self.org_id = org_id
         self.org_name = org_name or self.org_id
-        self.session.headers.update({"X-Org-ID": self.org_id})
-
-        # Create organization and client if they don't exist
-        self._ensure_org_and_client_exist(headers=headers)
 
         # Track initialized meta agent for this project
         self._meta_agent: Optional[AgentState] = None
@@ -269,7 +250,7 @@ class MirixClient(AbstractClient):
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
-        org_id: Optional[str] = None,   # For backwards compatibility with older versions of the client
+        org_id: Optional[str] = None,   # Deprecated: ignored (org resolved from API key)
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -284,7 +265,7 @@ class MirixClient(AbstractClient):
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
-            org_id: Optional organization ID. Defaults to client's org_id if not provided. For backwards compatibility with older versions of the client.
+            org_id: Deprecated. Organization is resolved from the API key.
             
         Returns:
             str: The user_id (either existing or newly created)
@@ -314,18 +295,6 @@ class MirixClient(AbstractClient):
             "user_id": user_id,
             "name": user_name,
         }
-
-        # Check if X-API-Key is set in headers
-        has_api_key = False
-        if headers and "X-API-Key" in headers:
-            has_api_key = True
-        
-        # If no X-API-Key, include org_id in request data
-        if not has_api_key:
-            # Use passed in org_id, or fall back to self.org_id
-            effective_org_id = org_id if org_id else getattr(self, 'org_id', None)
-            if effective_org_id:
-                request_data["org_id"] = effective_org_id
 
         # Make API request
         response = self._request(
@@ -585,7 +554,7 @@ class MirixClient(AbstractClient):
         Args:
             agent_name: Name of the agent to update. Can be:
                 - Short name: "episodic", "semantic", "core", "procedural", 
-                  "resource", "knowledge_vault", "reflexion", "meta_memory_agent"
+                  "resource", "knowledge", "reflexion", "meta_memory_agent"
                 - Full name: "meta_memory_agent_episodic_memory_agent", etc.
             system_prompt: The new system prompt text
             headers: Optional HTTP headers
@@ -629,7 +598,7 @@ class MirixClient(AbstractClient):
             - "core" or "meta_memory_agent_core_memory_agent"
             - "procedural" or "meta_memory_agent_procedural_memory_agent"
             - "resource" or "meta_memory_agent_resource_memory_agent"
-            - "knowledge_vault" or "meta_memory_agent_knowledge_vault_memory_agent"
+            - "knowledge" or "meta_memory_agent_knowledge_memory_agent"
             - "reflexion" or "meta_memory_agent_reflexion_agent"
             - "meta_memory_agent" (the parent meta agent)
         """
@@ -1290,8 +1259,8 @@ class MirixClient(AbstractClient):
     
     def add(
         self,
-        user_id: str,
         messages: List[Dict[str, Any]],
+        user_id: Optional[str] = None,
         chaining: bool = True,
         verbose: bool = False,
         filter_tags: Optional[Dict[str, Any]] = None,
@@ -1579,12 +1548,12 @@ class MirixClient(AbstractClient):
             user_id: User ID for the conversation
             query: Search query
             memory_type: Type of memory to search. Options: "episodic", "resource", 
-                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+                        "procedural", "knowledge", "semantic", "all" (default: "all")
             search_field: Field to search in. Options vary by memory type:
                          - episodic: "summary", "details"
                          - resource: "summary", "content"
                          - procedural: "summary", "steps"
-                         - knowledge_vault: "caption", "secret_value"
+                         - knowledge: "caption", "secret_value"
                          - semantic: "name", "summary", "details"
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
@@ -1716,12 +1685,12 @@ class MirixClient(AbstractClient):
         Args:
             query: Search query
             memory_type: Type of memory to search. Options: "episodic", "resource", 
-                        "procedural", "knowledge_vault", "semantic", "all" (default: "all")
+                        "procedural", "knowledge", "semantic", "all" (default: "all")
             search_field: Field to search in. Options vary by memory type:
                          - episodic: "summary", "details"
                          - resource: "summary", "content"
                          - procedural: "summary", "steps"
-                         - knowledge_vault: "caption", "secret_value"
+                         - knowledge: "caption", "secret_value"
                          - semantic: "name", "summary", "details"
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
@@ -1806,12 +1775,9 @@ class MirixClient(AbstractClient):
         if client_id:
             params["client_id"] = client_id
         
-        # Add org_id if provided (used only if no client_id specified)
+        # Add org_id only if explicitly provided
         if org_id:
             params["org_id"] = org_id
-        elif not client_id:
-            # Use current client's org_id if neither client_id nor org_id provided
-            params["org_id"] = self.org_id
         
         # Add filter_tags if provided
         if filter_tags:
