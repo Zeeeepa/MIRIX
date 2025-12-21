@@ -12,6 +12,7 @@ import {
   CheckCircle2, 
   XCircle, 
   AlertCircle,
+  Square,
   Brain,
   Database,
   Book,
@@ -399,6 +400,7 @@ export const MemoryTraces: React.FC = () => {
   const liveTraceSignaturesRef = React.useRef<Record<string, string>>({});
   const [liveTraceChangeMs, setLiveTraceChangeMs] = useState<Record<string, number>>({});
   const waitLogRef = React.useRef<Record<string, number>>({});
+  const [interruptingTraces, setInterruptingTraces] = useState<Record<string, boolean>>({});
   const userParamAppliedRef = React.useRef(false);
   const lastUserParamRef = React.useRef<string | null>(null);
   const userIdParam = searchParams.get('user_id');
@@ -615,6 +617,20 @@ export const MemoryTraces: React.FC = () => {
       .map((trace) => trace.id);
     const detailStatus = detail?.trace?.status;
     const detailProcessing = detailStatus && ['queued', 'processing'].includes(detailStatus);
+    
+    // Clear interrupting state for traces that are no longer processing
+    setInterruptingTraces((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      Object.keys(prev).forEach((traceId) => {
+        if (prev[traceId] && !processingTraceIds.includes(traceId)) {
+          next[traceId] = false;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    
     if (processingTraceIds.length === 0 && !detailProcessing) return;
 
     const intervalId = window.setInterval(() => {
@@ -696,6 +712,24 @@ export const MemoryTraces: React.FC = () => {
       [traceId]: !prev[traceId],
     }));
   };
+
+  const requestInterrupt = useCallback(
+    async (traceId: string) => {
+      setInterruptingTraces((prev) => ({ ...prev, [traceId]: true }));
+      try {
+        await apiClient.post(`/memory/queue-traces/${traceId}/interrupt`, {
+          reason: 'Interrupted by user',
+        });
+        // Keep spinner visible - it will be cleared when status changes from 'processing'
+      } catch (err) {
+        console.error('Failed to request interrupt', err);
+        setError('Failed to interrupt the running trace. Please try again.');
+        // Only clear spinner on error
+        setInterruptingTraces((prev) => ({ ...prev, [traceId]: false }));
+      }
+    },
+    [setError]
+  );
 
   const renderToolCall = (toolCall: MemoryAgentToolCall) => {
     const expanded = expandedToolCalls[toolCall.id] ?? false;
@@ -1267,6 +1301,32 @@ export const MemoryTraces: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 ml-auto shrink-0">
+                    {effectiveStatus === 'processing' && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="rounded-full h-10 w-10 shrink-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          disabled={interruptingTraces[trace.id]}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            requestInterrupt(trace.id);
+                          }}
+                          aria-label="Interrupt"
+                        >
+                          {interruptingTraces[trace.id] ? (
+                            <RefreshCcw className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <Square className="w-5 h-5" />
+                          )}
+                        </Button>
+                        {interruptingTraces[trace.id] && (
+                          <span className="text-xs text-red-300 font-medium">
+                            Interrupting…
+                          </span>
+                        )}
+                      </>
+                    )}
                     {canExpand && (
                       <Button
                         variant="ghost"

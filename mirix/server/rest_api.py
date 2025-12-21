@@ -49,6 +49,7 @@ from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
 from mirix.server.server import SyncServer
 from mirix.server.server import db_context
+from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
 from mirix.settings import model_settings, settings
 from mirix.topic_extraction import extract_topics_with_ollama, flatten_messages_to_plain_text
 from mirix.utils import convert_message_to_mirix_message
@@ -1951,6 +1952,11 @@ class MemoryQueueTraceDetailResponse(BaseModel):
     trace: MemoryQueueTraceSchema
     agent_traces: List[MemoryAgentTraceWithTools]
 
+class MemoryQueueTraceInterruptRequest(BaseModel):
+    reason: Optional[str] = Field(
+        None, description="Reason for interrupting the queue trace"
+    )
+
 
 @router.get("/memory/queue-traces", response_model=List[MemoryQueueTraceSchema])
 async def list_memory_queue_traces(
@@ -2061,6 +2067,32 @@ async def get_memory_queue_trace(
             trace=trace.to_pydantic(),
             agent_traces=response_agent_traces,
         )
+
+
+@router.post("/memory/queue-traces/{trace_id}/interrupt")
+async def interrupt_memory_queue_trace(
+    trace_id: str,
+    payload: Optional[MemoryQueueTraceInterruptRequest] = Body(None),
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Request interruption of a running queue trace.
+    """
+    client_id, _ = get_client_and_org(x_client_id, x_org_id)
+
+    with db_context() as session:
+        trace = session.get(MemoryQueueTrace, trace_id)
+        if not trace or trace.client_id != client_id:
+            raise HTTPException(status_code=404, detail="Trace not found")
+
+    reason = payload.reason if payload else None
+    if not reason:
+        reason = "Interrupted by user"
+
+    MemoryQueueTraceManager().request_interrupt(trace_id, reason=reason)
+
+    return {"success": True, "trace_id": trace_id, "interrupt_requested": True}
 
 
 class SelfReflectionRequest(BaseModel):

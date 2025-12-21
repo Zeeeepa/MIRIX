@@ -1261,7 +1261,7 @@ class MirixClient(AbstractClient):
         self,
         messages: List[Dict[str, Any]],
         user_id: Optional[str] = None,
-        chaining: bool = True,
+        chaining: bool = False,
         verbose: bool = False,
         filter_tags: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,

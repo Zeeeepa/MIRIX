@@ -1987,7 +1987,43 @@ class Agent(BaseAgent):
             llm_config=self.agent_state.llm_config,
         )
 
+        from mirix.services.queue_trace_context import get_agent_trace_id, get_queue_trace_id
+        from mirix.services.memory_agent_trace_manager import MemoryAgentTraceManager
+        from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
+
+        queue_trace_manager = MemoryQueueTraceManager()
+
+        def handle_interrupt_request() -> None:
+            queue_trace_id = get_queue_trace_id()
+            if not queue_trace_id:
+                return
+            if not queue_trace_manager.is_interrupt_requested(queue_trace_id):
+                return
+            interrupt_reason = (
+                queue_trace_manager.get_interrupt_reason(queue_trace_id)
+                or "Interrupted by user"
+            )
+            queue_trace_manager.mark_completed(
+                queue_trace_id,
+                success=False,
+                error_message=interrupt_reason,
+                actor=self.actor,
+            )
+            agent_trace_id = get_agent_trace_id()
+            if agent_trace_id:
+                MemoryAgentTraceManager().finish_trace(
+                    agent_trace_id,
+                    success=False,
+                    error_message=interrupt_reason,
+                    actor=self.actor,
+                )
+            printv(
+                f"[Mirix.Agent.{self.agent_state.name}] INFO: Interrupt requested. Stopping agent step."
+            )
+            raise RuntimeError(interrupt_reason)
+
         while True:
+            handle_interrupt_request()
             kwargs["first_message"] = False
             kwargs["step_count"] = step_count
 
@@ -2021,6 +2057,7 @@ class Agent(BaseAgent):
                 llm_client=llm_client,
                 **kwargs
             )
+            handle_interrupt_request()
 
             continue_chaining = step_response.continue_chaining
             function_failed = step_response.function_failed

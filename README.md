@@ -27,9 +27,19 @@ Your personal AI that builds memory through screen observation and natural conve
 - **Multi-Modal Input:** Text, images, voice, and screen captures processed seamlessly
 
 ### Quick Start
-**Step 1: Backend & Dashboard (Docker):**
+**Step 1: Backend & Dashboard (Local, no Docker):**
 ```
-docker compose up -d --pull always
+pip install -r requirements.txt
+```
+In terminal 1:
+```
+python scripts/start_server.py
+```
+In terminal 2:
+```
+cd dashboard
+npm install
+npm run dev
 ```
 - Dashboard: http://localhost:5173  
 - API: http://localhost:8531  
@@ -39,6 +49,10 @@ docker compose up -d --pull always
 **Step 3: Client (Python, `mirix-client`, https://pypi.org/project/mirix-client/):**
 ```
 pip install mirix-client
+```
+In terminal 3:
+```
+python samples/run_client.py
 ```
 
 Now you are ready to go! See the example below:

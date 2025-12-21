@@ -429,7 +429,7 @@ def main():
                }]
            },
        ],
-       chaining=False
+       chaining=True
     )
     print(f"[OK] Memory added successfully: {result.get('success', False)}")
 
