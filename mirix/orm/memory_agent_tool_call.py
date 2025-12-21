@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, Float, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mirix.orm.sqlalchemy_base import SqlalchemyBase
@@ -27,6 +27,13 @@ class MemoryAgentToolCall(SqlalchemyBase):
     tool_call_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     function_name: Mapped[str] = mapped_column(String)
     function_args: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    llm_call_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    cached_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    total_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    credit_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     status: Mapped[str] = mapped_column(
         String, default="running", doc="running|completed|failed"

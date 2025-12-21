@@ -107,6 +107,8 @@ def build_query(
 def update_timezone(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
+        from datetime import datetime
+        
         # Access timezone_str from kwargs (it will be None if not provided)
         timezone_str = kwargs.get("timezone_str")
 
@@ -122,43 +124,53 @@ def update_timezone(func):
         if results is None:
             return None
 
+        # Handle both single objects and lists
+        is_single_object = not isinstance(results, list)
+        results_list = [results] if is_single_object else results
+
+        # ALWAYS convert string timestamps to datetime objects, regardless of timezone_str
+        for result in results_list:
+            # Convert last_modify timestamp from string to datetime if needed
+            if (
+                hasattr(result, "last_modify")
+                and result.last_modify
+                and "timestamp" in result.last_modify
+            ):
+                timestamp = result.last_modify["timestamp"]
+                if isinstance(timestamp, str):
+                    timestamp = datetime.fromisoformat(
+                        timestamp.replace("Z", "+00:00")
+                    )
+                    result.last_modify["timestamp"] = timestamp
+
+        # Only do timezone conversion if timezone_str is provided
         if timezone_str:
-            for result in results:
+            target_tz = pytz.timezone(timezone_str.split(" (")[0])
+            for result in results_list:
                 if hasattr(result, "occurred_at"):
                     if result.occurred_at.tzinfo is None:
                         result.occurred_at = pytz.utc.localize(result.occurred_at)
-                    target_tz = pytz.timezone(timezone_str.split(" (")[0])
                     result.occurred_at = result.occurred_at.astimezone(target_tz)
                 if hasattr(result, "created_at"):
                     if result.created_at.tzinfo is None:
                         result.created_at = pytz.utc.localize(result.created_at)
-                    target_tz = pytz.timezone(timezone_str.split(" (")[0])
                     result.created_at = result.created_at.astimezone(target_tz)
                 if hasattr(result, "updated_at") and result.updated_at is not None:
                     if result.updated_at.tzinfo is None:
                         result.updated_at = pytz.utc.localize(result.updated_at)
-                    target_tz = pytz.timezone(timezone_str.split(" (")[0])
                     result.updated_at = result.updated_at.astimezone(target_tz)
                 if (
                     hasattr(result, "last_modify")
                     and result.last_modify
                     and "timestamp" in result.last_modify
                 ):
-                    # Check if timestamp is a string (ISO format) and convert to datetime
+                    # At this point, timestamp should already be a datetime object
                     timestamp = result.last_modify["timestamp"]
-                    if isinstance(timestamp, str):
-                        from datetime import datetime
-
-                        timestamp = datetime.fromisoformat(
-                            timestamp.replace("Z", "+00:00")
-                        )
-
-                    # Now handle timezone conversion
                     if timestamp.tzinfo is None:
                         timestamp = pytz.utc.localize(timestamp)
-                    target_tz = pytz.timezone(timezone_str.split(" (")[0])
                     result.last_modify["timestamp"] = timestamp.astimezone(target_tz)
 
-        return results
+        # Return single object or list based on input
+        return results_list[0] if is_single_object else results_list
 
     return wrapper

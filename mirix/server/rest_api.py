@@ -8,7 +8,7 @@ import copy
 import json
 import traceback
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
@@ -163,6 +163,7 @@ async def inject_client_org_headers(request: Request, call_next):
         "/admin/auth/register",
         "/admin/auth/login",
         "/admin/auth/check-setup",
+        "/health",
     }
 
     if request.url.path in public_paths:
@@ -1997,6 +1998,27 @@ async def get_memory_queue_trace(
         trace = session.get(MemoryQueueTrace, trace_id)
         if not trace or trace.client_id != client_id:
             raise HTTPException(status_code=404, detail="Trace not found")
+
+        if trace.status == "processing":
+            now = datetime.now(timezone.utc)
+            reference = trace.started_at or trace.queued_at
+            if reference:
+                if reference.tzinfo is None:
+                    reference = reference.replace(tzinfo=timezone.utc)
+                wait_seconds = (now - reference).total_seconds()
+                logger.info(
+                    "Queue trace %s processing for %.1fs (queued_at=%s, started_at=%s, now=%s)",
+                    trace_id,
+                    wait_seconds,
+                    trace.queued_at.isoformat() if trace.queued_at else "N/A",
+                    trace.started_at.isoformat() if trace.started_at else "N/A",
+                    now.isoformat(),
+                )
+            else:
+                logger.info(
+                    "Queue trace %s processing with no queued/started timestamp",
+                    trace_id,
+                )
 
         agent_traces = (
             session.execute(

@@ -442,7 +442,10 @@ class ProceduralMemoryManager:
     @update_timezone
     @enforce_types
     def get_most_recently_updated_item(
-        self, user: PydanticUser, timezone_str: str = None
+        self,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None
     ) -> Optional[PydanticProceduralMemoryItem]:
         """
         Fetch the most recently updated procedural memory item based on last_modify timestamp.
@@ -460,12 +463,12 @@ class ProceduralMemoryManager:
             )
 
             # Filter by user_id for multi-user support
-            query = query.where(ProceduralMemoryItem.user_id == user.id)
+            query = query.where(ProceduralMemoryItem.user_id == user_id)
 
             result = session.execute(query.limit(1))
             item = result.scalar_one_or_none()
 
-            return [item.to_pydantic()] if item else None
+            return item.to_pydantic() if item else None
 
     @enforce_types
     def create_item(

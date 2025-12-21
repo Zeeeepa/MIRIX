@@ -111,6 +111,83 @@ from mirix.utils import (
 logger = get_logger(__name__)
 
 
+def extract_text_from_messages(messages: List[Message]) -> List[dict]:
+    """
+    Extract text content from messages and use placeholders for non-text content.
+    
+    Args:
+        messages: List of Message objects
+        
+    Returns:
+        List of dictionaries containing role and processed content
+    """
+    processed_messages = []
+    
+    for message in messages:
+        content_parts = []
+        
+        if message.content:
+            for content_item in message.content:
+                if isinstance(content_item, TextContent):
+                    content_parts.append(content_item.text)
+                elif isinstance(content_item, ImageContent):
+                    content_parts.append(f"[IMAGE:{content_item.image_id}]")
+                elif isinstance(content_item, FileContent):
+                    content_parts.append(f"[FILE:{content_item.file_id}]")
+                elif isinstance(content_item, CloudFileContent):
+                    content_parts.append(f"[CLOUD_FILE:{content_item.cloud_file_uri}]")
+        
+        # Combine all content parts into a single string
+        combined_content = " ".join(content_parts) if content_parts else ""
+        
+        processed_messages.append({
+            "role": message.role,
+            "content": combined_content,
+        })
+    
+    return processed_messages
+
+
+def extract_response_text(response: "ChatCompletionResponse") -> str:
+    """
+    Extract text content from LLM response, handling multiple choices.
+    
+    Args:
+        response: ChatCompletionResponse object
+        
+    Returns:
+        String with all choices joined by "\n\n"
+    """
+    choice_texts = []
+    
+    for choice in response.choices:
+        parts = []
+        
+        # Add regular content
+        if choice.message.content:
+            parts.append(choice.message.content)
+        
+        # Add reasoning content if present
+        if choice.message.reasoning_content:
+            parts.append(f"[REASONING: {choice.message.reasoning_content}]")
+        
+        # Add tool calls if present
+        if choice.message.tool_calls:
+            tool_call_strs = []
+            for tool_call in choice.message.tool_calls:
+                tool_call_strs.append(
+                    f"[TOOL_CALL: {tool_call.function.name}({tool_call.function.arguments})]"
+                )
+            parts.append(" ".join(tool_call_strs))
+        
+        # Combine parts for this choice
+        if parts:
+            choice_texts.append(" ".join(parts))
+    
+    # Join all choices with double newline
+    return "\n\n".join(choice_texts)
+
+
 class BaseAgent(ABC):
     """
     Abstract class for all agents.
@@ -572,11 +649,40 @@ class Agent(BaseAgent):
         elif step_count is not None and step_count > 0 and len(allowed_tool_names) == 1:
             force_tool_call = allowed_tool_names[0]
 
+        from mirix.services.queue_trace_context import get_agent_trace_id
+        from mirix.services.memory_agent_tool_call_trace_manager import (
+            MemoryAgentToolCallTraceManager,
+        )
+
+        agent_trace_id = get_agent_trace_id()
+        llm_trace_manager = (
+            MemoryAgentToolCallTraceManager() if agent_trace_id else None
+        )
+
         active_llm_client = llm_client or LLMClient.create(
             llm_config=self.agent_state.llm_config,
         )
 
         for attempt in range(1, empty_response_retry_limit + 1):
+            response = None
+            llm_trace_id = None
+            if llm_trace_manager:
+                # Extract text from messages and use placeholders for images/files
+                processed_messages = extract_text_from_messages(message_sequence)
+                
+                trace = llm_trace_manager.start_tool_call(
+                    agent_trace_id,
+                    function_name="llm_request",
+                    function_args={
+                        "step_count": step_count,
+                        "attempt": attempt,
+                        "force_tool_call": force_tool_call,
+                        "messages": processed_messages,
+                        "llm_config": self.agent_state.llm_config.model_dump() if self.agent_state.llm_config else None,
+                    },
+                    actor=self.actor,
+                )
+                llm_trace_id = trace.id
             try:
                 log_telemetry(self.logger, "_get_ai_reply create start")
 
@@ -634,9 +740,59 @@ class Agent(BaseAgent):
                         raise ValueError(
                             f"Bad finish reason from API: {response.choices[0].finish_reason}"
                         )
+                if llm_trace_manager and llm_trace_id:
+                    cached_tokens = response.usage.cached_tokens if response.usage else 0
+                    prompt_tokens = (
+                        max(response.usage.prompt_tokens - cached_tokens, 0)
+                        if response.usage
+                        else None
+                    )
+                    completion_tokens = (
+                        response.usage.completion_tokens if response.usage else None
+                    )
+                    total_tokens = response.usage.total_tokens if response.usage else None
+                    credit_cost = None
+                    if response.usage:
+                        try:
+                            from mirix.pricing import calculate_cost
+
+                            credit_cost = calculate_cost(
+                                model=self.model,
+                                prompt_tokens=prompt_tokens or 0,
+                                completion_tokens=completion_tokens or 0,
+                                cached_tokens=cached_tokens,
+                            )
+                        except Exception as e:
+                            printv(
+                                f"[Mirix.Agent.{self.agent_state.name}] WARNING: Failed to calculate LLM request credits: {e}"
+                            )
+                    # Extract response text from all choices
+                    response_text = extract_response_text(response)
+                    
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=True,
+                        llm_call_id=response.id,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        cached_tokens=cached_tokens if response.usage else None,
+                        total_tokens=total_tokens,
+                        credit_cost=credit_cost,
+                        response_text=response_text,
+                        actor=self.actor,
+                    )
+
                 log_telemetry(self.logger, "_handle_ai_response finish")
 
             except ValueError as ve:
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(ve),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 if attempt >= empty_response_retry_limit:
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ve}"
@@ -656,6 +812,14 @@ class Agent(BaseAgent):
             except KeyError as ke:
                 # Gemini api sometimes can yield empty response
                 # This is a retryable error
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(ke),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 if attempt >= empty_response_retry_limit:
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ke}"
@@ -673,6 +837,14 @@ class Agent(BaseAgent):
                     continue
 
             except LLMError as llm_error:
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(llm_error),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 if attempt >= empty_response_retry_limit:
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {llm_error}"
@@ -709,6 +881,14 @@ class Agent(BaseAgent):
                     continue
 
             except AssertionError as ae:
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(ae),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 if attempt >= empty_response_retry_limit:
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {ae}"
@@ -725,6 +905,14 @@ class Agent(BaseAgent):
                     continue
 
             except requests.exceptions.HTTPError as he:
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(he),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 if attempt >= empty_response_retry_limit:
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] ERROR: Retry limit reached. Final error: {he}"
@@ -740,6 +928,14 @@ class Agent(BaseAgent):
                     time.sleep(delay)
 
             except Exception as e:
+                if llm_trace_manager and llm_trace_id:
+                    llm_trace_manager.finish_tool_call(
+                        llm_trace_id,
+                        success=False,
+                        error_message=str(e),
+                        llm_call_id=response.id if response else None,
+                        actor=self.actor,
+                    )
                 log_telemetry(
                     self.logger, "_handle_ai_response finish generic Exception"
                 )
@@ -778,6 +974,7 @@ class Agent(BaseAgent):
         return_memory_types_without_update: bool = False,
         message_queue: Optional[any] = None,
         chaining: bool = True,
+        llm_usage: Optional[dict] = None,
     ) -> Tuple[List[Message], bool, bool]:
         """Handles parsing and function execution"""
 
@@ -1024,12 +1221,14 @@ class Agent(BaseAgent):
                         )
 
                 tool_call_trace_id = None
+                llm_call_id = llm_usage.get("llm_call_id") if llm_usage else None
                 if tool_call_trace_manager:
                     trace = tool_call_trace_manager.start_tool_call(
                         agent_trace_id,
                         function_name=function_name,
                         function_args=function_args_for_trace,
                         tool_call_id=tool_call_id,
+                        llm_call_id=llm_call_id,
                         actor=self.actor,
                     )
                     tool_call_trace_id = trace.id
@@ -1281,11 +1480,11 @@ class Agent(BaseAgent):
 
                     if self.agent_state.name == "episodic_memory_agent":
                         memory_item = self.episodic_memory_manager.get_most_recently_updated_event(
-                            user=self.user,
-                            timezone_str=self.user.timezone,
+                            actor=self.actor,
+                            user_id=self.user_id,
+                            timezone_str=self.user.timezone if self.user else None,
                         )
                         if memory_item:
-                            memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
                                 "[Episodic Event ID]: " + memory_item.id + "\n"
@@ -1314,11 +1513,11 @@ class Agent(BaseAgent):
 
                     elif self.agent_state.name == "procedural_memory_agent":
                         memory_item = self.procedural_memory_manager.get_most_recently_updated_item(
-                            actor=self.user,
-                            timezone_str=self.user.timezone,
+                            actor=self.actor,
+                            user_id=self.user_id,
+                            timezone_str=self.user.timezone if self.user else None,
                         )
                         if memory_item:
-                            memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
                                 "[Procedural Memory ID]: " + memory_item.id + "\n"
@@ -1346,12 +1545,12 @@ class Agent(BaseAgent):
                     elif self.agent_state.name == "resource_memory_agent":
                         memory_item = (
                             self.resource_memory_manager.get_most_recently_updated_item(
-                                actor=self.user,
-                                timezone_str=self.user.timezone,
+                                actor=self.actor,
+                                user_id=self.user_id,
+                                timezone_str=self.user.timezone if self.user else None,
                             )
                         )
                         if memory_item:
-                            memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
                                 "[Resource Memory ID]: " + memory_item.id + "\n"
@@ -1380,8 +1579,9 @@ class Agent(BaseAgent):
                     elif self.agent_state.name == "knowledge_memory_agent":
                         memory_item = (
                             self.knowledge_memory_manager.get_most_recently_updated_item(
-                                actor=self.user,
-                                timezone_str=self.user.timezone,
+                                actor=self.actor,
+                                user_id=self.user_id,
+                                timezone_str=self.user.timezone if self.user else None,
                             )
                         )
 
@@ -1393,7 +1593,6 @@ class Agent(BaseAgent):
                             memory_item_str = "No new knowledge items were added."
 
                         if memory_item:
-                            memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
                                 "[Knowledge ID]: " + memory_item.id + "\n"
@@ -1425,12 +1624,12 @@ class Agent(BaseAgent):
                     elif self.agent_state.name == "semantic_memory_agent":
                         memory_item = (
                             self.semantic_memory_manager.get_most_recently_updated_item(
-                                actor=self.user,
-                                timezone_str=self.user.timezone,
+                                actor=self.actor,
+                                user_id=self.user_id,
+                                timezone_str=self.user.timezone if self.user else None,
                             )
                         )
                         if memory_item:
-                            memory_item = memory_item[0]
                             memory_item_str = ""
                             memory_item_str += (
                                 "[Semantic Memory ID]: " + memory_item.id + "\n"
@@ -1820,6 +2019,7 @@ class Agent(BaseAgent):
                 initial_message_count=initial_message_count,
                 chaining=chaining,
                 llm_client=llm_client,
+                **kwargs
             )
 
             continue_chaining = step_response.continue_chaining
@@ -1922,290 +2122,326 @@ class Agent(BaseAgent):
         Returns:
             Tuple[str, dict]: The complete system prompt and the retrieved memories dict
         """
+        from mirix.services.queue_trace_context import get_agent_trace_id
+        from mirix.services.memory_agent_tool_call_trace_manager import (
+            MemoryAgentToolCallTraceManager,
+        )
         from mirix.schemas.agent import AgentType
+
+        agent_trace_id = get_agent_trace_id()
+        tool_call_trace_manager = (
+            MemoryAgentToolCallTraceManager() if agent_trace_id else None
+        )
+        retrieval_trace_id = None
+        if tool_call_trace_manager:
+            trace = tool_call_trace_manager.start_tool_call(
+                agent_trace_id,
+                function_name="retrieve_memories",
+                function_args={"topics": topics},
+                actor=self.actor,
+            )
+            retrieval_trace_id = trace.id
 
         timezone_str = self.user.timezone
 
         if retrieved_memories is None:
             retrieved_memories = {}
 
-        if "key_words" in retrieved_memories:
-            key_words = retrieved_memories["key_words"]
-        else:
-            key_words = topics if topics is not None else ""
-            retrieved_memories["key_words"] = key_words
+        try:
+            if "key_words" in retrieved_memories:
+                key_words = retrieved_memories["key_words"]
+            else:
+                key_words = topics if topics is not None else ""
+                retrieved_memories["key_words"] = key_words
 
-        search_method = "bm25"
+            search_method = "bm25"
 
-        # Prepare embedding for semantic search
-        if key_words != "" and search_method == "embedding":
-            embedded_text = embedding_model(
-                self.agent_state.embedding_config
-            ).get_text_embedding(key_words)
-            embedded_text = np.array(embedded_text)
-            embedded_text = np.pad(
-                embedded_text,
-                (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
-                mode="constant",
-            ).tolist()
-        else:
-            embedded_text = None
+            # Prepare embedding for semantic search
+            if key_words != "" and search_method == "embedding":
+                embedded_text = embedding_model(
+                    self.agent_state.embedding_config
+                ).get_text_embedding(key_words)
+                embedded_text = np.array(embedded_text)
+                embedded_text = np.pad(
+                    embedded_text,
+                    (0, MAX_EMBEDDING_DIM - embedded_text.shape[0]),
+                    mode="constant",
+                ).tolist()
+            else:
+                embedded_text = None
 
-        # Extract fade_after_days from agent's memory_config
-        fade_after_days = None
-        if self.agent_state.memory_config:
-            decay_config = self.agent_state.memory_config.get("decay", {})
-            if decay_config:
-                fade_after_days = decay_config.get("fade_after_days")
+            # Extract fade_after_days from agent's memory_config
+            fade_after_days = None
+            if self.agent_state.memory_config:
+                decay_config = self.agent_state.memory_config.get("decay", {})
+                if decay_config:
+                    fade_after_days = decay_config.get("fade_after_days")
 
-        # Retrieve core memory
-        if (
-            self.agent_state.agent_type == AgentType.core_memory_agent
-            or "core" not in retrieved_memories
-        ):
-            current_persisted_memory = Memory(
-                blocks=[
-                    b
-                    for block in self.block_manager.get_blocks(
-                        user=self.user,
-                        auto_create_from_default=False  # Don't auto-create here, only in step()
-                    )
-                    if (
-                        b := self.block_manager.get_block_by_id(
-                            block.id, user=self.user
+            # Retrieve core memory
+            if (
+                self.agent_state.agent_type == AgentType.core_memory_agent
+                or "core" not in retrieved_memories
+            ):
+                current_persisted_memory = Memory(
+                    blocks=[
+                        b
+                        for block in self.block_manager.get_blocks(
+                            user=self.user,
+                            auto_create_from_default=False  # Don't auto-create here, only in step()
                         )
-                    )
-                    is not None
-                ]
-            )
-            core_memory = current_persisted_memory.compile()
-            retrieved_memories["core"] = core_memory
+                        if (
+                            b := self.block_manager.get_block_by_id(
+                                block.id, user=self.user
+                            )
+                        )
+                        is not None
+                    ]
+                )
+                core_memory = current_persisted_memory.compile()
+                retrieved_memories["core"] = core_memory
 
-        if (
-            self.agent_state.agent_type == AgentType.knowledge_memory_agent
-            or "knowledge" not in retrieved_memories
-        ):
             if (
                 self.agent_state.agent_type == AgentType.knowledge_memory_agent
-                or self.agent_state.agent_type == AgentType.reflexion_agent
+                or "knowledge" not in retrieved_memories
             ):
-                current_knowledge = self.knowledge_memory_manager.list_knowledge(
+                if (
+                    self.agent_state.agent_type == AgentType.knowledge_memory_agent
+                    or self.agent_state.agent_type == AgentType.reflexion_agent
+                ):
+                    current_knowledge = self.knowledge_memory_manager.list_knowledge(
+                        agent_state=self.agent_state,
+                        user=self.user,
+                        embedded_text=embedded_text,
+                        query=key_words,
+                        search_field="caption",
+                        search_method=search_method,
+                        limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
+                        timezone_str=timezone_str,
+                        fade_after_days=fade_after_days,
+                    )
+                else:
+                    current_knowledge = self.knowledge_memory_manager.list_knowledge(
+                        agent_state=self.agent_state,
+                        user=self.user,
+                        embedded_text=embedded_text,
+                        query=key_words,
+                        search_field="caption",
+                        search_method=search_method,
+                        limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
+                        timezone_str=timezone_str,
+                        sensitivity=["low", "medium"],
+                        fade_after_days=fade_after_days,
+                    )
+
+                knowledge_memory = ""
+                if len(current_knowledge) > 0:
+                    for idx, knowledge_item in enumerate(current_knowledge):
+                        knowledge_memory += f"[{idx}] Knowledge Item ID: {knowledge_item.id}; Caption: {knowledge_item.caption}\n"
+                retrieved_memories["knowledge"] = {
+                    "total_number_of_items": self.knowledge_memory_manager.get_total_number_of_items(
+                        user=self.user
+                    ),
+                    "current_count": len(current_knowledge),
+                    "text": knowledge_memory,
+                }
+
+            # Retrieve episodic memory
+            if (
+                self.agent_state.name == "episodic_memory_agent"
+                or "episodic" not in retrieved_memories
+            ):
+                current_episodic_memory = self.episodic_memory_manager.list_episodic_memory(
                     agent_state=self.agent_state,
                     user=self.user,
-                    embedded_text=embedded_text,
+                    limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
+                    timezone_str=timezone_str,
+                    fade_after_days=fade_after_days,
+                )
+                episodic_memory = ""
+                if len(current_episodic_memory) > 0:
+                    for idx, event in enumerate(current_episodic_memory):
+                        # Use agent_type instead of name to handle both standalone and meta-agent child agents
+                        from mirix.schemas.agent import AgentType
+
+                        if (
+                            self.agent_state.agent_type == AgentType.episodic_memory_agent
+                            or self.agent_state.agent_type == AgentType.reflexion_agent
+                        ):
+                            episodic_memory += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
+                        else:
+                            episodic_memory += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
+
+                recent_episodic_memory = episodic_memory.strip()
+
+                most_relevant_episodic_memory = (
+                    self.episodic_memory_manager.list_episodic_memory(
+                        agent_state=self.agent_state,
+                        user=self.user,
+                        embedded_text=embedded_text,
+                        query=key_words,
+                        search_field="details",
+                        search_method=search_method,
+                        limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
+                        timezone_str=timezone_str,
+                        fade_after_days=fade_after_days,
+                    )
+                )
+                most_relevant_episodic_memory_str = ""
+                if len(most_relevant_episodic_memory) > 0:
+                    for idx, event in enumerate(most_relevant_episodic_memory):
+                        # Use agent_type instead of name to handle both standalone and meta-agent child agents
+                        from mirix.schemas.agent import AgentType
+
+                        if (
+                            self.agent_state.agent_type == AgentType.episodic_memory_agent
+                            or self.agent_state.agent_type == AgentType.reflexion_agent
+                        ):
+                            most_relevant_episodic_memory_str += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
+                        else:
+                            most_relevant_episodic_memory_str += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
+                relevant_episodic_memory = most_relevant_episodic_memory_str.strip()
+                retrieved_memories["episodic"] = {
+                    "total_number_of_items": self.episodic_memory_manager.get_total_number_of_items(
+                        user=self.user
+                    ),
+                    "recent_count": len(current_episodic_memory),
+                    "relevant_count": len(most_relevant_episodic_memory),
+                    "recent_episodic_memory": recent_episodic_memory,
+                    "relevant_episodic_memory": relevant_episodic_memory,
+                }
+
+            # Retrieve resource memory
+            if (
+                self.agent_state.agent_type == AgentType.resource_memory_agent
+                or "resource" not in retrieved_memories
+            ):
+                current_resource_memory = self.resource_memory_manager.list_resources(
+                    agent_state=self.agent_state,
+                    user=self.user,
                     query=key_words,
-                    search_field="caption",
+                    embedded_text=embedded_text,
+                    search_field="summary",
                     search_method=search_method,
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
                     fade_after_days=fade_after_days,
                 )
-            else:
-                current_knowledge = self.knowledge_memory_manager.list_knowledge(
+                resource_memory = ""
+                if len(current_resource_memory) > 0:
+                    for idx, resource in enumerate(current_resource_memory):
+                        if (
+                            self.agent_state.agent_type == AgentType.resource_memory_agent
+                            or self.agent_state.agent_type == AgentType.reflexion_agent
+                        ):
+                            resource_memory += f"[Resource ID: {resource.id}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
+                        else:
+                            resource_memory += f"[{idx}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
+                resource_memory = resource_memory.strip()
+                retrieved_memories["resource"] = {
+                    "total_number_of_items": self.resource_memory_manager.get_total_number_of_items(
+                        user=self.user
+                    ),
+                    "current_count": len(current_resource_memory),
+                    "text": resource_memory,
+                }
+
+            # Retrieve procedural memory
+            if (
+                self.agent_state.agent_type == AgentType.procedural_memory_agent
+                or "procedural" not in retrieved_memories
+            ):
+                current_procedural_memory = self.procedural_memory_manager.list_procedures(
                     agent_state=self.agent_state,
                     user=self.user,
-                    embedded_text=embedded_text,
                     query=key_words,
-                    search_field="caption",
+                    embedded_text=embedded_text,
+                    search_field="summary",
                     search_method=search_method,
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
-                    sensitivity=["low", "medium"],
                     fade_after_days=fade_after_days,
                 )
+                procedural_memory = ""
+                if len(current_procedural_memory) > 0:
+                    for idx, procedure in enumerate(current_procedural_memory):
+                        if (
+                            self.agent_state.agent_type == AgentType.procedural_memory_agent
+                            or self.agent_state.agent_type == AgentType.reflexion_agent
+                        ):
+                            procedural_memory += f"[Procedure ID: {procedure.id}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
+                        else:
+                            procedural_memory += f"[{idx}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
+                procedural_memory = procedural_memory.strip()
+                retrieved_memories["procedural"] = {
+                    "total_number_of_items": self.procedural_memory_manager.get_total_number_of_items(
+                        user=self.user
+                    ),
+                    "current_count": len(current_procedural_memory),
+                    "text": procedural_memory,
+                }
 
-            knowledge_memory = ""
-            if len(current_knowledge) > 0:
-                for idx, knowledge_item in enumerate(current_knowledge):
-                    knowledge_memory += f"[{idx}] Knowledge Item ID: {knowledge_item.id}; Caption: {knowledge_item.caption}\n"
-            retrieved_memories["knowledge"] = {
-                "total_number_of_items": self.knowledge_memory_manager.get_total_number_of_items(
-                    user=self.user
-                ),
-                "current_count": len(current_knowledge),
-                "text": knowledge_memory,
-            }
-
-        # Retrieve episodic memory
-        if (
-            self.agent_state.name == "episodic_memory_agent"
-            or "episodic" not in retrieved_memories
-        ):
-            current_episodic_memory = self.episodic_memory_manager.list_episodic_memory(
-                agent_state=self.agent_state,
-                user=self.user,
-                limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
-                timezone_str=timezone_str,
-                fade_after_days=fade_after_days,
-            )
-            episodic_memory = ""
-            if len(current_episodic_memory) > 0:
-                for idx, event in enumerate(current_episodic_memory):
-                    # Use agent_type instead of name to handle both standalone and meta-agent child agents
-                    from mirix.schemas.agent import AgentType
-
-                    if (
-                        self.agent_state.agent_type == AgentType.episodic_memory_agent
-                        or self.agent_state.agent_type == AgentType.reflexion_agent
-                    ):
-                        episodic_memory += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
-                    else:
-                        episodic_memory += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary} (Details: {len(event.details)} Characters)\n"
-
-            recent_episodic_memory = episodic_memory.strip()
-
-            most_relevant_episodic_memory = (
-                self.episodic_memory_manager.list_episodic_memory(
+            # Retrieve semantic memory
+            if (
+                self.agent_state.agent_type == AgentType.semantic_memory_agent
+                or "semantic" not in retrieved_memories
+            ):
+                current_semantic_memory = self.semantic_memory_manager.list_semantic_items(
                     agent_state=self.agent_state,
                     user=self.user,
-                    embedded_text=embedded_text,
                     query=key_words,
+                    embedded_text=embedded_text,
                     search_field="details",
                     search_method=search_method,
                     limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
                     timezone_str=timezone_str,
                     fade_after_days=fade_after_days,
                 )
-            )
-            most_relevant_episodic_memory_str = ""
-            if len(most_relevant_episodic_memory) > 0:
-                for idx, event in enumerate(most_relevant_episodic_memory):
-                    # Use agent_type instead of name to handle both standalone and meta-agent child agents
-                    from mirix.schemas.agent import AgentType
+                semantic_memory = ""
+                if len(current_semantic_memory) > 0:
+                    for idx, semantic_memory_item in enumerate(current_semantic_memory):
+                        if (
+                            self.agent_state.agent_type == AgentType.semantic_memory_agent
+                            or self.agent_state.agent_type == AgentType.reflexion_agent
+                        ):
+                            semantic_memory += f"[Semantic Memory ID: {semantic_memory_item.id}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
+                        else:
+                            semantic_memory += f"[{idx}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
 
-                    if (
-                        self.agent_state.agent_type == AgentType.episodic_memory_agent
-                        or self.agent_state.agent_type == AgentType.reflexion_agent
-                    ):
-                        most_relevant_episodic_memory_str += f"[Event ID: {event.id}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
-                    else:
-                        most_relevant_episodic_memory_str += f"[{idx}] Timestamp: {event.occurred_at.strftime('%Y-%m-%d %H:%M:%S')} - {event.summary}  (Details: {len(event.details)} Characters)\n"
-            relevant_episodic_memory = most_relevant_episodic_memory_str.strip()
-            retrieved_memories["episodic"] = {
-                "total_number_of_items": self.episodic_memory_manager.get_total_number_of_items(
-                    user=self.user
-                ),
-                "recent_count": len(current_episodic_memory),
-                "relevant_count": len(most_relevant_episodic_memory),
-                "recent_episodic_memory": recent_episodic_memory,
-                "relevant_episodic_memory": relevant_episodic_memory,
-            }
+                semantic_memory = semantic_memory.strip()
+                retrieved_memories["semantic"] = {
+                    "total_number_of_items": self.semantic_memory_manager.get_total_number_of_items(
+                        user=self.user
+                    ),
+                    "current_count": len(current_semantic_memory),
+                    "text": semantic_memory,
+                }
 
-        # Retrieve resource memory
-        if (
-            self.agent_state.agent_type == AgentType.resource_memory_agent
-            or "resource" not in retrieved_memories
-        ):
-            current_resource_memory = self.resource_memory_manager.list_resources(
-                agent_state=self.agent_state,
-                user=self.user,
-                query=key_words,
-                embedded_text=embedded_text,
-                search_field="summary",
-                search_method=search_method,
-                limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
-                timezone_str=timezone_str,
-                fade_after_days=fade_after_days,
-            )
-            resource_memory = ""
-            if len(current_resource_memory) > 0:
-                for idx, resource in enumerate(current_resource_memory):
-                    if (
-                        self.agent_state.agent_type == AgentType.resource_memory_agent
-                        or self.agent_state.agent_type == AgentType.reflexion_agent
-                    ):
-                        resource_memory += f"[Resource ID: {resource.id}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
-                    else:
-                        resource_memory += f"[{idx}] Resource Title: {resource.title}; Resource Summary: {resource.summary} Resource Type: {resource.resource_type}\n"
-            resource_memory = resource_memory.strip()
-            retrieved_memories["resource"] = {
-                "total_number_of_items": self.resource_memory_manager.get_total_number_of_items(
-                    user=self.user
-                ),
-                "current_count": len(current_resource_memory),
-                "text": resource_memory,
-            }
+            # Build the complete system prompt
+            memory_system_prompt = self.build_system_prompt(retrieved_memories)
 
-        # Retrieve procedural memory
-        if (
-            self.agent_state.agent_type == AgentType.procedural_memory_agent
-            or "procedural" not in retrieved_memories
-        ):
-            current_procedural_memory = self.procedural_memory_manager.list_procedures(
-                agent_state=self.agent_state,
-                user=self.user,
-                query=key_words,
-                embedded_text=embedded_text,
-                search_field="summary",
-                search_method=search_method,
-                limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
-                timezone_str=timezone_str,
-                fade_after_days=fade_after_days,
-            )
-            procedural_memory = ""
-            if len(current_procedural_memory) > 0:
-                for idx, procedure in enumerate(current_procedural_memory):
-                    if (
-                        self.agent_state.agent_type == AgentType.procedural_memory_agent
-                        or self.agent_state.agent_type == AgentType.reflexion_agent
-                    ):
-                        procedural_memory += f"[Procedure ID: {procedure.id}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
-                    else:
-                        procedural_memory += f"[{idx}] Entry Type: {procedure.entry_type}; Summary: {procedure.summary}\n"
-            procedural_memory = procedural_memory.strip()
-            retrieved_memories["procedural"] = {
-                "total_number_of_items": self.procedural_memory_manager.get_total_number_of_items(
-                    user=self.user
-                ),
-                "current_count": len(current_procedural_memory),
-                "text": procedural_memory,
-            }
+            complete_system_prompt = raw_system + "\n\n" + memory_system_prompt
 
-        # Retrieve semantic memory
-        if (
-            self.agent_state.agent_type == AgentType.semantic_memory_agent
-            or "semantic" not in retrieved_memories
-        ):
-            current_semantic_memory = self.semantic_memory_manager.list_semantic_items(
-                agent_state=self.agent_state,
-                user=self.user,
-                query=key_words,
-                embedded_text=embedded_text,
-                search_field="details",
-                search_method=search_method,
-                limit=MAX_RETRIEVAL_LIMIT_IN_SYSTEM,
-                timezone_str=timezone_str,
-                fade_after_days=fade_after_days,
-            )
-            semantic_memory = ""
-            if len(current_semantic_memory) > 0:
-                for idx, semantic_memory_item in enumerate(current_semantic_memory):
-                    if (
-                        self.agent_state.agent_type == AgentType.semantic_memory_agent
-                        or self.agent_state.agent_type == AgentType.reflexion_agent
-                    ):
-                        semantic_memory += f"[Semantic Memory ID: {semantic_memory_item.id}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
-                    else:
-                        semantic_memory += f"[{idx}] Name: {semantic_memory_item.name}; Summary: {semantic_memory_item.summary}\n"
+            if key_words:
+                complete_system_prompt += "\n\nThe above memories are retrieved based on the following keywords. If some memories are empty or does not contain the content related to the keywords, it is highly likely that memory does not contain any relevant information."
 
-            semantic_memory = semantic_memory.strip()
-            retrieved_memories["semantic"] = {
-                "total_number_of_items": self.semantic_memory_manager.get_total_number_of_items(
-                    user=self.user
-                ),
-                "current_count": len(current_semantic_memory),
-                "text": semantic_memory,
-            }
+            if tool_call_trace_manager and retrieval_trace_id:
+                tool_call_trace_manager.finish_tool_call(
+                    retrieval_trace_id,
+                    success=True,
+                    response_text=json_dumps(retrieved_memories),
+                    actor=self.actor,
+                )
 
-        # Build the complete system prompt
-        memory_system_prompt = self.build_system_prompt(retrieved_memories)
-
-        complete_system_prompt = raw_system + "\n\n" + memory_system_prompt
-
-        if key_words:
-            complete_system_prompt += "\n\nThe above memories are retrieved based on the following keywords. If some memories are empty or does not contain the content related to the keywords, it is highly likely that memory does not contain any relevant information."
-
-        return complete_system_prompt, retrieved_memories
+            return complete_system_prompt, retrieved_memories
+        except Exception as exc:
+            if tool_call_trace_manager and retrieval_trace_id:
+                tool_call_trace_manager.finish_tool_call(
+                    retrieval_trace_id,
+                    success=False,
+                    error_message=str(exc),
+                    actor=self.actor,
+                )
+            raise
 
     def build_system_prompt(self, retrieved_memories: dict) -> str:
         """Build the system prompt for the LLM API"""
@@ -2373,6 +2609,25 @@ These keywords have been used to retrieve relevant memories from the database.
         Returns:
             Optional[str]: Extracted topics or None if extraction fails
         """
+        from mirix.services.queue_trace_context import get_agent_trace_id
+        from mirix.services.memory_agent_tool_call_trace_manager import (
+            MemoryAgentToolCallTraceManager,
+        )
+
+        agent_trace_id = get_agent_trace_id()
+        tool_call_trace_manager = (
+            MemoryAgentToolCallTraceManager() if agent_trace_id else None
+        )
+        extraction_trace_id = None
+        if tool_call_trace_manager:
+            trace = tool_call_trace_manager.start_tool_call(
+                agent_trace_id,
+                function_name="extract_topics",
+                function_args={},
+                actor=self.actor,
+            )
+            extraction_trace_id = trace.id
+
         try:
             # Add instruction message for topic extraction
             temporary_messages = copy.deepcopy(messages)
@@ -2438,6 +2693,13 @@ These keywords have been used to retrieve relevant memories from the database.
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}"
                     )
+                if tool_call_trace_manager and extraction_trace_id:
+                    tool_call_trace_manager.finish_tool_call(
+                        extraction_trace_id,
+                        success=True,
+                        response_text=topics or "No topics extracted",
+                        actor=self.actor,
+                    )
                 return topics
 
             # Use LLMClient to extract topics
@@ -2456,6 +2718,35 @@ These keywords have been used to retrieve relevant memories from the database.
                 stream=False,
                 force_tool_call="update_topic",
             )
+            usage_payload = None
+            if response.usage:
+                cached_tokens = response.usage.cached_tokens
+                non_cached_prompt_tokens = max(
+                    response.usage.prompt_tokens - cached_tokens, 0
+                )
+                usage_payload = {
+                    "prompt_tokens": non_cached_prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "cached_tokens": cached_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                    "credit_cost": None,
+                }
+                # try:
+                #     from mirix.pricing import calculate_cost
+
+                #     usage_payload["credit_cost"] = calculate_cost(
+                #         model=topic_llm_config.model,
+                #         prompt_tokens=non_cached_prompt_tokens,
+                #         completion_tokens=response.usage.completion_tokens,
+                #         cached_tokens=cached_tokens,
+                #     )
+                # except Exception as e:
+                #     printv(
+                #         f"[Mirix.Agent.{self.agent_state.name}] WARNING: Failed to calculate topic extraction credits: {e}"
+                #     )
+                
+                # TODO: Extract Topics is free for now:
+                usage_payload['credit_costs'] = 0.0
 
             # Extract topics from the response
             for choice in response.choices:
@@ -2472,6 +2763,39 @@ These keywords have been used to retrieve relevant memories from the database.
                         printv(
                             f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}"
                         )
+
+                        if tool_call_trace_manager and extraction_trace_id:
+                            tool_call_trace_manager.finish_tool_call(
+                                extraction_trace_id,
+                                success=True,
+                                response_text=topics or "No topics extracted",
+                                prompt_tokens=(
+                                    usage_payload.get("prompt_tokens")
+                                    if usage_payload
+                                    else None
+                                ),
+                                completion_tokens=(
+                                    usage_payload.get("completion_tokens")
+                                    if usage_payload
+                                    else None
+                                ),
+                                cached_tokens=(
+                                    usage_payload.get("cached_tokens")
+                                    if usage_payload
+                                    else None
+                                ),
+                                total_tokens=(
+                                    usage_payload.get("total_tokens")
+                                    if usage_payload
+                                    else None
+                                ),
+                                credit_cost=(
+                                    usage_payload.get("credit_cost")
+                                    if usage_payload
+                                    else None
+                                ),
+                                actor=self.actor,
+                            )
                         return topics
                     except (json.JSONDecodeError, KeyError) as parse_error:
                         printv(
@@ -2482,6 +2806,37 @@ These keywords have been used to retrieve relevant memories from the database.
         except Exception as e:
             printv(
                 f"[Mirix.Agent.{self.agent_state.name}] INFO: Error in extracting the topic from the messages: {e}"
+            )
+            if tool_call_trace_manager and extraction_trace_id:
+                tool_call_trace_manager.finish_tool_call(
+                    extraction_trace_id,
+                    success=False,
+                    error_message=str(e),
+                    actor=self.actor,
+                )
+            return None
+
+        if tool_call_trace_manager and extraction_trace_id:
+            tool_call_trace_manager.finish_tool_call(
+                extraction_trace_id,
+                success=True,
+                response_text="No topics extracted",
+                prompt_tokens=(
+                    usage_payload.get("prompt_tokens") if usage_payload else None
+                ),
+                completion_tokens=(
+                    usage_payload.get("completion_tokens") if usage_payload else None
+                ),
+                cached_tokens=(
+                    usage_payload.get("cached_tokens") if usage_payload else None
+                ),
+                total_tokens=(
+                    usage_payload.get("total_tokens") if usage_payload else None
+                ),
+                credit_cost=(
+                    usage_payload.get("credit_cost") if usage_payload else None
+                ),
+                actor=self.actor,
             )
 
         return None
@@ -2637,17 +2992,23 @@ These keywords have been used to retrieve relevant memories from the database.
                 f"[Mirix.Agent.{self.agent_state.name}] INFO: AI response received - choices: {len(response.choices)}"
             )
 
-            # Deduct credits based on model-specific token pricing
-            if response.usage and self.client_id:
+            llm_usage_payload = None
+            cost = None
+            if response.usage:
+                cached_tokens = response.usage.cached_tokens
+                non_cached_prompt_tokens = max(
+                    response.usage.prompt_tokens - cached_tokens, 0
+                )
+                llm_usage_payload = {
+                    "llm_call_id": response.id,
+                    "prompt_tokens": non_cached_prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "cached_tokens": cached_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                    "credit_cost": None,
+                }
                 try:
                     from mirix.pricing import calculate_cost
-
-                    client_manager = ClientManager()
-
-                    cached_tokens = response.usage.cached_tokens
-                    non_cached_prompt_tokens = max(
-                        response.usage.prompt_tokens - cached_tokens, 0
-                    )
 
                     cost = calculate_cost(
                         model=self.model,
@@ -2655,13 +3016,23 @@ These keywords have been used to retrieve relevant memories from the database.
                         completion_tokens=response.usage.completion_tokens,
                         cached_tokens=cached_tokens,
                     )
+                    llm_usage_payload["credit_cost"] = cost
+                except Exception as e:
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] WARNING: Failed to calculate credits: {e}"
+                    )
+
+            # Deduct credits based on model-specific token pricing
+            if response.usage and self.client_id and cost is not None:
+                try:
+                    client_manager = ClientManager()
                     client_manager.deduct_credits(self.client_id, cost)
 
                     usage_info = (
-                        f"input: {non_cached_prompt_tokens}, output: {response.usage.completion_tokens}"
+                        f"input: {llm_usage_payload['prompt_tokens']}, output: {llm_usage_payload['completion_tokens']}"
                     )
-                    if cached_tokens > 0:
-                        usage_info += f", cached: {cached_tokens}"
+                    if llm_usage_payload["cached_tokens"] > 0:
+                        usage_info += f", cached: {llm_usage_payload['cached_tokens']}"
                     printv(
                         f"[Mirix.Agent.{self.agent_state.name}] INFO: Deducted ${cost:.6f} from client {self.client_id} "
                         f"(model: {self.model}, {usage_info})"
@@ -2688,8 +3059,9 @@ These keywords have been used to retrieve relevant memories from the database.
             # (if yes) Step 4: call the function
             # (if yes) Step 5: send the info on the function call and function response to LLM
             all_response_messages = []
-            for response_choice in response.choices:
+            for response_idx, response_choice in enumerate(response.choices):
                 response_message = response_choice.message
+                response_usage = llm_usage_payload if response_idx == 0 else None
                 tmp_response_messages, continue_chaining, function_failed = (
                     self._handle_ai_response(
                         first_input_messge,  # give the last message to the function so that other agents can see this message through funciton_calls
@@ -2705,6 +3077,7 @@ These keywords have been used to retrieve relevant memories from the database.
                         return_memory_types_without_update=return_memory_types_without_update,
                         message_queue=message_queue,
                         chaining=chaining,
+                        llm_usage=response_usage,
                     )
                 )
                 all_response_messages.extend(tmp_response_messages)

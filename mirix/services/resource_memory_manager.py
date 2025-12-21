@@ -397,7 +397,10 @@ class ResourceMemoryManager:
     @update_timezone
     @enforce_types
     def get_most_recently_updated_item(
-        self, user: PydanticUser, timezone_str: str = None
+        self,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None
     ) -> Optional[PydanticResourceMemoryItem]:
         """
         Fetch the most recently updated resource memory item based on last_modify timestamp.
@@ -410,7 +413,7 @@ class ResourceMemoryManager:
 
             query = (
                 select(ResourceMemoryItem)
-                .where(ResourceMemoryItem.user_id == user.id)
+                .where(ResourceMemoryItem.user_id == user_id)
                 .order_by(
                     cast(
                         text("resource_memory.last_modify ->> 'timestamp'"), DateTime
@@ -421,7 +424,7 @@ class ResourceMemoryManager:
             result = session.execute(query.limit(1))
             item = result.scalar_one_or_none()
 
-            return [item.to_pydantic()] if item else None
+            return item.to_pydantic() if item else None
 
     @enforce_types
     def create_item(

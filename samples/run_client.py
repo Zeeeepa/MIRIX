@@ -398,10 +398,7 @@ def main():
     
     client = MirixClient(
         api_key=api_key,
-        # client_id="sales-loader-client",
-        # client_scope="Sales",
-        # org_id="demo-org",
-        debug=True,
+        # debug=True,
     )
 
     client.initialize_meta_agent(
