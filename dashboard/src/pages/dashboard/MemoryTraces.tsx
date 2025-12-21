@@ -91,20 +91,28 @@ interface LiveTraceSummary {
   managerRuns: number;
 }
 
+interface LiveTraceStatus {
+  status: string;
+  success?: boolean;
+}
+
+const TIMEOUT_THRESHOLD_MS = 20000;
+
 const formatTimestamp = (value?: string) => {
   if (!value) return 'N/A';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? 'N/A' : date.toLocaleString();
+  const ms = parseTimestampMs(value);
+  if (!ms || Number.isNaN(ms)) return 'N/A';
+  return new Date(ms).toLocaleString();
 };
 
 const formatDuration = (start?: string, end?: string) => {
   if (!start || !end) return 'N/A';
-  const startDate = new Date(start);
-  const endDate = new Date(end);
-  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+  const startMs = parseTimestampMs(start);
+  const endMs = parseTimestampMs(end);
+  if (!startMs || !endMs || Number.isNaN(startMs) || Number.isNaN(endMs)) {
     return 'N/A';
   }
-  const ms = endDate.getTime() - startDate.getTime();
+  const ms = endMs - startMs;
   if (ms < 0) return 'N/A';
   if (ms < 1000) return `${ms}ms`;
   const seconds = Math.round(ms / 100) / 10;
@@ -259,8 +267,90 @@ const isTriggerToolCall = (toolCall: MemoryAgentToolCall) =>
 
 const parseTimestampMs = (value?: string) => {
   if (!value) return Number.NaN;
-  const ms = new Date(value).getTime();
-  return Number.isNaN(ms) ? Number.NaN : ms;
+  const trimmed = value.trim();
+  const microsecondsNormalized = trimmed.replace(/\.(\d{3})\d+/, '.$1');
+  const normalized = microsecondsNormalized.includes('T')
+    ? microsecondsNormalized
+    : microsecondsNormalized.replace(' ', 'T');
+  const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
+  if (hasTimezone) {
+    const tzMs = Date.parse(normalized);
+    if (!Number.isNaN(tzMs)) return tzMs;
+  }
+  const utcMs = Date.parse(`${normalized}Z`);
+  if (!Number.isNaN(utcMs)) return utcMs;
+  const localMs = Date.parse(normalized);
+  if (!Number.isNaN(localMs)) return localMs;
+  const rawMs = Date.parse(microsecondsNormalized);
+  return Number.isNaN(rawMs) ? Number.NaN : rawMs;
+};
+
+const extractLatestActivityMs = (detail: MemoryQueueTraceDetailResponse) => {
+  const timestamps: number[] = [];
+  const pushTime = (value?: string) => {
+    const ms = parseTimestampMs(value);
+    if (!Number.isNaN(ms)) {
+      timestamps.push(ms);
+    }
+  };
+
+  pushTime(detail.trace.queued_at);
+  pushTime(detail.trace.started_at);
+  pushTime(detail.trace.completed_at);
+
+  detail.agent_traces.forEach((trace) => {
+    pushTime(trace.agent_trace.started_at);
+    pushTime(trace.agent_trace.completed_at);
+    trace.tool_calls.forEach((call) => {
+      pushTime(call.started_at);
+      pushTime(call.completed_at);
+    });
+  });
+
+  return timestamps.length > 0 ? Math.max(...timestamps) : Number.NaN;
+};
+
+const buildTraceSignature = (detail: MemoryQueueTraceDetailResponse) => {
+  const toolCallSignature = detail.agent_traces
+    .flatMap((trace) =>
+      trace.tool_calls.map(
+        (call) => `${call.id}:${call.status}:${call.success ?? 'unknown'}`
+      )
+    )
+    .join('|');
+  const agentSignature = detail.agent_traces
+    .map(
+      (trace) =>
+        `${trace.agent_trace.id}:${trace.agent_trace.status}:${trace.agent_trace.success ?? 'unknown'}`
+    )
+    .join('|');
+  const updateSignature = detail.agent_traces
+    .map((trace) => JSON.stringify(trace.agent_trace.memory_update_counts ?? {}))
+    .join('|');
+  return [
+    detail.trace.status,
+    detail.trace.success ?? 'unknown',
+    detail.trace.error_message ?? '',
+    detail.agent_traces.length,
+    toolCallSignature,
+    agentSignature,
+    updateSignature,
+  ].join('::');
+};
+
+const resolveActivityMs = (primary?: number, fallback?: number) => {
+  if (!primary || Number.isNaN(primary)) return fallback;
+  if (!fallback || Number.isNaN(fallback)) return primary;
+  const now = Date.now();
+  const primaryDelta = Math.abs(now - primary);
+  const fallbackDelta = Math.abs(now - fallback);
+  return primaryDelta <= fallbackDelta ? primary : fallback;
+};
+
+const isTraceTimedOut = (status: string, lastActivityMs?: number) => {
+  if (!['queued', 'processing'].includes(status)) return false;
+  if (!lastActivityMs || Number.isNaN(lastActivityMs)) return false;
+  return Date.now() - lastActivityMs > TIMEOUT_THRESHOLD_MS;
 };
 
 const aggregateUpdateCounts = (traces: MemoryAgentTraceWithTools[]) => {
@@ -301,9 +391,14 @@ export const MemoryTraces: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedToolCalls, setExpandedToolCalls] = useState<Record<string, boolean>>({});
+  const [expandedToolCallErrors, setExpandedToolCallErrors] = useState<Record<string, boolean>>({});
   const [expandedMemoryUpdates, setExpandedMemoryUpdates] = useState<Record<string, boolean>>({});
   const [expandedTraceErrors, setExpandedTraceErrors] = useState<Record<string, boolean>>({});
   const [liveTraceSummaries, setLiveTraceSummaries] = useState<Record<string, LiveTraceSummary>>({});
+  const [liveTraceActivity, setLiveTraceActivity] = useState<Record<string, number>>({});
+  const [liveTraceStatus, setLiveTraceStatus] = useState<Record<string, LiveTraceStatus>>({});
+  const [liveTraceSignatures, setLiveTraceSignatures] = useState<Record<string, string>>({});
+  const [liveTraceChangeMs, setLiveTraceChangeMs] = useState<Record<string, number>>({});
   const userParamAppliedRef = React.useRef(false);
   const lastUserParamRef = React.useRef<string | null>(null);
   const userIdParam = searchParams.get('user_id');
@@ -373,9 +468,11 @@ export const MemoryTraces: React.FC = () => {
     }
   }, [selectedUser]); // Removed selectedTraceId from dependencies
 
-  const fetchTraceDetail = useCallback(async (traceId: string) => {
-    setDetailLoading(true);
-    setDetail(null);
+  const fetchTraceDetail = useCallback(async (traceId: string, options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setDetailLoading(true);
+    }
     try {
       const response = await apiClient.get(`/memory/queue-traces/${traceId}`);
       setDetail(response.data);
@@ -383,12 +480,15 @@ export const MemoryTraces: React.FC = () => {
       console.error('Failed to load trace detail', err);
       setError('Failed to load trace detail. Please try again.');
     } finally {
-      setDetailLoading(false);
+      if (!silent) {
+        setDetailLoading(false);
+      }
     }
   }, []);
 
   const fetchLiveSummaries = useCallback(async (traceIds: string[]) => {
     if (traceIds.length === 0) return;
+    const responseTimestamp = Date.now();
     const responses = await Promise.all(
       traceIds.map(async (traceId) => {
         try {
@@ -408,6 +508,50 @@ export const MemoryTraces: React.FC = () => {
       });
       return next;
     });
+    setLiveTraceSignatures((prev) => {
+      const next = { ...prev };
+      const changed: string[] = [];
+      responses.forEach((result) => {
+        if (!result) return;
+        const signature = buildTraceSignature(result.detail);
+        if (prev[result.traceId] !== signature) {
+          changed.push(result.traceId);
+        }
+        next[result.traceId] = signature;
+      });
+      if (changed.length > 0) {
+        setLiveTraceChangeMs((prevChanges) => {
+          const nextChanges = { ...prevChanges };
+          changed.forEach((traceId) => {
+            nextChanges[traceId] = responseTimestamp;
+          });
+          return nextChanges;
+        });
+      }
+      return next;
+    });
+    setLiveTraceActivity((prev) => {
+      const next = { ...prev };
+      responses.forEach((result) => {
+        if (!result) return;
+        const latestActivityMs = extractLatestActivityMs(result.detail);
+        if (!Number.isNaN(latestActivityMs)) {
+          next[result.traceId] = latestActivityMs;
+        }
+      });
+      return next;
+    });
+    setLiveTraceStatus((prev) => {
+      const next = { ...prev };
+      responses.forEach((result) => {
+        if (!result) return;
+        next[result.traceId] = {
+          status: result.detail.trace.status,
+          success: result.detail.trace.success,
+        };
+      });
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -424,45 +568,82 @@ export const MemoryTraces: React.FC = () => {
 
   useEffect(() => {
     if (!detail) return;
+    const detailSignature = buildTraceSignature(detail);
+    setLiveTraceSignatures((prev) => {
+      if (prev[detail.trace.id] === detailSignature) {
+        return prev;
+      }
+      return { ...prev, [detail.trace.id]: detailSignature };
+    });
+    setLiveTraceChangeMs((prev) => {
+      if (prev[detail.trace.id] === detailSignature) {
+        return prev;
+      }
+      return { ...prev, [detail.trace.id]: Date.now() };
+    });
+    const latestActivityMs = extractLatestActivityMs(detail);
+    if (!Number.isNaN(latestActivityMs)) {
+      setLiveTraceSummaries((prev) => ({
+        ...prev,
+        [detail.trace.id]: buildLiveSummary(detail),
+      }));
+      setLiveTraceActivity((prev) => ({
+        ...prev,
+        [detail.trace.id]: latestActivityMs,
+      }));
+    }
     setLiveTraceSummaries((prev) => ({
       ...prev,
       [detail.trace.id]: buildLiveSummary(detail),
     }));
+    setLiveTraceStatus((prev) => ({
+      ...prev,
+      [detail.trace.id]: {
+        status: detail.trace.status,
+        success: detail.trace.success,
+      },
+    }));
   }, [detail]);
 
   useEffect(() => {
-    const hasProcessingTrace = traces.some((trace) =>
-      ['queued', 'processing'].includes(trace.status)
-    );
-    const detailProcessing =
-      detail?.trace?.status && ['queued', 'processing'].includes(detail.trace.status);
-    if (!hasProcessingTrace && !detailProcessing) return;
+    const processingTraceIds = traces
+      .filter((trace) => {
+        const liveStatus = liveTraceStatus[trace.id]?.status ?? trace.status;
+        return ['queued', 'processing'].includes(liveStatus);
+      })
+      .map((trace) => trace.id);
+    const detailStatus = detail?.trace?.status;
+    const detailProcessing = detailStatus && ['queued', 'processing'].includes(detailStatus);
+    if (processingTraceIds.length === 0 && !detailProcessing) return;
 
     const intervalId = window.setInterval(() => {
       if (document.hidden) return;
-      fetchTraces();
       if (selectedTraceId) {
-        fetchTraceDetail(selectedTraceId);
+        fetchTraceDetail(selectedTraceId, { silent: true });
       }
-      const processingTraceIds = traces
-        .filter((trace) => ['queued', 'processing'].includes(trace.status))
-        .map((trace) => trace.id)
-        .filter((traceId) => traceId !== selectedTraceId);
-      fetchLiveSummaries(processingTraceIds);
+      const idsToPoll = processingTraceIds.filter((traceId) => traceId !== selectedTraceId);
+      fetchLiveSummaries(idsToPoll);
     }, 3000);
 
     return () => window.clearInterval(intervalId);
   }, [
     traces,
     detail?.trace?.status,
-    fetchTraces,
     fetchTraceDetail,
     fetchLiveSummaries,
     selectedTraceId,
+    liveTraceStatus,
   ]);
 
   const toggleToolCall = (toolCallId: string) => {
     setExpandedToolCalls((prev) => ({
+      ...prev,
+      [toolCallId]: !prev[toolCallId],
+    }));
+  };
+
+  const toggleToolCallError = (toolCallId: string) => {
+    setExpandedToolCallErrors((prev) => ({
       ...prev,
       [toolCallId]: !prev[toolCallId],
     }));
@@ -484,6 +665,14 @@ export const MemoryTraces: React.FC = () => {
 
   const renderToolCall = (toolCall: MemoryAgentToolCall) => {
     const expanded = expandedToolCalls[toolCall.id] ?? false;
+    const errorMessage = toolCall.error_message;
+    const hasError = !!errorMessage;
+    const previewExpanded = expandedToolCallErrors[toolCall.id] ?? false;
+    const previewText =
+      toolCall.status === 'failed' && errorMessage
+        ? errorMessage
+        : toolCall.response_text || errorMessage;
+    const responseLabel = hasError && !toolCall.response_text ? 'Error' : 'Response';
     return (
       <div key={toolCall.id} className="rounded-lg border bg-card/50 overflow-hidden shadow-sm">
         <div 
@@ -517,7 +706,7 @@ export const MemoryTraces: React.FC = () => {
             <div>
               <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5">
                 <div className="w-1 h-3 bg-primary/40 rounded-full" />
-                Response
+                {responseLabel}
               </div>
               <pre className="text-[11px] font-mono bg-black/20 p-3 rounded-md overflow-x-auto border border-white/5 whitespace-pre-wrap">
                 {toolCall.response_text ? toolCall.response_text : toolCall.error_message || 'N/A'}
@@ -525,11 +714,28 @@ export const MemoryTraces: React.FC = () => {
             </div>
           </div>
         )}
-        {!expanded && (toolCall.response_text || toolCall.error_message) && (
-          <div className="px-3 pb-3">
-            <div className="text-[11px] text-muted-foreground line-clamp-1 bg-black/10 px-2 py-1 rounded border border-white/5 italic">
-              {compactText(toolCall.response_text || toolCall.error_message, 100)}
+        {!expanded && previewText && (
+          <div className="px-3 pb-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] text-muted-foreground line-clamp-1 bg-black/10 px-2 py-1 rounded border border-white/5 italic">
+                {compactText(previewText, 100)}
+              </div>
+              {hasError && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px] text-red-400 hover:text-red-300"
+                  onClick={() => toggleToolCallError(toolCall.id)}
+                >
+                  {previewExpanded ? 'Hide Error' : 'Show Error'}
+                </Button>
+              )}
             </div>
+            {hasError && previewExpanded && (
+              <pre className="text-[11px] font-mono bg-red-500/5 p-3 rounded-md overflow-x-auto border border-red-500/10 whitespace-pre-wrap text-red-200/90">
+                {errorMessage}
+              </pre>
+            )}
           </div>
         )}
       </div>
@@ -844,6 +1050,16 @@ export const MemoryTraces: React.FC = () => {
     );
   }
 
+  const detailLastActivityMs = detail
+    ? (liveTraceChangeMs[detail.trace.id] ??
+        resolveActivityMs(liveTraceActivity[detail.trace.id], extractLatestActivityMs(detail)))
+    : Number.NaN;
+  const detailTimedOut = detail
+    ? isTraceTimedOut(detail.trace.status, detailLastActivityMs)
+    : false;
+  const detailErrorMessage =
+    detail?.trace?.error_message ?? (detailTimedOut ? 'Time Out' : null);
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -886,10 +1102,24 @@ export const MemoryTraces: React.FC = () => {
         ) : (
           traces.map((trace) => {
             const isSelected = trace.id === selectedTraceId;
-            const canExpand = trace.status === 'completed' || trace.status === 'failed';
+            const liveStatus = liveTraceStatus[trace.id];
+            const effectiveStatus = liveStatus?.status ?? trace.status;
+            const effectiveSuccess = liveStatus?.success ?? trace.success;
+            const fallbackActivityMs = parseTimestampMs(trace.started_at ?? trace.queued_at);
+            const liveChangeMs = liveTraceChangeMs[trace.id];
+            const lastActivityMs =
+              liveChangeMs ?? resolveActivityMs(liveTraceActivity[trace.id], fallbackActivityMs);
+            const timedOut = isTraceTimedOut(effectiveStatus, lastActivityMs);
+            const displayStatus = timedOut ? 'failed' : effectiveStatus;
+            const displaySuccess = timedOut ? false : effectiveSuccess;
             const liveSummary = liveTraceSummaries[trace.id];
+            const canExpand =
+              effectiveStatus === 'completed' ||
+              effectiveStatus === 'failed' ||
+              timedOut ||
+              (!!liveSummary && (liveSummary.toolCalls > 0 || liveSummary.managerRuns > 0));
             const showLiveSummary =
-              ['queued', 'processing'].includes(trace.status) && liveSummary;
+              !timedOut && ['queued', 'processing'].includes(effectiveStatus) && liveSummary;
             
             return (
               <Card 
@@ -918,18 +1148,18 @@ export const MemoryTraces: React.FC = () => {
                     <div className="flex items-center gap-4 shrink-0">
                       <div className={cn(
                         "p-3 rounded-xl shrink-0",
-                        trace.status === 'completed' ? "bg-emerald-500/10 text-emerald-500" : 
-                        trace.status === 'failed' ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
+                        displayStatus === 'completed' ? "bg-emerald-500/10 text-emerald-500" : 
+                        displayStatus === 'failed' ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
                       )}>
-                        {trace.status === 'completed' ? <CheckCircle2 className="w-6 h-6" /> : 
-                         trace.status === 'failed' ? <XCircle className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
+                        {displayStatus === 'completed' ? <CheckCircle2 className="w-6 h-6" /> : 
+                         displayStatus === 'failed' ? <XCircle className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
                       </div>
                       <div className="space-y-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-lg tracking-tight whitespace-nowrap">
                             {formatTimestamp(trace.queued_at)}
                           </span>
-                          <StatusBadge status={trace.status} success={trace.success} />
+                          <StatusBadge status={displayStatus} success={displaySuccess} />
                         </div>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground font-medium overflow-hidden">
                           <span className="flex items-center gap-1.5 shrink-0">
@@ -1007,7 +1237,7 @@ export const MemoryTraces: React.FC = () => {
                         </div>
                       ) : (
                         <div className="space-y-6">
-                          {detail.trace.error_message && (
+                          {detailErrorMessage && (
                             <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-2 text-sm font-semibold text-red-500">
@@ -1025,11 +1255,11 @@ export const MemoryTraces: React.FC = () => {
                               </div>
                               {expandedTraceErrors[detail.trace.id] ? (
                                 <pre className="text-xs text-red-200/90 whitespace-pre-wrap bg-black/20 rounded-md p-3 border border-red-500/10">
-                                  {detail.trace.error_message}
+                                  {detailErrorMessage}
                                 </pre>
                               ) : (
                                 <div className="text-xs text-red-200/80 italic">
-                                  {compactText(detail.trace.error_message, 160)}
+                                  {compactText(detailErrorMessage, 160)}
                                 </div>
                               )}
                             </div>

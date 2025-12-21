@@ -82,6 +82,7 @@ from mirix.services.semantic_memory_manager import SemanticMemoryManager
 from mirix.services.step_manager import StepManager
 from mirix.services.tool_execution_sandbox import ToolExecutionSandbox
 from mirix.settings import summarizer_settings
+from mirix.topic_extraction import extract_topics_with_ollama
 from mirix.system import (
     get_contine_chaining,
     get_token_limit_warning,
@@ -2417,14 +2418,36 @@ These keywords have been used to retrieve relevant memories from the database.
                 }
             ]
 
+            topic_llm_config = (
+                self.agent_state.topic_extraction_llm_config
+                if getattr(self.agent_state, "topic_extraction_llm_config", None)
+                else self.agent_state.llm_config
+            )
+
+            if topic_llm_config.model_endpoint_type == "ollama":
+                message_dicts = [
+                    m.to_openai_dict() if hasattr(m, "to_openai_dict") else m
+                    for m in temporary_messages
+                ]
+                topics = extract_topics_with_ollama(
+                    messages=message_dicts,
+                    model_name=topic_llm_config.model,
+                    base_url=topic_llm_config.model_endpoint,
+                )
+                if topics:
+                    printv(
+                        f"[Mirix.Agent.{self.agent_state.name}] INFO: Extracted topics: {topics}"
+                    )
+                return topics
+
             # Use LLMClient to extract topics
             llm_client = LLMClient.create(
-                llm_config=self.agent_state.llm_config,
+                llm_config=topic_llm_config,
             )
 
             if not llm_client:
                 raise ValueError(
-                    f"No LLM client available for model endpoint type: {self.agent_state.llm_config.model_endpoint_type}"
+                    f"No LLM client available for model endpoint type: {topic_llm_config.model_endpoint_type}"
                 )
 
             response = llm_client.send_llm_request(

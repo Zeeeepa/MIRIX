@@ -916,6 +916,10 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
                         data['message_ids'] = json.dumps(data['message_ids'])
                     if 'llm_config' in data and data['llm_config']:
                         data['llm_config'] = json.dumps(data['llm_config'])
+                    if 'topic_extraction_llm_config' in data and data['topic_extraction_llm_config']:
+                        data['topic_extraction_llm_config'] = json.dumps(
+                            data['topic_extraction_llm_config']
+                        )
                     if 'embedding_config' in data and data['embedding_config']:
                         data['embedding_config'] = json.dumps(data['embedding_config'])
                     if 'tool_rules' in data and data['tool_rules']:

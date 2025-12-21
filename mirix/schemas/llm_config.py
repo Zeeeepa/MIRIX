@@ -23,6 +23,7 @@ class LLMConfig(BaseModel):
         api_version (str, optional): The API version for Azure OpenAI (e.g., '2024-10-01-preview').
         azure_endpoint (str, optional): The Azure endpoint for the model (e.g., 'https://your-resource.openai.azure.com/').
         azure_deployment (str, optional): The Azure deployment name for the model.
+        is_local_model (bool, optional): Whether the model is locally hosted (e.g., LM Studio, vLLM).
     """
 
     # TODO: 🤮 don't default to a vendor! bug city!
@@ -93,6 +94,10 @@ class LLMConfig(BaseModel):
     auth_provider: Optional[str] = Field(
         None,
         description="Name of registered auth provider for dynamic header injection (e.g., for claims-based tickets)",
+    )
+    is_local_model: Optional[bool] = Field(
+        False,
+        description="Whether the model is locally hosted (e.g., LM Studio, vLLM).",
     )
 
     # Azure-specific fields (Azure OpenAI only)

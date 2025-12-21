@@ -184,6 +184,7 @@ class AgentManager:
             system=system,
             agent_type=agent_create.agent_type,
             llm_config=agent_create.llm_config,
+            topic_extraction_llm_config=agent_create.topic_extraction_llm_config,
             embedding_config=agent_create.embedding_config,
             memory_config=agent_create.memory_config,
             tool_ids=tool_ids,
@@ -334,6 +335,7 @@ class AgentManager:
             agent_type=AgentType.meta_memory_agent,
             system=meta_system_prompt,
             llm_config=meta_agent_create.llm_config,
+            topic_extraction_llm_config=meta_agent_create.topic_extraction_llm_config,
             embedding_config=meta_agent_create.embedding_config,
             include_base_tools=True,
         )
@@ -380,10 +382,11 @@ class AgentManager:
 
             # Create the agent using CreateAgent schema with parent_id
             agent_create = CreateAgent(
-                name=f"{meta_agent_name}_{agent_name}",
+                name=agent_name,
                 agent_type=agent_type,
                 system=custom_system,  # Uses custom prompt or default from base folder
                 llm_config=meta_agent_create.llm_config,
+                topic_extraction_llm_config=meta_agent_create.topic_extraction_llm_config,
                 embedding_config=meta_agent_create.embedding_config,
                 include_base_tools=True,
                 parent_id=meta_agent_state.id,  # Set the parent_id
@@ -551,6 +554,10 @@ class AgentManager:
             meta_agent_update_fields["name"] = meta_agent_update.name
         if meta_agent_update.llm_config is not None:
             meta_agent_update_fields["llm_config"] = meta_agent_update.llm_config
+        if meta_agent_update.topic_extraction_llm_config is not None:
+            meta_agent_update_fields["topic_extraction_llm_config"] = (
+                meta_agent_update.topic_extraction_llm_config
+            )
         if meta_agent_update.embedding_config is not None:
             meta_agent_update_fields["embedding_config"] = (
                 meta_agent_update.embedding_config
@@ -642,6 +649,10 @@ class AgentManager:
 
                 # Use the updated configs or fall back to meta agent's configs
                 llm_config = meta_agent_update.llm_config or meta_agent_state.llm_config
+                topic_extraction_llm_config = (
+                    meta_agent_update.topic_extraction_llm_config
+                    or meta_agent_state.topic_extraction_llm_config
+                )
                 if meta_agent_update.clear_embedding_config:
                     embedding_config = None
                 else:
@@ -652,10 +663,11 @@ class AgentManager:
 
                 # Create the agent using CreateAgent schema with parent_id
                 agent_create = CreateAgent(
-                    name=f"{meta_agent_state.name}_{agent_name}",
+                    name=agent_name,
                     agent_type=agent_type,
                     system=custom_system,
                     llm_config=llm_config,
+                    topic_extraction_llm_config=topic_extraction_llm_config,
                     embedding_config=embedding_config,
                     include_base_tools=True,
                     parent_id=meta_agent_id,
@@ -670,6 +682,18 @@ class AgentManager:
                 logger.debug(
                     f"Created sub-agent: {agent_name} with id: {new_agent_state.id}, parent_id: {meta_agent_id}"
                 )
+        else:
+            # If agents is None, delete all existing sub-agents
+            logger.debug(
+                "agents field is None - deleting all sub-agents for meta agent %s",
+                meta_agent_id,
+            )
+            for agent_name, child_agent in existing_agents_by_name.items():
+                logger.debug(
+                    "Deleting sub-agent: %s with id: %s", agent_name, child_agent.id
+                )
+                self.delete_agent(agent_id=child_agent.id, actor=actor)
+            existing_agents_by_name.clear()
 
         # Update system prompts for existing sub-agents
         if meta_agent_update.system_prompts:
@@ -693,6 +717,7 @@ class AgentManager:
         # Update llm_config and embedding_config for all sub-agents if provided
         if (
             meta_agent_update.llm_config
+            or meta_agent_update.topic_extraction_llm_config
             or meta_agent_update.embedding_config
             or meta_agent_update.clear_embedding_config
         ):
@@ -700,6 +725,10 @@ class AgentManager:
                 update_fields = {}
                 if meta_agent_update.llm_config is not None:
                     update_fields["llm_config"] = meta_agent_update.llm_config
+                if meta_agent_update.topic_extraction_llm_config is not None:
+                    update_fields["topic_extraction_llm_config"] = (
+                        meta_agent_update.topic_extraction_llm_config
+                    )
                 if meta_agent_update.embedding_config is not None:
                     update_fields["embedding_config"] = (
                         meta_agent_update.embedding_config
@@ -714,6 +743,77 @@ class AgentManager:
                         agent_update=UpdateAgent(**update_fields),
                         actor=actor,
                     )
+
+        # Update meta_memory_agent's system prompt and tools based on whether it has children
+        has_children = len(existing_agents_by_name) > 0
+        
+        # Update system prompt if not explicitly provided in the update request
+        if not (
+            meta_agent_update.system_prompts
+            and "meta_memory_agent" in meta_agent_update.system_prompts
+        ):
+            # Determine which prompt to use based on children
+            if has_children:
+                # Has child agents - use standard meta_memory_agent prompt
+                meta_system_prompt = default_system_prompts.get("meta_memory_agent")
+                logger.info(
+                    "Meta agent has children - using meta_memory_agent.txt system prompt"
+                )
+            else:
+                # No child agents - use direct prompt with memory tools
+                meta_system_prompt = default_system_prompts.get(
+                    "meta_memory_agent_direct",
+                    default_system_prompts.get("meta_memory_agent")  # Fallback
+                )
+                logger.info(
+                    "Meta agent has no children - using meta_memory_agent_direct.txt system prompt"
+                )
+            
+            if meta_system_prompt:
+                self.update_system_prompt(
+                    agent_id=meta_agent_id,
+                    system_prompt=meta_system_prompt,
+                    actor=actor,
+                )
+
+        # Update meta_memory_agent's tools based on whether it has children
+        meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
+        
+        # Get the appropriate tool names based on children
+        if has_children:
+            # Has child agents - use trigger_memory_update
+            logger.info(
+                "Configuring meta_memory_agent with trigger_memory_update (has children)"
+            )
+            tool_names_to_use = META_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS
+        else:
+            # No child agents - use direct memory tools
+            logger.info(
+                "Configuring meta_memory_agent with direct memory tools (no children)"
+            )
+            tool_names_to_use = META_MEMORY_TOOLS_DIRECT + UNIVERSAL_MEMORY_TOOLS
+        
+        # Get BASE_TOOLS + the appropriate memory tools
+        from mirix.constants import BASE_TOOLS
+        all_tool_names = BASE_TOOLS + tool_names_to_use
+        
+        # Collect tool IDs for the complete tool set
+        new_tool_ids = []
+        for tool_name in all_tool_names:
+            tool = self.tool_manager.get_tool_by_name(tool_name=tool_name, actor=actor)
+            if tool:
+                new_tool_ids.append(tool.id)
+            else:
+                logger.debug("Tool %s not found", tool_name)
+        
+        # Remove duplicates
+        new_tool_ids = list(set(new_tool_ids))
+        
+        self.update_agent(
+            agent_id=meta_agent_id,
+            agent_update=UpdateAgent(tool_ids=new_tool_ids),
+            actor=actor,
+        )
 
         # Refresh the meta agent state with updated children
         meta_agent_state = self.get_agent_by_id(agent_id=meta_agent_id, actor=actor)
@@ -898,6 +998,7 @@ class AgentManager:
         system: str,
         agent_type: AgentType,
         llm_config: LLMConfig,
+        topic_extraction_llm_config: Optional[LLMConfig],
         embedding_config: Optional[EmbeddingConfig],
         memory_config: Optional[Dict[str, Any]],
         tool_ids: List[str],
@@ -916,6 +1017,7 @@ class AgentManager:
                 "system": system,
                 "agent_type": agent_type,
                 "llm_config": llm_config,
+                "topic_extraction_llm_config": topic_extraction_llm_config,
                 "embedding_config": embedding_config,
                 "memory_config": memory_config,
                 "organization_id": actor.organization_id,
@@ -1065,6 +1167,7 @@ class AgentManager:
                 "name",
                 "system",
                 "llm_config",
+                "topic_extraction_llm_config",
                 "embedding_config",
                 "message_ids",
                 "tool_rules",
@@ -1238,6 +1341,12 @@ class AgentManager:
                         json.loads(child_data["llm_config"])
                         if isinstance(child_data["llm_config"], (str, bytes))
                         else child_data["llm_config"]
+                    )
+                if "topic_extraction_llm_config" in child_data:
+                    child_data["topic_extraction_llm_config"] = (
+                        json.loads(child_data["topic_extraction_llm_config"])
+                        if isinstance(child_data["topic_extraction_llm_config"], (str, bytes))
+                        else child_data["topic_extraction_llm_config"]
                     )
                 if "embedding_config" in child_data:
                     child_data["embedding_config"] = (
@@ -1606,6 +1715,12 @@ class AgentManager:
                             if isinstance(cached_data["llm_config"], str)
                             else cached_data["llm_config"]
                         )
+                    if "topic_extraction_llm_config" in cached_data:
+                        cached_data["topic_extraction_llm_config"] = (
+                            json.loads(cached_data["topic_extraction_llm_config"])
+                            if isinstance(cached_data["topic_extraction_llm_config"], str)
+                            else cached_data["topic_extraction_llm_config"]
+                        )
                     if "embedding_config" in cached_data:
                         cached_data["embedding_config"] = (
                             json.loads(cached_data["embedding_config"])
@@ -1753,6 +1868,10 @@ class AgentManager:
                         data["message_ids"] = json.dumps(data["message_ids"])
                     if "llm_config" in data and data["llm_config"]:
                         data["llm_config"] = json.dumps(data["llm_config"])
+                    if "topic_extraction_llm_config" in data and data["topic_extraction_llm_config"]:
+                        data["topic_extraction_llm_config"] = json.dumps(
+                            data["topic_extraction_llm_config"]
+                        )
                     if "embedding_config" in data and data["embedding_config"]:
                         data["embedding_config"] = json.dumps(data["embedding_config"])
                     if "tool_rules" in data and data["tool_rules"]:

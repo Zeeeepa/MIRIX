@@ -7,6 +7,24 @@ llm_config:
   model_endpoint: "https://generativelanguage.googleapis.com"
   context_window: 1000000
 
+# Optional: separate model for topic extraction
+topic_extraction_llm_config:
+  model: "gemini-2.0-flash"
+  model_endpoint_type: "google_ai"
+  model_endpoint: "https://generativelanguage.googleapis.com"
+  context_window: 1000000
+  # Local OpenAI-compatible (LM Studio / vLLM):
+  # model: "your-local-model"
+  # model_endpoint_type: "openai"
+  # model_endpoint: "http://localhost:1234/v1"
+  # is_local_model: true
+  # context_window: 8192
+  # Ollama (local):
+  # model: "llama3.2"
+  # model_endpoint_type: "ollama"
+  # model_endpoint: "http://localhost:11434"
+  # context_window: 8192
+
 build_embeddings_for_memory: true
 
 embedding_config:

@@ -78,6 +78,10 @@ class AgentState(OrmMetadataBase, validate_assignment=True):
     llm_config: LLMConfig = Field(
         ..., description="The LLM configuration used by the agent."
     )
+    topic_extraction_llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="Optional LLM configuration used for topic extraction.",
+    )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the agent."
     )
@@ -139,6 +143,10 @@ class CreateAgent(BaseModel, validate_assignment=True):  #
     )
     llm_config: Optional[LLMConfig] = Field(
         None, description="The LLM configuration used by the agent."
+    )
+    topic_extraction_llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="Optional LLM configuration used for topic extraction.",
     )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the agent."
@@ -269,6 +277,10 @@ class UpdateAgent(BaseModel):
     llm_config: Optional[LLMConfig] = Field(
         None, description="The LLM configuration used by the agent."
     )
+    topic_extraction_llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="Optional LLM configuration used for topic extraction.",
+    )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None, description="The embedding configuration used by the agent."
     )
@@ -366,6 +378,10 @@ class CreateMetaAgent(BaseModel):
         None,
         description="LLM configuration for memory agents. Required if no default is set.",
     )
+    topic_extraction_llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="Optional LLM configuration used for topic extraction across memory agents.",
+    )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None,
         description="Embedding configuration for memory agents. Required if no default is set.",
@@ -393,6 +409,10 @@ class UpdateMetaAgent(BaseModel):
     llm_config: Optional[LLMConfig] = Field(
         None,
         description="LLM configuration for meta agent and its sub-agents.",
+    )
+    topic_extraction_llm_config: Optional[LLMConfig] = Field(
+        None,
+        description="Optional LLM configuration used for topic extraction across the meta agent.",
     )
     embedding_config: Optional[EmbeddingConfig] = Field(
         None,

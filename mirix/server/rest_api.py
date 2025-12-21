@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -51,6 +50,7 @@ from mirix.schemas.user import User
 from mirix.server.server import SyncServer
 from mirix.server.server import db_context
 from mirix.settings import model_settings, settings
+from mirix.topic_extraction import extract_topics_with_ollama, flatten_messages_to_plain_text
 from mirix.utils import convert_message_to_mirix_message
 from mirix.orm.memory_agent_tool_call import MemoryAgentToolCall
 from mirix.orm.memory_agent_trace import MemoryAgentTrace
@@ -409,29 +409,7 @@ def _flatten_messages_to_plain_text(messages: List[Dict[str, Any]]) -> str:
     """
     Flatten OpenAI-style message payloads into a simple conversation transcript.
     """
-    transcript_parts: List[str] = []
-
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-
-        parts: List[str] = []
-        if isinstance(content, list):
-            for chunk in content:
-                if isinstance(chunk, dict):
-                    text = chunk.get("text")
-                    if text:
-                        parts.append(text.strip())
-                elif isinstance(chunk, str):
-                    parts.append(chunk.strip())
-        elif isinstance(content, str):
-            parts.append(content.strip())
-
-        combined = " ".join(filter(None, parts)).strip()
-        if combined:
-            transcript_parts.append(f"{role.upper()}: {combined}")
-
-    return "\n".join(transcript_parts)
+    return flatten_messages_to_plain_text(messages)
 
 
 def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: str) -> Optional[str]:
@@ -441,74 +419,11 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
     """
 
-    base_url = model_settings.ollama_base_url
-    if not base_url:
-        logger.warning(
-            "local_model_for_retrieval provided (%s) but MIRIX_OLLAMA_BASE_URL is not configured",
-            model_name,
-        )
-        return None
-
-    conversation = _flatten_messages_to_plain_text(messages)
-    if not conversation:
-        logger.debug("No text content found in messages for local topic extraction")
-        return None
-
-    payload = {
-        "model": model_name,
-        "stream": False,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a helpful assistant that extracts the topic from the user's input. "
-                    "Return a concise list of topics separated by ';' and nothing else."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Conversation transcript:\n"
-                    f"{conversation}\n\n"
-                    "Respond ONLY with the topic(s) separated by ';'."
-                ),
-            },
-        ],
-        "options": {
-            "temperature": 0,
-        },
-    }
-
-    try:
-        response = requests.post(
-            f"{base_url.rstrip('/')}/api/chat",
-            json=payload,
-            timeout=30,
-            proxies={"http": None, "https": None},
-        )
-        response.raise_for_status()
-        response_data = response.json()
-    except requests.RequestException as exc:
-        logger.error("Failed to extract topics with local model %s: %s", model_name, exc)
-        return None
-
-    message_payload = response_data.get("message") if isinstance(response_data, dict) else None
-    text_response: Optional[str] = None
-    if isinstance(message_payload, dict):
-        text_response = message_payload.get("content")
-    elif isinstance(response_data, dict):
-        text_response = response_data.get("content")
-
-    if isinstance(text_response, str):
-        topics = text_response.strip()
-        logger.debug("Extracted topics via local model %s: %s", model_name, topics)
-        return topics or None
-
-    logger.warning(
-        "Unexpected response format from Ollama topic extraction: %s",
-        response_data,
+    return extract_topics_with_ollama(
+        messages=messages,
+        model_name=model_name,
+        base_url=model_settings.ollama_base_url,
     )
-    return None
 
 
 # ============================================================================
@@ -1801,6 +1716,9 @@ async def initialize_meta_agent(
         )
 
     llm_config = LLMConfig(**config["llm_config"])
+    topic_extraction_llm_config = None
+    if config.get("topic_extraction_llm_config"):
+        topic_extraction_llm_config = LLMConfig(**config["topic_extraction_llm_config"])
 
     if build_embeddings_for_memory:
         if not config.get("embedding_config"):
@@ -1826,6 +1744,8 @@ async def initialize_meta_agent(
         "llm_config": llm_config,
         "embedding_config": embedding_config,
     }
+    if topic_extraction_llm_config is not None:
+        create_params["topic_extraction_llm_config"] = topic_extraction_llm_config
 
     # Flatten meta_agent_config fields into create_params
     if "meta_agent_config" in config and config["meta_agent_config"]:
@@ -2699,6 +2619,7 @@ async def retrieve_memory_with_conversation(
     # Extract topics from the conversation
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
+    topic_llm_config = getattr(all_agents[0], "topic_extraction_llm_config", None) or llm_config
 
     # Check if messages have actual content before calling LLM
     has_content = False
@@ -2729,8 +2650,17 @@ async def retrieve_memory_with_conversation(
                 )
 
         if topics is None:
-            # NEW: Extract both topics and temporal expression
-            topics, temporal_expr = extract_topics_and_temporal_info(request.messages, llm_config)
+            if topic_llm_config.model_endpoint_type == "ollama":
+                topics = extract_topics_with_ollama(
+                    messages=request.messages,
+                    model_name=topic_llm_config.model,
+                    base_url=topic_llm_config.model_endpoint or model_settings.ollama_base_url,
+                )
+            else:
+                # NEW: Extract both topics and temporal expression
+                topics, temporal_expr = extract_topics_and_temporal_info(
+                    request.messages, topic_llm_config
+                )
 
         logger.debug("Extracted topics: %s, temporal: %s", topics, temporal_expr)
         key_words = topics if topics else ""
