@@ -86,6 +86,11 @@ interface MemoryQueueTraceDetailResponse {
   agent_traces: MemoryAgentTraceWithTools[];
 }
 
+interface LiveTraceSummary {
+  toolCalls: number;
+  managerRuns: number;
+}
+
 const formatTimestamp = (value?: string) => {
   if (!value) return 'N/A';
   const date = new Date(value);
@@ -275,6 +280,17 @@ const aggregateUpdateCounts = (traces: MemoryAgentTraceWithTools[]) => {
   return Object.keys(totals).length > 0 ? totals : undefined;
 };
 
+const buildLiveSummary = (detail: MemoryQueueTraceDetailResponse): LiveTraceSummary => {
+  const toolCalls = detail.agent_traces.reduce(
+    (sum, trace) => sum + trace.tool_calls.length,
+    0
+  );
+  const managerRuns = detail.agent_traces.filter(
+    (trace) => !!trace.agent_trace.parent_trace_id
+  ).length;
+  return { toolCalls, managerRuns };
+};
+
 export const MemoryTraces: React.FC = () => {
   const { selectedUser, users, setSelectedUser, isLoading: usersLoading } = useWorkspace();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -286,6 +302,8 @@ export const MemoryTraces: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [expandedToolCalls, setExpandedToolCalls] = useState<Record<string, boolean>>({});
   const [expandedMemoryUpdates, setExpandedMemoryUpdates] = useState<Record<string, boolean>>({});
+  const [expandedTraceErrors, setExpandedTraceErrors] = useState<Record<string, boolean>>({});
+  const [liveTraceSummaries, setLiveTraceSummaries] = useState<Record<string, LiveTraceSummary>>({});
   const userParamAppliedRef = React.useRef(false);
   const lastUserParamRef = React.useRef<string | null>(null);
   const userIdParam = searchParams.get('user_id');
@@ -369,6 +387,29 @@ export const MemoryTraces: React.FC = () => {
     }
   }, []);
 
+  const fetchLiveSummaries = useCallback(async (traceIds: string[]) => {
+    if (traceIds.length === 0) return;
+    const responses = await Promise.all(
+      traceIds.map(async (traceId) => {
+        try {
+          const response = await apiClient.get(`/memory/queue-traces/${traceId}`);
+          return { traceId, detail: response.data as MemoryQueueTraceDetailResponse };
+        } catch (error) {
+          console.error('Failed to load live trace summary', error);
+          return null;
+        }
+      })
+    );
+    setLiveTraceSummaries((prev) => {
+      const next = { ...prev };
+      responses.forEach((result) => {
+        if (!result) return;
+        next[result.traceId] = buildLiveSummary(result.detail);
+      });
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     fetchTraces();
   }, [fetchTraces]);
@@ -381,6 +422,45 @@ export const MemoryTraces: React.FC = () => {
     }
   }, [selectedTraceId, fetchTraceDetail]);
 
+  useEffect(() => {
+    if (!detail) return;
+    setLiveTraceSummaries((prev) => ({
+      ...prev,
+      [detail.trace.id]: buildLiveSummary(detail),
+    }));
+  }, [detail]);
+
+  useEffect(() => {
+    const hasProcessingTrace = traces.some((trace) =>
+      ['queued', 'processing'].includes(trace.status)
+    );
+    const detailProcessing =
+      detail?.trace?.status && ['queued', 'processing'].includes(detail.trace.status);
+    if (!hasProcessingTrace && !detailProcessing) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.hidden) return;
+      fetchTraces();
+      if (selectedTraceId) {
+        fetchTraceDetail(selectedTraceId);
+      }
+      const processingTraceIds = traces
+        .filter((trace) => ['queued', 'processing'].includes(trace.status))
+        .map((trace) => trace.id)
+        .filter((traceId) => traceId !== selectedTraceId);
+      fetchLiveSummaries(processingTraceIds);
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [
+    traces,
+    detail?.trace?.status,
+    fetchTraces,
+    fetchTraceDetail,
+    fetchLiveSummaries,
+    selectedTraceId,
+  ]);
+
   const toggleToolCall = (toolCallId: string) => {
     setExpandedToolCalls((prev) => ({
       ...prev,
@@ -390,6 +470,13 @@ export const MemoryTraces: React.FC = () => {
 
   const toggleMemoryUpdates = (traceId: string) => {
     setExpandedMemoryUpdates((prev) => ({
+      ...prev,
+      [traceId]: !prev[traceId],
+    }));
+  };
+
+  const toggleTraceError = (traceId: string) => {
+    setExpandedTraceErrors((prev) => ({
       ...prev,
       [traceId]: !prev[traceId],
     }));
@@ -670,7 +757,6 @@ export const MemoryTraces: React.FC = () => {
     childTraces: MemoryAgentTraceWithTools[]
   ) => {
     if (toolCalls.length === 0) {
-      const updateCounts = aggregateUpdateCounts(childTraces);
       return (
         <div className="space-y-4">
           <div className="space-y-2">
@@ -680,7 +766,6 @@ export const MemoryTraces: React.FC = () => {
             </div>
             <div className="text-xs text-muted-foreground italic px-1">No tool calls recorded.</div>
           </div>
-          {renderMemoryUpdatesBlock(`${agentTrace.id}-no-tools`, updateCounts, childTraces)}
         </div>
       );
     }
@@ -733,12 +818,7 @@ export const MemoryTraces: React.FC = () => {
       return acc;
     }, []);
 
-    if (triggerCalls.length === 0) {
-      const updateCounts = aggregateUpdateCounts(childTraces);
-      orderedBlocks.push(
-        renderMemoryUpdatesBlock(`${agentTrace.id}-no-trigger`, updateCounts, childTraces)
-      );
-    } else if (unassignedTraces.length > 0) {
+    if (triggerCalls.length > 0 && unassignedTraces.length > 0) {
       const updateCounts = aggregateUpdateCounts(unassignedTraces);
       orderedBlocks.push(
         renderMemoryUpdatesBlock(`${agentTrace.id}-unassigned`, updateCounts, unassignedTraces)
@@ -806,7 +886,10 @@ export const MemoryTraces: React.FC = () => {
         ) : (
           traces.map((trace) => {
             const isSelected = trace.id === selectedTraceId;
-            const canExpand = trace.status === 'completed';
+            const canExpand = trace.status === 'completed' || trace.status === 'failed';
+            const liveSummary = liveTraceSummaries[trace.id];
+            const showLiveSummary =
+              ['queued', 'processing'].includes(trace.status) && liveSummary;
             
             return (
               <Card 
@@ -863,6 +946,18 @@ export const MemoryTraces: React.FC = () => {
                               {trace.id}
                             </code>
                           </span>
+                          {showLiveSummary && (
+                            <>
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <Wrench className="w-3.5 h-3.5" />
+                                {liveSummary.toolCalls} Tool Call(s)
+                              </span>
+                              <span className="flex items-center gap-1.5 shrink-0">
+                                <Layers className="w-3.5 h-3.5" />
+                                {liveSummary.managerRuns} Manager Run(s)
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -912,6 +1007,33 @@ export const MemoryTraces: React.FC = () => {
                         </div>
                       ) : (
                         <div className="space-y-6">
+                          {detail.trace.error_message && (
+                            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 space-y-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-red-500">
+                                  <AlertCircle className="w-4 h-4" />
+                                  Queue Error
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => toggleTraceError(detail.trace.id)}
+                                >
+                                  {expandedTraceErrors[detail.trace.id] ? 'Hide Error' : 'Show Error'}
+                                </Button>
+                              </div>
+                              {expandedTraceErrors[detail.trace.id] ? (
+                                <pre className="text-xs text-red-200/90 whitespace-pre-wrap bg-black/20 rounded-md p-3 border border-red-500/10">
+                                  {detail.trace.error_message}
+                                </pre>
+                              ) : (
+                                <div className="text-xs text-red-200/80 italic">
+                                  {compactText(detail.trace.error_message, 160)}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div className="space-y-4">
                             <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
                               <div className="w-2 h-2 bg-primary rounded-full shadow-sm shadow-primary/40" />
