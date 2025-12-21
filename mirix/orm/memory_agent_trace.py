@@ -28,7 +28,7 @@ class MemoryAgentTrace(SqlalchemyBase, OrganizationMixin):
     )
 
     agent_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+        String, nullable=True
     )
     agent_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     agent_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)

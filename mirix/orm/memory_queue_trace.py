@@ -21,13 +21,13 @@ class MemoryQueueTrace(SqlalchemyBase, OrganizationMixin):
     id: Mapped[str] = mapped_column(String, primary_key=True)
 
     client_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
+        String, nullable=True
     )
     user_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        String, nullable=True
     )
     agent_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+        String, nullable=True
     )
 
     status: Mapped[str] = mapped_column(

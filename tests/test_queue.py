@@ -884,7 +884,10 @@ class TestQueueUtil:
         assert msg.chaining is False
         assert msg.user_id == "user-custom"
         assert msg.verbose is True
-        assert dict(msg.filter_tags) == {"tag1": "value1"}
+        # Note: __queue_trace_id is automatically added by put_messages
+        filter_tags = dict(msg.filter_tags)
+        assert filter_tags["tag1"] == "value1"
+        assert "__queue_trace_id" in filter_tags
         
         # Cleanup
         manager.cleanup()
