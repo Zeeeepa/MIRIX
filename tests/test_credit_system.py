@@ -25,20 +25,20 @@ def _ensure_mirix_package():
 
 _ensure_mirix_package()
 
-import mirix.services.client_manager as client_manager_module
-from mirix.client.utils import get_utc_time
-from mirix.llm_api.llm_client import LLMClient
-from mirix.pricing import calculate_cost
-from mirix.schemas.client import Client as PydanticClient
-from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.openai.chat_completion_response import (
+import mirix.services.client_manager as client_manager_module  # noqa: E402
+from mirix.utils import get_utc_time  # noqa: E402
+from mirix.llm_api.llm_client import LLMClient  # noqa: E402
+from mirix.pricing import calculate_cost  # noqa: E402
+from mirix.schemas.client import Client as PydanticClient  # noqa: E402
+from mirix.schemas.llm_config import LLMConfig  # noqa: E402
+from mirix.schemas.openai.chat_completion_response import (  # noqa: E402
     ChatCompletionResponse,
     Choice,
     Message,
     PromptTokensDetails,
     UsageStatistics,
 )
-from mirix.services.client_manager import ClientManager
+from mirix.services.client_manager import ClientManager  # noqa: E402
 
 
 class StubLLMClient:

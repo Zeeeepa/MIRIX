@@ -24,8 +24,6 @@ from logging import Logger
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Dict,
     List,
     Optional,
     Union,
@@ -43,7 +41,7 @@ import tiktoken
 from pathvalidate import sanitize_filename as pathvalidate_sanitize_filename
 
 import mirix
-from mirix.client.utils import get_utc_time, json_dumps  # Re-export from client
+from mirix.client.utils import json_dumps  # Re-export from client
 from mirix.constants import (
     CLI_WARNING_PREFIX,
     CORE_MEMORY_HUMAN_CHAR_LIMIT,
@@ -64,7 +62,6 @@ from mirix.schemas.mirix_message_content import (
     TextContent,
 )
 from mirix.schemas.openai.chat_completion_request import Tool, ToolCall
-from mirix.schemas.openai.chat_completion_response import ChatCompletionResponse
 
 if TYPE_CHECKING:
     from mirix.services.file_manager import FileManager
@@ -579,6 +576,9 @@ def is_optional_type(hint):
         return hint.__origin__ is Union and type(None) in hint.__args__
     return False
 
+def get_utc_time() -> datetime:
+    """Get the current UTC time"""
+    return datetime.now(timezone.utc)
 
 def enforce_types(func):
     @wraps(func)
@@ -775,84 +775,6 @@ def create_random_username() -> str:
     adjective = random.choice(ADJECTIVE_BANK).capitalize()
     noun = random.choice(NOUN_BANK).capitalize()
     return adjective + noun
-
-
-def verify_first_message_correctness(
-    response: ChatCompletionResponse,
-    require_send_message: bool = True,
-    require_monologue: bool = False,
-) -> bool:
-    """Can be used to enforce that the first message always uses send_message"""
-    response_message = response.choices[0].message
-
-    # First message should be a call to send_message with a non-empty content
-    if (
-        hasattr(response_message, "function_call")
-        and response_message.function_call is not None
-    ) and (
-        hasattr(response_message, "tool_calls")
-        and response_message.tool_calls is not None
-    ):
-        printd(
-            f"First message includes both function call AND tool call: {response_message}"
-        )
-        return False
-    elif (
-        hasattr(response_message, "function_call")
-        and response_message.function_call is not None
-    ):
-        function_call = response_message.function_call
-    elif (
-        hasattr(response_message, "tool_calls")
-        and response_message.tool_calls is not None
-    ):
-        function_call = response_message.tool_calls[0].function
-    else:
-        printd(f"First message didn't include function call: {response_message}")
-        return False
-
-    function_name = function_call.name if function_call is not None else ""
-    if (
-        require_send_message
-        and function_name != "send_message"
-        and function_name != "archival_memory_search"
-    ):
-        printd(
-            f"First message function call wasn't send_message or archival_memory_search: {response_message}"
-        )
-        return False
-
-    if require_monologue and (
-        not response_message.content
-        or response_message.content is None
-        or response_message.content == ""
-    ):
-        printd(f"First message missing internal monologue: {response_message}")
-        return False
-
-    if response_message.content:
-        ### Extras
-        monologue = response_message.content
-
-        def contains_special_characters(s):
-            special_characters = '(){}[]"'
-            return any(char in s for char in special_characters)
-
-        if contains_special_characters(monologue):
-            printd(
-                f"First message internal monologue contained special characters: {response_message}"
-            )
-            return False
-        # if 'functions' in monologue or 'send_message' in monologue or 'inner thought' in monologue.lower():
-        if "functions" in monologue or "send_message" in monologue:
-            # Sometimes the syntax won't be correct and internal syntax will leak into message.context
-            printd(
-                f"First message internal monologue contained reserved words: {response_message}"
-            )
-            return False
-
-    return True
-
 
 def is_valid_url(url):
     try:

@@ -1064,7 +1064,7 @@ class ProceduralMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(ProceduralMemoryItem).filter(
                 ProceduralMemoryItem.client_id == actor.id,
-                ProceduralMemoryItem.is_deleted == False
+                ProceduralMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1110,7 +1110,7 @@ class ProceduralMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(ProceduralMemoryItem).filter(
                 ProceduralMemoryItem.user_id == user_id,
-                ProceduralMemoryItem.is_deleted == False
+                ProceduralMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

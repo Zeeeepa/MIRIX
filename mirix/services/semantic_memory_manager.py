@@ -1081,7 +1081,7 @@ class SemanticMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(SemanticMemoryItem).filter(
                 SemanticMemoryItem.client_id == actor.id,
-                SemanticMemoryItem.is_deleted == False
+                SemanticMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1127,7 +1127,7 @@ class SemanticMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(SemanticMemoryItem).filter(
                 SemanticMemoryItem.user_id == user_id,
-                SemanticMemoryItem.is_deleted == False
+                SemanticMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

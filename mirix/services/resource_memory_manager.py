@@ -969,7 +969,7 @@ class ResourceMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(ResourceMemoryItem).filter(
                 ResourceMemoryItem.client_id == actor.id,
-                ResourceMemoryItem.is_deleted == False
+                ResourceMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1015,7 +1015,7 @@ class ResourceMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(ResourceMemoryItem).filter(
                 ResourceMemoryItem.user_id == user_id,
-                ResourceMemoryItem.is_deleted == False
+                ResourceMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

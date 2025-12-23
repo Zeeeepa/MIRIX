@@ -30,7 +30,7 @@ class MessageType(str, Enum):
 class MirixMessage(BaseModel):
     """
     Base class for simplified Mirix message response type. This is intended to be used for developers
-    who want the internal monologue, tool calls, and tool returns in a simplified format that does not
+    who want the tool calls, and tool returns in a simplified format that does not
     include additional information other than the content and timestamp.
 
     Args:

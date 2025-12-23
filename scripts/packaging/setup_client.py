@@ -14,7 +14,7 @@ Purpose: Remote client library for Mirix server
 import os
 import sys
 
-from setuptools import find_packages, setup
+from setuptools import setup
 
 # Parse command line arguments for package name and version
 package_name = "mirix-client"  # Default value

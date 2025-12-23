@@ -30,7 +30,7 @@ load_dotenv()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mirix.client import MirixClient
+from mirix.client import MirixClient  # noqa: E402
 
 # Mark all tests as integration tests
 pytestmark = [
@@ -86,7 +86,7 @@ def client(server_check, api_auth):
     print("[SETUP] Client created via API key")
     
     # Create or get user (ensures user exists in backend database)
-    print(f"[SETUP] Creating/getting user: demo-user")
+    print("[SETUP] Creating/getting user: demo-user")
     try:
         user_id = client.create_or_get_user(
             user_id="demo-user",
@@ -96,7 +96,7 @@ def client(server_check, api_auth):
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"\n[ERROR] Failed to create/get user:")
+        print("\n[ERROR] Failed to create/get user:")
         print(f"  Exception: {e}")
         print(f"  Details:\n{error_details}")
         pytest.skip(f"Failed to create/get user: {e}")
@@ -194,7 +194,7 @@ def client(server_check, api_auth):
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        print(f"\n[ERROR] Failed to initialize meta agent:")
+        print("\n[ERROR] Failed to initialize meta agent:")
         print(f"  Exception: {e}")
         print(f"  Details:\n{error_details}")
         pytest.skip(f"Failed to initialize meta agent: {e}")
@@ -339,18 +339,18 @@ Test ID: {agent_name}-test-{int(time.time())}
             agent_name=agent_name,
             system_prompt=new_system_prompt
         )
-        print(f"[OK] Update request successful")
+        print("[OK] Update request successful")
         print(f"     Updated system prompt: {updated_agent.system[:80]}...")
         
     except Exception as e:
         pytest.fail(f"Failed to update system prompt: {e}")
     
     # Step 3: Verify the update in the returned agent state
-    print(f"\n[Step 3] Verifying update in returned agent state...")
+    print("\n[Step 3] Verifying update in returned agent state...")
     
     assert updated_agent.system == new_system_prompt, \
         "System prompt in returned agent should match the new prompt"
-    print(f"[OK] System prompt matches in returned state")
+    print("[OK] System prompt matches in returned state")
     
     # Verify system message ID changed
     new_message_id = updated_agent.message_ids[0] if updated_agent.message_ids else None
@@ -360,18 +360,18 @@ Test ID: {agent_name}-test-{int(time.time())}
         print(f"[OK] System message ID changed: {original_message_id} → {new_message_id}")
     
     # Step 4: Wait for cache and database to sync
-    print(f"\n[Step 4] Waiting 2 seconds for cache/database sync...")
+    print("\n[Step 4] Waiting 2 seconds for cache/database sync...")
     time.sleep(2)
     
     # Step 5: Verify persistence by fetching agent again (tests Redis cache)
-    print(f"\n[Step 5] Fetching agent again to verify persistence (Redis cache)...")
+    print("\n[Step 5] Fetching agent again to verify persistence (Redis cache)...")
     
     refetched_agent = get_agent_direct_from_api(client, agent_name)
     assert refetched_agent is not None, "Agent should still exist after update"
     
     assert refetched_agent.system == new_system_prompt, \
         "System prompt should persist in cache/database"
-    print(f"[OK] System prompt persisted in cache")
+    print("[OK] System prompt persisted in cache")
     print(f"     Cached prompt: {refetched_agent.system[:80]}...")
     
     # Verify message_ids[0] is still the new one
@@ -381,20 +381,20 @@ Test ID: {agent_name}-test-{int(time.time())}
     print(f"[OK] System message ID persisted: {cached_message_id}")
     
     # Step 6: Verify system prompt in agent state
-    print(f"\n[Step 6] Verifying system prompt is stored correctly...")
+    print("\n[Step 6] Verifying system prompt is stored correctly...")
     
     # The agent.system field should contain the new prompt
     assert refetched_agent.system == new_system_prompt, \
         "Agent's system field should contain the new system prompt"
-    print(f"[OK] System prompt verified in agent state")
+    print("[OK] System prompt verified in agent state")
     print(f"     Prompt: {refetched_agent.system[:80]}...")
     
     # Step 7: Verify old and new are different
-    print(f"\n[Step 7] Verifying changes were actually made...")
+    print("\n[Step 7] Verifying changes were actually made...")
     
     assert updated_agent.system != original_agent.system, \
         "New system prompt should be different from original"
-    print(f"[OK] System prompt was successfully changed")
+    print("[OK] System prompt was successfully changed")
     
     print(f"\n✓ TEST PASSED for '{agent_name}' agent")
     print("="*70)
@@ -496,7 +496,7 @@ def test_update_same_agent_multiple_times(client):
         
         # Verify prompt changed
         assert updated.system == new_prompt, f"Update {i} should apply new prompt"
-        print(f"    ✓ Prompt updated")
+        print("    ✓ Prompt updated")
         
         # Verify message_ids[0] changed
         current_message_id = updated.message_ids[0] if updated.message_ids else None
@@ -509,7 +509,7 @@ def test_update_same_agent_multiple_times(client):
         if previous_prompt:
             assert updated.system != previous_prompt, \
                 f"Update {i} should change prompt from previous"
-            print(f"    ✓ Prompt changed from previous")
+            print("    ✓ Prompt changed from previous")
         
         previous_message_id = current_message_id
         previous_prompt = new_prompt
@@ -518,14 +518,14 @@ def test_update_same_agent_multiple_times(client):
         time.sleep(1)
     
     # Final verification
-    print(f"\n[Final Verification] Fetching agent to verify last update...")
+    print("\n[Final Verification] Fetching agent to verify last update...")
     final_agent = get_agent_direct_from_api(client, agent_name)
     
     assert final_agent.system == previous_prompt, \
         "Final prompt should match last update"
-    print(f"  ✓ Final prompt matches last update")
+    print("  ✓ Final prompt matches last update")
     
-    print(f"\n✓ TEST PASSED: Multiple updates to same agent work correctly")
+    print("\n✓ TEST PASSED: Multiple updates to same agent work correctly")
     print("="*70)
 
 
@@ -564,7 +564,7 @@ def test_error_handling_nonexistent_agent(client):
     
     # Verify it suggests available agents (if any exist)
     if "available agents:" in error_lower or "available" in error_lower:
-        print(f"  ✓ Error message suggests available agents")
+        print("  ✓ Error message suggests available agents")
     
     # Test Case 2: Typo in short name (e.g., "episodick" instead of "episodic")
     print("\n[Test Case 2] Attempting to update with typo in agent name...")
@@ -605,7 +605,7 @@ def test_error_handling_nonexistent_agent(client):
         )
     
     print(f"  ✓ Exception raised for wrong case: {type(exc_info.value).__name__}")
-    print(f"    Note: Agent names are case-sensitive")
+    print("    Note: Agent names are case-sensitive")
     
     # Test Case 5: Empty string
     print("\n[Test Case 5] Attempting to update with empty agent name...")
@@ -618,7 +618,7 @@ def test_error_handling_nonexistent_agent(client):
     
     print(f"  ✓ Exception raised for empty name: {type(exc_info.value).__name__}")
     
-    print(f"\n✓ TEST PASSED: All error handling scenarios work correctly")
+    print("\n✓ TEST PASSED: All error handling scenarios work correctly")
     print("  - Invalid agent names are rejected")
     print("  - Error messages are informative")
     print("  - Server remains stable")

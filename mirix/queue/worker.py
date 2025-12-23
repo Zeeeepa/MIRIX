@@ -14,7 +14,6 @@ from mirix.services.user_manager import UserManager
 
 if TYPE_CHECKING:
     from .queue_interface import QueueInterface
-    from mirix.schemas.user import User
     from mirix.schemas.client import Client
     from mirix.schemas.message import MessageCreate
 

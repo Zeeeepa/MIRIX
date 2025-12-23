@@ -15,11 +15,11 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from mirix.security.api_keys import generate_api_key
-from mirix.services.client_manager import ClientManager
-from mirix.services.organization_manager import OrganizationManager
-from mirix.schemas.client import Client as PydanticClient
-from mirix.schemas.organization import Organization as PydanticOrganization
+from mirix.security.api_keys import generate_api_key  # noqa: E402
+from mirix.services.client_manager import ClientManager  # noqa: E402
+from mirix.services.organization_manager import OrganizationManager  # noqa: E402
+from mirix.schemas.client import Client as PydanticClient  # noqa: E402
+from mirix.schemas.organization import Organization as PydanticOrganization  # noqa: E402
 
 
 ORG_ID = "demo-org"

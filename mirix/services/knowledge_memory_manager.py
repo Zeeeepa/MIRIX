@@ -1090,7 +1090,7 @@ class KnowledgeMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(KnowledgeItem).filter(
                 KnowledgeItem.client_id == actor.id,
-                KnowledgeItem.is_deleted == False
+                KnowledgeItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1136,7 +1136,7 @@ class KnowledgeMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(KnowledgeItem).filter(
                 KnowledgeItem.user_id == user_id,
-                KnowledgeItem.is_deleted == False
+                KnowledgeItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

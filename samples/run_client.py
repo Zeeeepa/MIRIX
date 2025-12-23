@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import sys
+import yaml
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 # Load env vars from repo-root `./.env` (does not override already-set env vars).
 load_dotenv(REPO_ROOT / ".env", override=False)
 
-from mirix import MirixClient
+from mirix import MirixClient  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -52,7 +53,7 @@ def print_memories(memories):
         print(f"  🕐 Temporal expression detected: '{memories.get('temporal_expression')}'")
     if memories.get("date_range"):
         date_range = memories.get("date_range")
-        print(f"  📅 Date range applied:")
+        print("  📅 Date range applied:")
         print(f"     Start: {date_range.get('start')}")
         print(f"     End: {date_range.get('end')}")
     
@@ -382,27 +383,20 @@ def main():
     # Navigate to project root (parent of samples/)
     project_root = script_dir.parent
     # Build path to config file
-    config_path = project_root / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
-    
-    # Verify the config file exists
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
     
     # Create MirixClient (connects to server via REST API)
-    client_id = 'sales-loader-client' #'demo-client-app'  # Identifies the client application
-    # user_id = 'demo-user' #'demo-user'  # Identifies the end-user within the client app
-    org_id = 'demo-org'
     api_key = os.environ.get("MIRIX_API_KEY")
     if not api_key:
         raise ValueError("MIRIX_API_KEY is required to run this sample.")
     
     client = MirixClient(
         api_key=api_key,
-        # debug=True,
     )
 
+    config = yaml.safe_load(open(args.config))
+
     client.initialize_meta_agent(
-        config_path=args.config,
+        config=config,
         update_agents=True,
     )
     
@@ -429,7 +423,7 @@ def main():
                }]
            },
        ],
-       chaining=True
+       chaining=False
     )
     print(f"[OK] Memory added successfully: {result.get('success', False)}")
 

@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import Field, field_validator
 
-from mirix.client.utils import get_utc_time
+from mirix.utils import get_utc_time
 from mirix.constants import MAX_EMBEDDING_DIM
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.mirix_base import MirixBase

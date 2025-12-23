@@ -251,7 +251,7 @@ class RedisMemoryClient:
                 self.client.ft(self.BLOCK_INDEX).info()
                 logger.debug("Index %s already exists", self.BLOCK_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -286,7 +286,7 @@ class RedisMemoryClient:
                 self.client.ft(self.MESSAGE_INDEX).info()
                 logger.debug("Index %s already exists", self.MESSAGE_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -322,7 +322,7 @@ class RedisMemoryClient:
                 self.client.ft(self.ORGANIZATION_INDEX).info()
                 logger.debug("Index %s already exists", self.ORGANIZATION_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -353,7 +353,7 @@ class RedisMemoryClient:
                 self.client.ft(self.USER_INDEX).info()
                 logger.debug("Index %s already exists", self.USER_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -389,7 +389,7 @@ class RedisMemoryClient:
                 self.client.ft(self.AGENT_INDEX).info()
                 logger.debug("Index %s already exists", self.AGENT_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -427,7 +427,7 @@ class RedisMemoryClient:
                 self.client.ft(self.TOOL_INDEX).info()
                 logger.debug("Index %s already exists", self.TOOL_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -594,7 +594,7 @@ class RedisMemoryClient:
                 self.client.ft(self.EPISODIC_INDEX).info()
                 logger.debug("Index %s already exists", self.EPISODIC_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -655,7 +655,7 @@ class RedisMemoryClient:
                 self.client.ft(self.SEMANTIC_INDEX).info()
                 logger.debug("Index %s already exists", self.SEMANTIC_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -726,7 +726,7 @@ class RedisMemoryClient:
                 self.client.ft(self.PROCEDURAL_INDEX).info()
                 logger.debug("Index %s already exists", self.PROCEDURAL_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -785,7 +785,7 @@ class RedisMemoryClient:
                 self.client.ft(self.RESOURCE_INDEX).info()
                 logger.debug("Index %s already exists", self.RESOURCE_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -835,7 +835,7 @@ class RedisMemoryClient:
                 self.client.ft(self.KNOWLEDGE_INDEX).info()
                 logger.debug("Index %s already exists", self.KNOWLEDGE_INDEX)
                 return
-            except:
+            except Exception:
                 pass
             
             schema = (
@@ -1015,7 +1015,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             import re
             
             # Escape special characters in query for Redis Search
@@ -1141,7 +1140,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             import numpy as np
             
             # Convert embedding to bytes
@@ -1271,7 +1269,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             
             # Build query parts
             query_parts = []
@@ -1367,7 +1364,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             import re
             
             def escape_text_value(value: str) -> str:
@@ -1454,7 +1450,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             import re
             
             def escape_text_value(value: str) -> str:
@@ -1548,7 +1543,6 @@ class RedisMemoryClient:
         """
         try:
             from redis.commands.search.query import Query
-            from datetime import datetime
             import re
             
             def escape_text_value(value: str) -> str:

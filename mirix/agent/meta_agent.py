@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from mirix import EmbeddingConfig, LLMConfig
 from mirix.agent.agent import Agent, BaseAgent
-from mirix.agent.message_queue import MessageQueue
 from mirix.interface import AgentInterface
 from mirix.orm import User
 from mirix.prompts import gpt_system
@@ -220,9 +219,6 @@ class MetaAgent(BaseAgent):
         # Initialize container for memory agent states
         self.memory_agent_states = MemoryAgentStates()
 
-        # Initialize message queue for coordinating agent operations
-        self.message_queue = MessageQueue()
-
         # Initialize or load memory sub-agents
         self._initialize_memory_agents()
 
@@ -424,56 +420,6 @@ class MetaAgent(BaseAgent):
             else:
                 raise RuntimeError("No meta_memory_agent available for coordination")
 
-    def send_message_to_agent(
-        self, agent_name: str, message: Union[str, dict], **kwargs
-    ) -> tuple:
-        """
-        Send a message to a specific memory agent through the message queue.
-
-        Args:
-            agent_name: Name of the agent to send message to
-            message: Message content (string or dict)
-            **kwargs: Additional arguments for message processing
-
-        Returns:
-            Tuple of (response, usage_statistics)
-        """
-        # Get agent state
-        agent_state = self.memory_agent_states.get_agent_state(f"{agent_name}_state")
-        if agent_state is None:
-            raise ValueError(f"Agent state not found for: {agent_name}")
-
-        # Determine agent type for message queue
-        agent_type_map = {
-            "episodic_memory_agent": "episodic_memory",
-            "procedural_memory_agent": "procedural_memory",
-            "knowledge_memory_agent": "knowledge",
-            "meta_memory_agent": "meta_memory",
-            "semantic_memory_agent": "semantic_memory",
-            "core_memory_agent": "core_memory",
-            "resource_memory_agent": "resource_memory",
-            "reflexion_agent": "reflexion",
-            "background_agent": "background",
-        }
-
-        agent_type = agent_type_map.get(agent_name, agent_name)
-
-        # Format message
-        if isinstance(message, str):
-            message_data = {"message": message}
-        else:
-            message_data = message
-
-        # Send through message queue
-        response, usage = self.message_queue.send_message_in_queue(
-            client=self.server,  # Pass server directly
-            agent_id=agent_state.id,
-            message_data=message_data,
-            agent_type=agent_type,
-            **kwargs,
-        )
-
-        return response, usage
 
     def update_llm_config(self, llm_config: LLMConfig):
         """

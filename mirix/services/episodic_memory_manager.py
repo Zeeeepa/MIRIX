@@ -427,7 +427,7 @@ class EpisodicMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(EpisodicEvent).filter(
                 EpisodicEvent.client_id == actor.id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -475,7 +475,7 @@ class EpisodicMemoryManager:
             # Extract IDs BEFORE bulk update (for Redis cleanup)
             item_ids = [row[0] for row in session.query(EpisodicEvent.id).filter(
                 EpisodicEvent.user_id == user_id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).all()]
             
             count = len(item_ids)
@@ -485,7 +485,7 @@ class EpisodicMemoryManager:
             # Batch soft delete in database using single SQL UPDATE
             session.query(EpisodicEvent).filter(
                 EpisodicEvent.user_id == user_id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).update(
                 {
                     "is_deleted": True,
@@ -1634,7 +1634,6 @@ class EpisodicMemoryManager:
                 return [event.to_pydantic() for event in episodic_memory]
 
             if search_method == "embedding":
-                embed_query = True
                 embedding_config = agent_state.embedding_config
 
                 # Use provided embedding or generate it
@@ -1672,7 +1671,7 @@ class EpisodicMemoryManager:
                 base_query = base_query.order_by(embedding_query_field)
             elif search_method == "bm25":
                 # Use PostgreSQL native full-text search if available
-                from sqlalchemy import text, func
+                from sqlalchemy import func
                 
                 # Determine search field
                 if not search_field or search_field == "details":

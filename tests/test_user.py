@@ -30,7 +30,7 @@ load_dotenv()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mirix.client import MirixClient
+from mirix.client import MirixClient  # noqa: E402
 
 TEST_ORG_ID = "test-user-org"
 TEST_CLIENT_ID = "test-user-client"
@@ -130,7 +130,7 @@ def test_explicit_user_creation_then_add_memory(client):
     print(f"\n[Step 1] Generated user_id: {user_id}")
     
     # Step 2: Create user explicitly
-    print(f"[Step 2] Creating user with create_or_get_user()...")
+    print("[Step 2] Creating user with create_or_get_user()...")
     created_user_id = client.create_or_get_user(
         user_id=user_id,
         user_name=f"Test User {user_id}",
@@ -140,7 +140,7 @@ def test_explicit_user_creation_then_add_memory(client):
     assert created_user_id == user_id, "Returned user_id should match requested user_id"
     
     # Step 3: Verify user exists in database
-    print(f"[Step 3] Verifying user exists in database...")
+    print("[Step 3] Verifying user exists in database...")
     time.sleep(1)  # Small delay to ensure database write is complete
     assert user_exists(client, user_id), f"User {user_id} should exist in database"
     print(f"[OK] User {user_id} verified in database")
@@ -171,23 +171,23 @@ def test_explicit_user_creation_then_add_memory(client):
         verbose=False
     )
     
-    print(f"[OK] Memory add request submitted")
+    print("[OK] Memory add request submitted")
     print(f"     Response: {response}")
     
     # Step 5: Wait for processing
-    print(f"[Step 5] Waiting 15 seconds for memory processing...")
+    print("[Step 5] Waiting 15 seconds for memory processing...")
     time.sleep(15)
-    print(f"[OK] Processing complete")
+    print("[OK] Processing complete")
     
     # Step 6: Verify memory can be retrieved
-    print(f"[Step 6] Retrieving memory to verify...")
+    print("[Step 6] Retrieving memory to verify...")
     retrieve_response = client.retrieve_with_conversation(
         user_id=user_id,
         messages=[{"role": "user", "content": [{"type": "text", "text": "What is my favorite color?"}]}],
         limit=5
     )
     
-    print(f"[OK] Memory retrieval successful")
+    print("[OK] Memory retrieval successful")
     print(f"     Retrieved {len(retrieve_response.get('memories', []))} memories")
     
     # Verify we got some memories back
@@ -216,12 +216,12 @@ def test_auto_user_creation_on_add_memory(client):
     print(f"\n[Step 1] Generated user_id: {user_id}")
     
     # Step 2: Verify user does NOT exist yet
-    print(f"[Step 2] Verifying user does NOT exist yet...")
+    print("[Step 2] Verifying user does NOT exist yet...")
     assert not user_exists(client, user_id), f"User {user_id} should NOT exist yet"
     print(f"[OK] Confirmed user {user_id} does not exist")
     
     # Step 3: Add memory WITHOUT creating user first
-    print(f"[Step 3] Adding memory WITHOUT calling create_or_get_user()...")
+    print("[Step 3] Adding memory WITHOUT calling create_or_get_user()...")
     messages = [
         {
             "role": "user",
@@ -246,28 +246,28 @@ def test_auto_user_creation_on_add_memory(client):
         verbose=False
     )
     
-    print(f"[OK] Memory add request submitted")
+    print("[OK] Memory add request submitted")
     print(f"     Response: {response}")
     
     # Step 4: Wait for processing
-    print(f"[Step 4] Waiting 15 seconds for memory processing and user auto-creation...")
+    print("[Step 4] Waiting 15 seconds for memory processing and user auto-creation...")
     time.sleep(15)
-    print(f"[OK] Processing complete")
+    print("[OK] Processing complete")
     
     # Step 5: Verify user was auto-created
-    print(f"[Step 5] Verifying user was auto-created in database...")
+    print("[Step 5] Verifying user was auto-created in database...")
     assert user_exists(client, user_id), f"User {user_id} should have been auto-created"
     print(f"[OK] User {user_id} was auto-created successfully")
     
     # Step 6: Verify memory can be retrieved
-    print(f"[Step 6] Retrieving memory to verify...")
+    print("[Step 6] Retrieving memory to verify...")
     retrieve_response = client.retrieve_with_conversation(
         user_id=user_id,
         messages=[{"role": "user", "content": [{"type": "text", "text": "Where am I moving to?"}]}],
         limit=5
     )
     
-    print(f"[OK] Memory retrieval successful")
+    print("[OK] Memory retrieval successful")
     print(f"     Retrieved {len(retrieve_response.get('memories', []))} memories")
     
     # Verify we got some memories back
@@ -300,7 +300,7 @@ def test_idempotent_create_or_get_user(client):
     print(f"[OK] User created (1st call): {created_user_id_1}")
     
     # Step 2: Call again with same user_id
-    print(f"[Step 2] Calling create_or_get_user() again with same user_id...")
+    print("[Step 2] Calling create_or_get_user() again with same user_id...")
     time.sleep(1)  # Small delay
     
     created_user_id_2 = client.create_or_get_user(

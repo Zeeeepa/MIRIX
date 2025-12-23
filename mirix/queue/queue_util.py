@@ -3,7 +3,6 @@ from typing import List, Optional
 
 from mirix.schemas.client import Client
 from mirix.schemas.message import MessageCreate
-from mirix.schemas.message import MessageCreate as PydanticMessageCreate
 from mirix.schemas.enums import MessageRole
 from mirix.schemas.mirix_message_content import TextContent
 

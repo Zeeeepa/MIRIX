@@ -11,7 +11,6 @@ Usage:
     ./scripts/clean_cache.py
 """
 
-import os
 import shutil
 from pathlib import Path
 from typing import List, Tuple

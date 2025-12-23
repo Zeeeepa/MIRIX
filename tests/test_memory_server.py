@@ -37,9 +37,9 @@ load_dotenv()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mirix.server.server import SyncServer
-from mirix.schemas.agent import AgentType
-from mirix.schemas.client import Client
+from mirix.server.server import SyncServer  # noqa: E402
+from mirix.schemas.agent import AgentType  # noqa: E402
+from mirix.schemas.client import Client  # noqa: E402
 
 # Skip all tests if no API key
 pytestmark = pytest.mark.skipif(

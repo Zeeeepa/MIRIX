@@ -229,14 +229,3 @@ class InvalidToolCallError(MirixMessageError):
         "The message uses an invalid tool call or has improper usage of a tool call."
     )
 
-
-class MissingInnerMonologueError(MirixMessageError):
-    """Error raised when a message is missing an inner monologue."""
-
-    default_error_message = "The message is missing an inner monologue."
-
-
-class InvalidInnerMonologueError(MirixMessageError):
-    """Error raised when a message has a malformed inner monologue."""
-
-    default_error_message = "The message has a malformed inner monologue."

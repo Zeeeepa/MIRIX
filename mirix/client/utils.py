@@ -9,11 +9,6 @@ import json
 from datetime import datetime, timezone
 
 
-def get_utc_time() -> datetime:
-    """Get the current UTC time"""
-    return datetime.now(timezone.utc)
-
-
 def json_dumps(data, indent=2):
     """
     JSON serializer that handles datetime objects.

@@ -1,4 +1,5 @@
-from typing import List, Optional, Tuple
+from datetime import datetime
+from typing import List, Optional
 
 from mirix.log import get_logger
 from mirix.orm.errors import NoResultFound
@@ -135,7 +136,6 @@ class UserManager:
         Returns:
             Updated user object
         """
-        from datetime import datetime
 
         with self.session_maker() as session:
             # Retrieve the existing user by ID
@@ -447,7 +447,7 @@ class UserManager:
                 user = session.query(UserModel).filter(
                     UserModel.name == self.ADMIN_USER_NAME,
                     UserModel.organization_id == org_id,
-                    UserModel.is_deleted == False
+                    UserModel.is_deleted.is_(False)
                 ).first()
                 
                 if user:
@@ -493,8 +493,8 @@ class UserManager:
         with self.session_maker() as session:
             admin_user = session.query(UserModel).filter(
                 UserModel.client_id == client_id,
-                UserModel.is_admin == True,
-                UserModel.is_deleted == False,
+                UserModel.is_admin.is_(True),
+                UserModel.is_deleted.is_(False),
             ).first()
 
             if admin_user:
@@ -529,7 +529,7 @@ class UserManager:
             organization_id: Filter by organization ID
         """
         with self.session_maker() as session:
-            query = session.query(UserModel).filter(UserModel.is_deleted == False)
+            query = session.query(UserModel).filter(UserModel.is_deleted.is_(False))
             
             if client_id:
                 query = query.filter(UserModel.client_id == client_id)

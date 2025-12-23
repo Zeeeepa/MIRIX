@@ -72,9 +72,8 @@ def main():
     
     # Check if running in production mode
     if args.production:
-        try:
-            import gunicorn.app.base
-        except ImportError:
+        import importlib.util
+        if importlib.util.find_spec("gunicorn") is None:
             print("Error: gunicorn is required for production mode")
             print("Install it with: pip install gunicorn")
             sys.exit(1)

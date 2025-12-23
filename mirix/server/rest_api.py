@@ -4,12 +4,11 @@ This provides HTTP endpoints that wrap the SyncServer functionality,
 allowing MirixClient instances to communicate with a cloud-hosted server.
 """
 
-import copy
 import json
 import traceback
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,18 +21,12 @@ from mirix.embeddings import embedding_model
 from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
-from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
-from mirix.schemas.client import Client, ClientCreate, ClientUpdate
+from mirix.schemas.block import Block
+from mirix.schemas.client import Client, ClientUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import MessageRole
-from mirix.schemas.environment_variables import (
-    SandboxEnvironmentVariable,
-    SandboxEnvironmentVariableCreate,
-    SandboxEnvironmentVariableUpdate,
-)
-from mirix.schemas.file import FileMetadata
 from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
+from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.memory_agent_tool_call import MemoryAgentToolCall as MemoryAgentToolCallSchema
@@ -44,7 +37,7 @@ from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
 from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
 from mirix.schemas.agent import CreateMetaAgent, MemoryConfig, MemoryBlockConfig, MemoryDecayConfig, UpdateMetaAgent
 from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
-from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
+from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
 from mirix.server.server import SyncServer
@@ -56,13 +49,11 @@ from mirix.utils import convert_message_to_mirix_message
 from mirix.orm.memory_agent_tool_call import MemoryAgentToolCall
 from mirix.orm.memory_agent_trace import MemoryAgentTrace
 from mirix.orm.memory_queue_trace import MemoryQueueTrace
-
-logger = get_logger(__name__)
-
-# Import queue components
 from mirix.queue import initialize_queue
 from mirix.queue.manager import get_manager as get_queue_manager
 from mirix.queue.queue_util import put_messages
+
+logger = get_logger(__name__)
 
 # Initialize server (single instance shared across all requests)
 _server: Optional[SyncServer] = None
@@ -570,7 +561,7 @@ async def get_agent(
     
     try:
         return server.agent_manager.get_agent_by_id(agent_id, actor=client)
-    except NoResultFound as e:
+    except NoResultFound:
         raise HTTPException(
             status_code=404,
             detail=f"Agent {agent_id} not found or not accessible"
@@ -621,8 +612,8 @@ async def update_agent(
 ):
     """Update an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
 
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
@@ -927,8 +918,8 @@ async def list_blocks(
 ):
     """List all blocks."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
     return server.block_manager.get_blocks(user=user, label=label)
@@ -942,8 +933,8 @@ async def get_block(
 ):
     """Get a block by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
     # Get admin user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
     return server.block_manager.get_block_by_id(block_id, user=user)
@@ -1641,7 +1632,7 @@ async def delete_client_api_key(
             "message": f"API key {api_key_id} deleted successfully",
             "id": api_key_id,
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404, detail=f"API key {api_key_id} not found")
 
 
@@ -2116,8 +2107,8 @@ class SelfReflectionRequest(BaseModel):
     procedural_ids: Optional[List[str]] = None  # Procedural memory item IDs
 
 
-# Import self-reflection service functions
-from mirix.services.self_reflection_service import (
+# Import self-reflection service functions (intentionally here due to circular imports)
+from mirix.services.self_reflection_service import (  # noqa: E402
     retrieve_memories_by_updated_at_range,
     retrieve_specific_memories_by_ids,
     build_self_reflection_prompt,
@@ -2416,7 +2407,7 @@ def retrieve_memories_by_keywords(
     try:
         user = server.user_manager.get_user_by_id(user_id)
         timezone_str = user.timezone
-    except:
+    except Exception:
         timezone_str = "UTC"
     memories = {}
 
@@ -2962,7 +2953,7 @@ async def search_memory(
     try:
         user = server.user_manager.get_user_by_id(user_id)
         timezone_str = user.timezone
-    except:
+    except Exception:
         timezone_str = "UTC"
 
     # Parse filter_tags from JSON string to dict

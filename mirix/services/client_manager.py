@@ -7,7 +7,6 @@ from mirix.orm.client_api_key import ClientApiKey as ClientApiKeyModel
 from mirix.schemas.client import Client as PydanticClient
 from mirix.schemas.client import ClientUpdate
 from mirix.schemas.client_api_key import ClientApiKey as PydanticClientApiKey
-from mirix.schemas.client_api_key import ClientApiKeyCreate
 from mirix.services.organization_manager import OrganizationManager
 from mirix.utils import enforce_types
 from mirix.security.api_keys import hash_api_key
@@ -134,7 +133,7 @@ class ClientManager:
                 .filter(
                     ClientApiKeyModel.api_key_hash == hashed,
                     ClientApiKeyModel.status == "active",
-                    ClientApiKeyModel.is_deleted == False
+                    ClientApiKeyModel.is_deleted.is_(False)
                 )
                 .first()
             )
@@ -156,7 +155,7 @@ class ClientManager:
                 session.query(ClientApiKeyModel)
                 .filter(
                     ClientApiKeyModel.client_id == client_id,
-                    ClientApiKeyModel.is_deleted == False
+                    ClientApiKeyModel.is_deleted.is_(False)
                 )
                 .all()
             )
@@ -319,7 +318,7 @@ class ClientManager:
             
             agents_created_by_client = session.query(AgentModel).filter(
                 AgentModel._created_by_id == client_id,
-                AgentModel.is_deleted == False
+                AgentModel.is_deleted.is_(False)
             ).all()
             agent_ids = [agent.id for agent in agents_created_by_client]
             logger.debug("Found %d agents created by client %s", len(agent_ids), client_id)
@@ -333,7 +332,7 @@ class ClientManager:
             # Soft delete tools created by this client
             tools = session.query(ToolModel).filter(
                 ToolModel._created_by_id == client_id,
-                ToolModel.is_deleted == False
+                ToolModel.is_deleted.is_(False)
             ).all()
             for tool in tools:
                 tool.is_deleted = True
@@ -343,7 +342,7 @@ class ClientManager:
             # Soft delete blocks created by this client
             blocks = session.query(BlockModel).filter(
                 BlockModel._created_by_id == client_id,
-                BlockModel.is_deleted == False
+                BlockModel.is_deleted.is_(False)
             ).all()
             for block in blocks:
                 block.is_deleted = True

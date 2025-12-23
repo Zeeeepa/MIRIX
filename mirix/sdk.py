@@ -685,9 +685,6 @@ class Mirix:
             if not target_user:
                 return {"success": False, "error": "No user found"}
 
-            # Get the meta agent state to access memory agents
-            meta_agent_state = self._client.get_agent(self._meta_agent.id)
-            
             memories = {}
 
             # Get episodic memory

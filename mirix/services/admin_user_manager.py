@@ -217,7 +217,7 @@ class ClientAuthManager:
                 session.query(ClientModel)
                 .filter(
                     ClientModel.email == email.lower(),
-                    ClientModel.is_deleted == False
+                    ClientModel.is_deleted.is_(False)
                 )
                 .first()
             )
@@ -336,7 +336,7 @@ class ClientAuthManager:
                 session.query(ClientModel)
                 .filter(
                     ClientModel.email == email.lower(),
-                    ClientModel.is_deleted == False
+                    ClientModel.is_deleted.is_(False)
                 )
                 .first()
             )
@@ -387,7 +387,7 @@ class ClientAuthManager:
                 session.query(ClientModel)
                 .filter(
                     ClientModel.email == email.lower(),
-                    ClientModel.is_deleted == False
+                    ClientModel.is_deleted.is_(False)
                 )
                 .first()
             )
@@ -406,7 +406,7 @@ class ClientAuthManager:
             query = (
                 session.query(ClientModel)
                 .filter(
-                    ClientModel.is_deleted == False,
+                    ClientModel.is_deleted.is_(False),
                     ClientModel.email.isnot(None)
                 )
                 .order_by(ClientModel.created_at.desc())
@@ -451,7 +451,7 @@ class ClientAuthManager:
                 .filter(
                     ClientModel.email == email.lower(),
                     ClientModel.id != client_id,
-                    ClientModel.is_deleted == False
+                    ClientModel.is_deleted.is_(False)
                 )
                 .first()
             )
@@ -507,7 +507,7 @@ class ClientAuthManager:
             return (
                 session.query(ClientModel)
                 .filter(
-                    ClientModel.is_deleted == False,
+                    ClientModel.is_deleted.is_(False),
                     ClientModel.email.isnot(None)
                 )
                 .count()

@@ -12,10 +12,9 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(os.path.join(mirix_root, ".env"))
 
-import logging
+import logging  # noqa: E402
 
-from mirix.schemas.agent import AgentType
-from mirix.client import MirixClient
+from mirix.client import MirixClient  # noqa: E402
 
 # Configure logging
 logging.basicConfig(

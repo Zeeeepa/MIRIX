@@ -4,6 +4,7 @@
 llm_config:
   model: "gpt-4o-mini"
   model_endpoint_type: "openai"
+  api_key: "sk-proj-xxx"
   model_endpoint: "https://api.openai.com/v1"
   context_window: 128000
 
@@ -11,6 +12,7 @@ llm_config:
 topic_extraction_llm_config:
   model: "gpt-4.1-nano"
   model_endpoint_type: "openai"
+  api_key: "sk-proj-xxx"
   model_endpoint: "https://api.openai.com/v1"
   context_window: 128000
   # is_local_model: false
@@ -33,6 +35,7 @@ build_embeddings_for_memory: true
 embedding_config:
   embedding_model: "text-embedding-3-small"
   embedding_endpoint: "https://api.openai.com/v1"
+  api_key: "sk-proj-xxx"
   embedding_endpoint_type: "openai"
   embedding_dim: 1536
 

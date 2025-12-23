@@ -23,7 +23,6 @@ from mirix.constants import (
 )
 from mirix.log import get_logger
 from mirix.orm import Agent as AgentModel
-from mirix.orm import Block as BlockModel
 from mirix.orm import Tool as ToolModel
 from mirix.orm.errors import NoResultFound
 from mirix.schemas.agent import AgentState as PydanticAgentState
@@ -31,7 +30,6 @@ from mirix.schemas.agent import (
     AgentType,
     CreateAgent,
     CreateMetaAgent,
-    MemoryConfig,
     UpdateAgent,
     UpdateMetaAgent,
 )
@@ -1274,7 +1272,6 @@ class AgentManager:
         import json
 
         from mirix.database.redis_client import get_redis_client
-        from mirix.schemas.block import Block as PydanticBlock
         from mirix.schemas.memory import Memory as PydanticMemory
         from mirix.schemas.tool import Tool as PydanticTool
 
@@ -2236,7 +2233,7 @@ class AgentManager:
 
         if add_default_initial_messages:
             return self.append_initial_message_sequence_to_in_context_messages(
-                user, agent_state
+                actor, agent_state
             )
         else:
             # We still want to always have a system message

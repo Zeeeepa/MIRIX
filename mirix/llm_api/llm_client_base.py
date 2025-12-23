@@ -26,7 +26,7 @@ class LLMClientBase:
         self.use_tool_naming = use_tool_naming
         self.file_manager = FileManager()
         self.cloud_file_mapping_manager = CloudFileMappingManager()
-        self.logger = logging.getLogger(f"Mirix.LLMClientBase")
+        self.logger = logging.getLogger("Mirix.LLMClientBase")
 
     def send_llm_request(
         self,

@@ -1,95 +1,12 @@
 import json
-import uuid
 import warnings
 from typing import Optional
 
 from .constants import (
-    INITIAL_BOOT_MESSAGE,
-    INITIAL_BOOT_MESSAGE_SEND_MESSAGE_FIRST_MSG,
-    INITIAL_BOOT_MESSAGE_SEND_MESSAGE_THOUGHT,
     MESSAGE_SUMMARY_WARNING_STR,
 )
 from .helpers.datetime_helpers import get_local_time
 from .helpers.json_helpers import json_dumps
-
-
-def get_initial_boot_messages(version="startup"):
-    if version == "startup":
-        initial_boot_message = INITIAL_BOOT_MESSAGE
-        messages = [
-            {"role": "assistant", "content": initial_boot_message},
-        ]
-
-    elif version == "startup_with_send_message":
-        tool_call_id = str(uuid.uuid4())
-        messages = [
-            # first message includes both inner monologue and function call to send_message
-            {
-                "role": "assistant",
-                "content": INITIAL_BOOT_MESSAGE_SEND_MESSAGE_THOUGHT,
-                # "function_call": {
-                #     "name": "send_message",
-                #     "arguments": '{\n  "message": "' + f"{INITIAL_BOOT_MESSAGE_SEND_MESSAGE_FIRST_MSG}" + '"\n}',
-                # },
-                "tool_calls": [
-                    {
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": "send_message",
-                            "arguments": '{\n  "message": "'
-                            + f"{INITIAL_BOOT_MESSAGE_SEND_MESSAGE_FIRST_MSG}"
-                            + '"\n}',
-                        },
-                    }
-                ],
-            },
-            # obligatory function return message
-            {
-                # "role": "function",
-                "role": "tool",
-                "name": "send_message",  # NOTE: technically not up to spec, this is old functions style
-                "content": package_function_response(True, None),
-                "tool_call_id": tool_call_id,
-            },
-        ]
-
-    elif version == "startup_with_send_message_gpt35":
-        tool_call_id = str(uuid.uuid4())
-        messages = [
-            # first message includes both inner monologue and function call to send_message
-            {
-                "role": "assistant",
-                "content": "*inner thoughts* Still waiting on the user. Sending a message with function.",
-                # "function_call": {"name": "send_message", "arguments": '{\n  "message": "' + f"Hi, is anyone there?" + '"\n}'},
-                "tool_calls": [
-                    {
-                        "id": tool_call_id,
-                        "type": "function",
-                        "function": {
-                            "name": "send_message",
-                            "arguments": '{\n  "message": "'
-                            + "Hi, is anyone there?"
-                            + '"\n}',
-                        },
-                    }
-                ],
-            },
-            # obligatory function return message
-            {
-                # "role": "function",
-                "role": "tool",
-                "name": "send_message",
-                "content": package_function_response(True, None),
-                "tool_call_id": tool_call_id,
-            },
-        ]
-
-    else:
-        raise ValueError(version)
-
-    return messages
-
 
 def get_contine_chaining(
     reason="Automated timer",

@@ -1,16 +1,14 @@
-import os
 from typing import List, Optional
 
 from mirix.log import get_logger
 from mirix.orm.block import Block as BlockModel
 from mirix.orm.errors import NoResultFound
-from mirix.schemas.block import Block, BlockUpdate, Human, Persona
+from mirix.schemas.block import Block, BlockUpdate
 from mirix.schemas.block import Block as PydanticBlock
 from mirix.schemas.client import Client as PydanticClient
 from mirix.schemas.user import User as PydanticUser
-from mirix.utils import enforce_types, list_human_files, list_persona_files
+from mirix.utils import enforce_types
 
-from mirix.orm import user
 from mirix.orm.enums import AccessType
 
 logger = get_logger(__name__)
@@ -236,7 +234,6 @@ class BlockManager:
             List of newly created BlockModel instances
         """
         from mirix.services.user_manager import UserManager
-        from mirix.utils import generate_unique_short_id
         
         # ✅ NEW: Get the organization-specific default user
         # This ensures we copy blocks from the correct template within the same organization
@@ -441,7 +438,7 @@ class BlockManager:
             # Query all non-deleted records for this user
             blocks = session.query(BlockModel).filter(
                 BlockModel.user_id == user_id,
-                BlockModel.is_deleted == False
+                BlockModel.is_deleted.is_(False)
             ).all()
             
             count = len(blocks)
@@ -520,31 +517,3 @@ class BlockManager:
                 redis_client.client.delete(*batch)
         
         return count
-
-    @enforce_types
-    def add_default_blocks(self, actor: PydanticClient, user: Optional[PydanticUser] = None):
-        """
-        Add default persona and human blocks.
-        
-        Args:
-            actor: Client for audit trail
-            user_id: Optional user_id for block ownership (uses default if not provided)
-        """
-        # Use admin user if not provided
-        if user is None:
-            from mirix.services.user_manager import UserManager
-            user = UserManager().get_admin_user()
-        
-        for persona_file in list_persona_files():
-            text = open(persona_file, "r", encoding="utf-8").read()
-            name = os.path.basename(persona_file).replace(".txt", "")
-            self.create_or_update_block(
-                Persona(value=text), actor=actor, user=user
-            )
-
-        for human_file in list_human_files():
-            text = open(human_file, "r", encoding="utf-8").read()
-            name = os.path.basename(human_file).replace(".txt", "")
-            self.create_or_update_block(
-                Human(value=text), actor=actor, user=user
-            )

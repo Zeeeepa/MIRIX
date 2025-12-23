@@ -24,7 +24,6 @@ from mirix.queue.memory_queue import MemoryQueue, PartitionedMemoryQueue
 # Note: ProtoUser and ProtoMessageCreate are generated from message.proto
 from mirix.queue.message_pb2 import MessageCreate as ProtoMessageCreate
 from mirix.queue.message_pb2 import QueueMessage
-from mirix.queue.message_pb2 import User as ProtoUser
 from mirix.queue.queue_util import put_messages
 from mirix.queue.worker import QueueWorker
 
@@ -249,7 +248,7 @@ class TestPartitionedMemoryQueue:
                 # Put it back for counting
                 queue._partitions[partition_id].put(msg)
                 break
-            except:
+            except Exception:
                 continue
 
         assert partition_with_messages is not None
@@ -260,7 +259,7 @@ class TestPartitionedMemoryQueue:
             try:
                 queue.get_from_partition(partition_with_messages, timeout=0.1)
                 count += 1
-            except:
+            except Exception:
                 break
 
         assert count == 10  # All 10 messages in same partition
@@ -287,7 +286,7 @@ class TestPartitionedMemoryQueue:
             try:
                 queue.get_from_partition(partition_id, timeout=0.01)
                 partitions_with_messages.add(partition_id)
-            except:
+            except Exception:
                 continue
 
         # With 50 users and 100 partitions, we should have some spread
@@ -349,7 +348,7 @@ class TestPartitionedMemoryQueue:
                 try:
                     queue.get_from_partition(partition_id, timeout=0.01)
                     count += 1
-                except:
+                except Exception:
                     break
             partition_counts.append(count)
 
