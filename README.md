@@ -31,6 +31,7 @@ Your personal AI that builds memory through screen observation and natural conve
 ```
 pip install mirix==0.1.6
 ```
+Get your API key and view memory call traces at https://app.mirix.io.
 ```python
 from mirix import MirixClient
 
