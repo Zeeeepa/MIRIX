@@ -74,21 +74,12 @@ npm run dev
 
 **Step 2: Create an API key in the dashboard (http://localhost:5173) and set as the environmental variable `MIRIX_API_KEY`.**
 
-**Step 3: Client (Python, `mirix-client`, https://pypi.org/project/mirix-client/):**
-```
-pip install mirix-client
-```
-In terminal 3:
-```
-python samples/run_client.py
-```
-
 Now you are ready to go! See the example below:
 ```python
 from mirix import MirixClient
 
 client = MirixClient(
-    api_key="your-api-key",
+    api_key="your-api-key", # if you set MIRIX_API_KEY as the environmental variable then you don't need this
     base_url="http://localhost:8531",
 )
 
