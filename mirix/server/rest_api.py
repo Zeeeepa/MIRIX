@@ -4213,7 +4213,7 @@ class DashboardClientResponse(BaseModel):
     admin_user_id: str  # Admin user for memory operations
     created_at: Optional[datetime]
     last_login: Optional[datetime]
-    credits: float = 100.0  # Available credits for LLM API calls (1 credit = 1 dollar)
+    credits: float = 10.0  # Available credits for LLM API calls (1 credit = 1 dollar)
 
 
 class TokenResponse(BaseModel):

@@ -2867,7 +2867,7 @@ files = [
 
 [[package]]
 name = "mirix"
-version = "0.1.4"
+version = "0.1.6"
 description = "Multi-Agent Personal Assistant with an Advanced Memory System"
 optional = false
 python-versions = ">=3.10,<4.0"

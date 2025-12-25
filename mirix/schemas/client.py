@@ -51,8 +51,8 @@ class Client(ClientBase):
 
     # Credits for LLM usage (1 credit = 1 dollar)
     credits: float = Field(
-        100.0,
-        description="Available credits for LLM API calls. New clients start with $100. 1 credit = 1 dollar.",
+        10.0,
+        description="Available credits for LLM API calls. New clients start with $10. 1 credit = 1 dollar.",
     )
 
     created_at: Optional[datetime] = Field(
