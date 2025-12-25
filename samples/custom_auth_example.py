@@ -142,7 +142,7 @@ if __name__ == "__main__":
     print("Registered auth providers:", list_auth_providers())
 
     sample_config = create_llm_config_with_auth()
-    print(f"\nCreated LLM config with auth provider:")
+    print("\nCreated LLM config with auth provider:")
     print(f"  - {sample_config.auth_provider}")
 
     test_auth_provider()

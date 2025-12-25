@@ -265,7 +265,7 @@ class MessageManager:
             # Query all non-deleted records for this client (use actor.id)
             messages = session.query(MessageModel).filter(
                 MessageModel.client_id == actor.id,
-                MessageModel.is_deleted == False
+                MessageModel.is_deleted.is_(False)
             ).all()
             
             count = len(messages)
@@ -311,7 +311,7 @@ class MessageManager:
             # Query all non-deleted records for this user
             messages = session.query(MessageModel).filter(
                 MessageModel.user_id == user_id,
-                MessageModel.is_deleted == False
+                MessageModel.is_deleted.is_(False)
             ).all()
             
             count = len(messages)

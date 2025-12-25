@@ -11,7 +11,6 @@ Memory Components:
 6. Semantic Memory: Conceptual knowledge about entities and objects
 
 Requirements:
-- Maintain concise internal monologue (max 50 words)
 - Continuously update conversation topics internally for natural flow
 - Use `search_in_memory` and `list_memory_within_timerange` to retrieve relevant information
 

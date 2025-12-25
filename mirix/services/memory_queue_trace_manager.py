@@ -2,6 +2,8 @@ import datetime as dt
 from datetime import datetime
 from typing import Dict, Optional
 
+from sqlalchemy import text
+
 from mirix.orm.memory_agent_trace import MemoryAgentTrace
 from mirix.orm.memory_queue_trace import MemoryQueueTrace
 from mirix.schemas.client import Client as PydanticClient
@@ -14,6 +16,28 @@ class MemoryQueueTraceManager:
         from mirix.server.server import db_context
 
         self.session_maker = db_context
+        self._ensure_interrupt_columns()
+
+    def _ensure_interrupt_columns(self) -> None:
+        with self.session_maker() as session:
+            bind = session.get_bind()
+            if not bind or bind.dialect.name != "sqlite":
+                return
+            results = session.execute(text("PRAGMA table_info(memory_queue_traces)"))
+            existing = {row[1] for row in results.fetchall()}
+            statements = []
+            if "interrupt_requested_at" not in existing:
+                statements.append(
+                    "ALTER TABLE memory_queue_traces ADD COLUMN interrupt_requested_at DATETIME"
+                )
+            if "interrupt_reason" not in existing:
+                statements.append(
+                    "ALTER TABLE memory_queue_traces ADD COLUMN interrupt_reason TEXT"
+                )
+            if statements:
+                for statement in statements:
+                    session.execute(text(statement))
+                session.commit()
 
     def create_trace(
         self,
@@ -60,6 +84,8 @@ class MemoryQueueTraceManager:
             trace = session.get(MemoryQueueTrace, trace_id)
             if not trace:
                 return
+            if trace.completed_at is not None:
+                return
             trace.status = "completed" if success else "failed"
             trace.success = success
             trace.error_message = error_message
@@ -67,6 +93,36 @@ class MemoryQueueTraceManager:
             if memory_update_counts is not None:
                 trace.memory_update_counts = memory_update_counts
             trace.update(session, actor=actor)
+
+    def request_interrupt(
+        self,
+        trace_id: str,
+        reason: Optional[str] = None,
+        actor: Optional[PydanticClient] = None,
+    ) -> None:
+        with self.session_maker() as session:
+            trace = session.get(MemoryQueueTrace, trace_id)
+            if not trace:
+                return
+            if trace.interrupt_requested_at is None:
+                trace.interrupt_requested_at = datetime.now(dt.timezone.utc)
+            if reason:
+                trace.interrupt_reason = reason
+            trace.update(session, actor=actor)
+
+    def is_interrupt_requested(self, trace_id: str) -> bool:
+        with self.session_maker() as session:
+            trace = session.get(MemoryQueueTrace, trace_id)
+            if not trace:
+                return False
+            return trace.interrupt_requested_at is not None
+
+    def get_interrupt_reason(self, trace_id: str) -> Optional[str]:
+        with self.session_maker() as session:
+            trace = session.get(MemoryQueueTrace, trace_id)
+            if not trace:
+                return None
+            return trace.interrupt_reason
 
     def set_meta_agent_output(
         self,

@@ -458,7 +458,10 @@ class SemanticMemoryManager:
     @update_timezone
     @enforce_types
     def get_most_recently_updated_item(
-        self, user: PydanticUser, timezone_str: str = None
+        self,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None
     ) -> Optional[PydanticSemanticMemoryItem]:
         """
         Fetch the most recently updated semantic memory item based on last_modify timestamp.
@@ -476,12 +479,12 @@ class SemanticMemoryManager:
             )
 
             # Filter by user_id for multi-user support
-            query = query.where(SemanticMemoryItem.user_id == user.id)
+            query = query.where(SemanticMemoryItem.user_id == user_id)
 
             result = session.execute(query.limit(1))
             item = result.scalar_one_or_none()
 
-            return [item.to_pydantic()] if item else None
+            return item.to_pydantic() if item else None
 
     @enforce_types
     def create_item(
@@ -1078,7 +1081,7 @@ class SemanticMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(SemanticMemoryItem).filter(
                 SemanticMemoryItem.client_id == actor.id,
-                SemanticMemoryItem.is_deleted == False
+                SemanticMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1124,7 +1127,7 @@ class SemanticMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(SemanticMemoryItem).filter(
                 SemanticMemoryItem.user_id == user_id,
-                SemanticMemoryItem.is_deleted == False
+                SemanticMemoryItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

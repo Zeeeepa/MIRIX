@@ -1,7 +1,7 @@
 """Tests for temporal query functionality."""
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime
 from mirix.temporal.temporal_parser import parse_temporal_expression, TemporalRange
 
 

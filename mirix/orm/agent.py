@@ -70,6 +70,11 @@ class Agent(SqlalchemyBase, OrganizationMixin):
         nullable=True,
         doc="the LLM backend configuration object for this agent.",
     )
+    topic_extraction_llm_config: Mapped[Optional[LLMConfig]] = mapped_column(
+        LLMConfigColumn,
+        nullable=True,
+        doc="optional LLM configuration used for topic extraction.",
+    )
     embedding_config: Mapped[Optional[EmbeddingConfig]] = mapped_column(
         EmbeddingConfigColumn, doc="the embedding configuration object for this agent."
     )
@@ -125,6 +130,7 @@ class Agent(SqlalchemyBase, OrganizationMixin):
             "system": self.system,
             "agent_type": self.agent_type,
             "llm_config": self.llm_config,
+            "topic_extraction_llm_config": self.topic_extraction_llm_config,
             "embedding_config": self.embedding_config,
             "memory": Memory(blocks=[b.to_pydantic() for b in self.core_memory]),
             "created_by_id": self.created_by_id,

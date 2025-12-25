@@ -21,17 +21,17 @@ warnings.filterwarnings(
     module="speech_recognition",
 )
 
-from mirix.schemas.agent import (
+from mirix.schemas.agent import (  # noqa: E402
     AgentType,
     CreateMetaAgent,
     MemoryConfig,
     MemoryDecayConfig,
     UpdateAgent,
 )
-from mirix.schemas.client import Client
-from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.organization import Organization
-from mirix.schemas.user import User as PydanticUser
+from mirix.schemas.client import Client  # noqa: E402
+from mirix.schemas.llm_config import LLMConfig  # noqa: E402
+from mirix.schemas.organization import Organization  # noqa: E402
+from mirix.schemas.user import User as PydanticUser  # noqa: E402
 
 
 TEST_RUN_ID = uuid.uuid4().hex[:8]

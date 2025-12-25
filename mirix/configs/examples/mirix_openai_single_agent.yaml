@@ -7,6 +7,25 @@ llm_config:
   model_endpoint: "https://api.openai.com/v1"
   context_window: 128000
 
+# Optional: separate model for topic extraction
+topic_extraction_llm_config:
+  model: "gpt-4o-mini"
+  model_endpoint_type: "openai"
+  model_endpoint: "https://api.openai.com/v1"
+  context_window: 128000
+  # is_local_model: false
+  # Local OpenAI-compatible (LM Studio / vLLM):
+  # model: "your-local-model"
+  # model_endpoint_type: "openai"
+  # model_endpoint: "http://localhost:1234/v1"
+  # is_local_model: true
+  # context_window: 8192
+  # Ollama (local):
+  # model: "llama3.2"
+  # model_endpoint_type: "ollama"
+  # model_endpoint: "http://localhost:11434"
+  # context_window: 8192
+
 build_embeddings_for_memory: true
 
 embedding_config:

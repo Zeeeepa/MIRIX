@@ -2,7 +2,7 @@ import datetime as dt
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from mirix.orm.mixins import OrganizationMixin
@@ -42,6 +42,10 @@ class MemoryQueueTrace(SqlalchemyBase, OrganizationMixin):
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    interrupt_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    interrupt_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     success: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

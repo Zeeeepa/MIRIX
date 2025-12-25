@@ -13,7 +13,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import requests
@@ -1116,14 +1116,6 @@ class LocalClient(AbstractClient):
             input_messages = [
                 MessageCreate(role=MessageRole(role), content=content, name=name)
             ]
-            if extra_messages is not None:
-                extra_messages = [
-                    MessageCreate(
-                        role=MessageRole(role),
-                        content=[convert_message(m) for m in extra_messages],
-                        name=name,
-                    )
-                ]
 
         else:
             raise ValueError(f"Invalid message type: {type(message)}")

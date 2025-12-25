@@ -14,7 +14,6 @@ import pytest
 import requests
 
 from mirix.client import MirixClient
-from mirix.schemas.agent import AgentState
 
 
 # Configure logging
@@ -276,7 +275,7 @@ def test_get_agent_by_id_enforces_client_ownership(client_a, client_b, meta_agen
     error_message = str(exc_info.value).lower()
     assert "not found" in error_message or "404" in error_message, \
         f"Expected 404/not found error, got: {exc_info.value}"
-    print(f"✅ Client B correctly denied access to client A's agent (404)")
+    print("✅ Client B correctly denied access to client A's agent (404)")
     
     # Client A tries to access client B's agent - should fail
     with pytest.raises(Exception) as exc_info:
@@ -285,7 +284,7 @@ def test_get_agent_by_id_enforces_client_ownership(client_a, client_b, meta_agen
     error_message = str(exc_info.value).lower()
     assert "not found" in error_message or "404" in error_message, \
         f"Expected 404/not found error, got: {exc_info.value}"
-    print(f"✅ Client A correctly denied access to client B's agent (404)")
+    print("✅ Client A correctly denied access to client B's agent (404)")
     
     print("✅ Client ownership enforcement verified")
 
@@ -328,7 +327,7 @@ def test_child_agents_filtered_by_client(client_a, client_b, meta_agent_a, meta_
     if meta_a.children and len(meta_a.children) > 0:
         print(f"✅ Client A's meta agent has {len(meta_a.children)} sub-agents")
     else:
-        print(f"ℹ️  Client A's meta agent children not yet populated (async timing)")
+        print("ℹ️  Client A's meta agent children not yet populated (async timing)")
     
     # Verify client B's meta agent has children
     # If children field is empty, it might be due to async timing - log but don't fail immediately
@@ -346,7 +345,7 @@ def test_child_agents_filtered_by_client(client_a, client_b, meta_agent_a, meta_
     if meta_b.children and len(meta_b.children) > 0:
         print(f"✅ Client B's meta agent has {len(meta_b.children)} sub-agents")
     else:
-        print(f"ℹ️  Client B's meta agent children not yet populated (async timing)")
+        print("ℹ️  Client B's meta agent children not yet populated (async timing)")
     
     # Verify all of client A's children are created by client A (if children exist)
     if meta_a.children:
@@ -390,12 +389,12 @@ def test_memory_apis_use_correct_client_agents(client_a, client_b, meta_agent_a,
     ]
     
     try:
-        result_a = client_a.add(
+        client_a.add(
             user_id=TEST_USER_A_ID,
             messages=messages_a
         )
         # The client automatically uses its own meta agent
-        print(f"✅ Client A successfully added memory using its meta agent")
+        print("✅ Client A successfully added memory using its meta agent")
     except Exception as e:
         pytest.fail(f"Client A failed to add memory: {e}")
     
@@ -405,12 +404,12 @@ def test_memory_apis_use_correct_client_agents(client_a, client_b, meta_agent_a,
     ]
     
     try:
-        result_b = client_b.add(
+        client_b.add(
             user_id=TEST_USER_B_ID,
             messages=messages_b
         )
         # The client automatically uses its own meta agent
-        print(f"✅ Client B successfully added memory using its meta agent")
+        print("✅ Client B successfully added memory using its meta agent")
     except Exception as e:
         pytest.fail(f"Client B failed to add memory: {e}")
     
@@ -419,24 +418,24 @@ def test_memory_apis_use_correct_client_agents(client_a, client_b, meta_agent_a,
     
     # Try to retrieve memories for client A
     try:
-        memories_a = client_a.retrieve_memory_with_topic(
+        client_a.retrieve_memory_with_topic(
             user_id=TEST_USER_A_ID,
             topic="Python"
         )
         # If retrieval succeeds, it used the correct client's agents
-        print(f"✅ Client A successfully retrieved memories using its agents")
+        print("✅ Client A successfully retrieved memories using its agents")
     except Exception as e:
         # Some errors are acceptable (e.g., no memories found yet)
         print(f"ℹ️  Client A memory retrieval: {e}")
     
     # Try to retrieve memories for client B
     try:
-        memories_b = client_b.retrieve_memory_with_topic(
+        client_b.retrieve_memory_with_topic(
             user_id=TEST_USER_B_ID,
             topic="Java"
         )
         # If retrieval succeeds, it used the correct client's agents
-        print(f"✅ Client B successfully retrieved memories using its agents")
+        print("✅ Client B successfully retrieved memories using its agents")
     except Exception as e:
         # Some errors are acceptable (e.g., no memories found yet)
         print(f"ℹ️  Client B memory retrieval: {e}")
@@ -449,8 +448,8 @@ def test_memory_apis_use_correct_client_agents(client_a, client_b, meta_agent_a,
     # Actual behavior: Each client automatically uses its own meta agent (enforced by design)
     # This is MORE SECURE than allowing agent_id as a parameter
     
-    print(f"ℹ️  Agent isolation is enforced by design: each client automatically uses its own meta agent")
-    print(f"✅ Client B can only use its own agents (no way to specify client A's agent)")
+    print("ℹ️  Agent isolation is enforced by design: each client automatically uses its own meta agent")
+    print("✅ Client B can only use its own agents (no way to specify client A's agent)")
     
     print("✅ Memory API client isolation verified")
 
@@ -492,7 +491,7 @@ def test_redis_cache_respects_client_isolation(client_a, client_b, meta_agent_a,
     error_message = str(exc_info.value).lower()
     assert "not found" in error_message or "404" in error_message, \
         f"Expected 404/not found error, got: {exc_info.value}"
-    print(f"✅ Client B denied access to cached agent from client A")
+    print("✅ Client B denied access to cached agent from client A")
     
     # Verify client A cannot access client B's cached agent
     with pytest.raises(Exception) as exc_info:
@@ -501,7 +500,7 @@ def test_redis_cache_respects_client_isolation(client_a, client_b, meta_agent_a,
     error_message = str(exc_info.value).lower()
     assert "not found" in error_message or "404" in error_message, \
         f"Expected 404/not found error, got: {exc_info.value}"
-    print(f"✅ Client A denied access to cached agent from client B")
+    print("✅ Client A denied access to cached agent from client B")
     
     print("✅ Redis cache client isolation verified")
 
@@ -529,7 +528,7 @@ def test_initialization_creates_separate_hierarchies(client_a, client_b):
     assert len(top_level_b) == 1, \
         f"Client B should have exactly 1 top-level agent, got {len(top_level_b)}"
     
-    print(f"✅ Each client has exactly 1 top-level agent (meta agent)")
+    print("✅ Each client has exactly 1 top-level agent (meta agent)")
     
     # Get child agents for each
     meta_a = top_level_a[0]

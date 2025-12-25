@@ -222,13 +222,17 @@ class EpisodicMemoryManager:
     @update_timezone
     @enforce_types
     def get_most_recently_updated_event(
-        self, user: PydanticUser, timezone_str: str = None
+        self,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None
     ) -> Optional[PydanticEpisodicEvent]:
         """
         Fetch the most recently updated episodic event based on last_modify timestamp.
         
         Args:
-            user: User who owns the memories to query
+            actor: Client performing the operation
+            user_id: User who owns the memories to query
             timezone_str: Optional timezone string
             
         Returns:
@@ -240,7 +244,7 @@ class EpisodicMemoryManager:
 
             query = (
                 select(EpisodicEvent)
-                .where(EpisodicEvent.user_id == user.id)
+                .where(EpisodicEvent.user_id == user_id)
                 .order_by(
                     cast(
                         text("episodic_memory.last_modify ->> 'timestamp'"), DateTime
@@ -251,7 +255,7 @@ class EpisodicMemoryManager:
             result = session.execute(query.limit(1))
             episodic_memory = result.scalar_one_or_none()
 
-            return [episodic_memory.to_pydantic()] if episodic_memory else None
+            return episodic_memory.to_pydantic() if episodic_memory else None
 
     @enforce_types
     def create_episodic_memory(
@@ -423,7 +427,7 @@ class EpisodicMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(EpisodicEvent).filter(
                 EpisodicEvent.client_id == actor.id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -471,7 +475,7 @@ class EpisodicMemoryManager:
             # Extract IDs BEFORE bulk update (for Redis cleanup)
             item_ids = [row[0] for row in session.query(EpisodicEvent.id).filter(
                 EpisodicEvent.user_id == user_id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).all()]
             
             count = len(item_ids)
@@ -481,7 +485,7 @@ class EpisodicMemoryManager:
             # Batch soft delete in database using single SQL UPDATE
             session.query(EpisodicEvent).filter(
                 EpisodicEvent.user_id == user_id,
-                EpisodicEvent.is_deleted == False
+                EpisodicEvent.is_deleted.is_(False)
             ).update(
                 {
                     "is_deleted": True,
@@ -1630,7 +1634,6 @@ class EpisodicMemoryManager:
                 return [event.to_pydantic() for event in episodic_memory]
 
             if search_method == "embedding":
-                embed_query = True
                 embedding_config = agent_state.embedding_config
 
                 # Use provided embedding or generate it
@@ -1668,7 +1671,7 @@ class EpisodicMemoryManager:
                 base_query = base_query.order_by(embedding_query_field)
             elif search_method == "bm25":
                 # Use PostgreSQL native full-text search if available
-                from sqlalchemy import text, func
+                from sqlalchemy import func
                 
                 # Determine search field
                 if not search_field or search_field == "details":

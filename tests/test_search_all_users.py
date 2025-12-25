@@ -469,8 +469,8 @@ class TestSearchAllUsers:
         
         user_ids_in_results = set(result['user_id'] for result in results['results'])
         logger.info(f"User IDs in results: {user_ids_in_results}")
-        logger.info(f"Searching with client1 scope='read_write'")
-        logger.info(f"User 3 has scope='read_only' (via client3)")
+        logger.info("Searching with client1 scope='read_write'")
+        logger.info("User 3 has scope='read_only' (via client3)")
         
         assert user3_id not in user_ids_in_results, "User 3 memories should be excluded (scope='read_only' doesn't match 'read_write')"
         

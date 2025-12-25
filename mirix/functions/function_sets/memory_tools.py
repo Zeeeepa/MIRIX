@@ -116,7 +116,6 @@ def episodic_memory_insert(self: "Agent", items: List[EpisodicEventForLLM]):
     # Get filter_tags, use_cache, client_id, user_id, and occurred_at from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
     occurred_at_override = getattr(self, 'occurred_at', None)  # Optional timestamp override from API
 
@@ -204,7 +203,6 @@ def episodic_memory_replace(
     # Get filter_tags, use_cache, client_id, user_id, and occurred_at from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     occurred_at_override = getattr(self, 'occurred_at', None)  # Optional timestamp override from API
     user_id = self.user_id
 
@@ -301,7 +299,6 @@ def resource_memory_insert(self: "Agent", items: List[ResourceMemoryItemBase]):
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
@@ -377,7 +374,6 @@ def resource_memory_update(
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
@@ -420,7 +416,6 @@ def procedural_memory_insert(self: "Agent", items: List[ProceduralMemoryItemBase
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
@@ -497,7 +492,6 @@ def procedural_memory_update(
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:
@@ -572,7 +566,6 @@ def semantic_memory_insert(self: "Agent", items: List[SemanticMemoryItemBase]):
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
@@ -653,7 +646,6 @@ def semantic_memory_update(
     # Get filter_tags, use_cache, client_id, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
     
     for old_id in old_semantic_item_ids:
@@ -702,10 +694,9 @@ def knowledge_insert(self: "Agent", items: List[KnowledgeItemBase]):
         else self.agent_state.id
     )
     
-    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    # Get filter_tags, use_cache, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     inserted_count = 0
@@ -782,10 +773,9 @@ def knowledge_update(
         else self.agent_state.id
     )
     
-    # Get filter_tags, use_cache, client_id, and user_id from agent instance
+    # Get filter_tags, use_cache, and user_id from agent instance
     filter_tags = getattr(self, 'filter_tags', None)
     use_cache = getattr(self, 'use_cache', True)
-    client_id = getattr(self, 'client_id', None)
     user_id = getattr(self, 'user_id', None)
 
     for old_id in old_ids:

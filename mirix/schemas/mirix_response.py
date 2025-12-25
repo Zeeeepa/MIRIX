@@ -147,7 +147,6 @@ class MirixResponse(BaseModel):
             .json-key, .function-name, .json-boolean { color: #9cdcfe; }
             .json-string { color: #ce9178; }
             .json-number { color: #b5cea8; }
-            .internal-monologue { font-style: italic; }
         </style>
         <div class="message-container">
         """

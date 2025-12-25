@@ -8,7 +8,6 @@ user_id-based partitioning for parallel processing.
 """
 
 import atexit
-import logging
 import time
 from typing import Any, List, Optional
 

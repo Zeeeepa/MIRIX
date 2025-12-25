@@ -34,6 +34,12 @@ class MemoryQueueTrace(MemoryQueueTraceBase):
     completed_at: Optional[datetime] = Field(
         None, description="When processing completed"
     )
+    interrupt_requested_at: Optional[datetime] = Field(
+        None, description="When an interrupt was requested"
+    )
+    interrupt_reason: Optional[str] = Field(
+        None, description="Reason for interruption request"
+    )
 
     message_count: int = Field(0, description="Number of input messages queued")
     success: Optional[bool] = Field(

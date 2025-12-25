@@ -477,7 +477,10 @@ class KnowledgeMemoryManager:
     @update_timezone
     @enforce_types
     def get_most_recently_updated_item(
-        self, user: PydanticUser, timezone_str: str = None
+        self,
+        actor: PydanticClient,
+        user_id: str,
+        timezone_str: str = None
     ) -> Optional[PydanticKnowledgeItem]:
         """
         Fetch the most recently updated knowledge item based on last_modify timestamp.
@@ -495,12 +498,12 @@ class KnowledgeMemoryManager:
             )
 
             # Filter by user_id for multi-user support
-            query = query.where(KnowledgeItem.user_id == user.id)
+            query = query.where(KnowledgeItem.user_id == user_id)
 
             result = session.execute(query.limit(1))
             item = result.scalar_one_or_none()
 
-            return [item.to_pydantic()] if item else None
+            return item.to_pydantic() if item else None
 
     @enforce_types
     def create_item(
@@ -1087,7 +1090,7 @@ class KnowledgeMemoryManager:
             # Query all non-deleted records for this client (use actor.id)
             items = session.query(KnowledgeItem).filter(
                 KnowledgeItem.client_id == actor.id,
-                KnowledgeItem.is_deleted == False
+                KnowledgeItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)
@@ -1133,7 +1136,7 @@ class KnowledgeMemoryManager:
             # Query all non-deleted records for this user
             items = session.query(KnowledgeItem).filter(
                 KnowledgeItem.user_id == user_id,
-                KnowledgeItem.is_deleted == False
+                KnowledgeItem.is_deleted.is_(False)
             ).all()
             
             count = len(items)

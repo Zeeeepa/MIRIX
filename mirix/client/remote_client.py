@@ -16,31 +16,163 @@ from urllib3.util.retry import Retry
 from mirix.client.client import AbstractClient
 from mirix.constants import FUNCTION_RETURN_CHAR_LIMIT
 from mirix.log import get_logger
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent
-from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
+from mirix.schemas.agent import AgentState, AgentType
+from mirix.schemas.block import Block, Human, Persona
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.environment_variables import (
     SandboxEnvironmentVariable,
-    SandboxEnvironmentVariableCreate,
-    SandboxEnvironmentVariableUpdate,
 )
-from mirix.schemas.file import FileMetadata
 from mirix.schemas.llm_config import LLMConfig
 from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
-from mirix.schemas.message import Message, MessageCreate
+from mirix.schemas.message import Message
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.organization import Organization
 from mirix.schemas.sandbox_config import (
     E2BSandboxConfig,
     LocalSandboxConfig,
     SandboxConfig,
-    SandboxConfigCreate,
-    SandboxConfigUpdate,
 )
-from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
+from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import BaseToolRule
 
 logger = get_logger(__name__)
+
+
+# Default configurations for different LLM providers
+PROVIDER_DEFAULTS = {
+    "openai": {
+        "llm_config": {
+            "model": "gpt-4o-mini",
+            "model_endpoint_type": "openai",
+            "model_endpoint": "https://api.openai.com/v1",
+            "context_window": 128000,
+        },
+        "topic_extraction_llm_config": {
+            "model": "gpt-4.1-nano",
+            "model_endpoint_type": "openai",
+            "model_endpoint": "https://api.openai.com/v1",
+            "context_window": 128000,
+        },
+        "build_embeddings_for_memory": True,
+        "embedding_config": {
+            "embedding_model": "text-embedding-3-small",
+            "embedding_endpoint": "https://api.openai.com/v1",
+            "embedding_endpoint_type": "openai",
+            "embedding_dim": 1536,
+        },
+    },
+    "anthropic": {
+        "llm_config": {
+            "model": "claude-sonnet-4-20250514",
+            "model_endpoint_type": "anthropic",
+            "model_endpoint": "https://api.anthropic.com/v1",
+            "context_window": 200000,
+        },
+        "topic_extraction_llm_config": {
+            "model": "claude-sonnet-4-20250514",
+            "model_endpoint_type": "anthropic",
+            "model_endpoint": "https://api.anthropic.com/v1",
+            "context_window": 200000,
+        },
+        # Anthropic doesn't provide embeddings, use without embeddings
+        "build_embeddings_for_memory": False,
+    },
+    "google_ai": {
+        "llm_config": {
+            "model": "gemini-2.0-flash",
+            "model_endpoint_type": "google_ai",
+            "model_endpoint": "https://generativelanguage.googleapis.com",
+            "context_window": 1000000,
+        },
+        "topic_extraction_llm_config": {
+            "model": "gemini-2.0-flash-lite",
+            "model_endpoint_type": "google_ai",
+            "model_endpoint": "https://generativelanguage.googleapis.com",
+            "context_window": 1000000,
+        },
+        "build_embeddings_for_memory": True,
+        "embedding_config": {
+            "embedding_model": "text-embedding-004",
+            "embedding_endpoint_type": "google_ai",
+            "embedding_endpoint": "https://generativelanguage.googleapis.com",
+            "embedding_dim": 768,
+        },
+    },
+}
+
+# Default meta agent configuration shared across all providers
+DEFAULT_META_AGENT_CONFIG = {
+    "system_prompts_folder": "mirix/prompts/system/base",
+    "agents": [
+        "core_memory_agent",
+        "resource_memory_agent",
+        "semantic_memory_agent",
+        "episodic_memory_agent",
+        "procedural_memory_agent",
+        "knowledge_memory_agent",
+        "reflexion_agent",
+        "background_agent",
+    ],
+    "memory": {
+        "core": [
+            {"label": "human", "value": ""},
+            {"label": "persona", "value": "I am a helpful assistant."},
+        ],
+        "decay": {
+            "fade_after_days": 30,
+            "expire_after_days": 90,
+        },
+    },
+}
+
+
+def _get_provider_config(
+    provider: str,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Generate a configuration dictionary for a specific LLM provider.
+    
+    Args:
+        provider: The LLM provider name ("openai", "anthropic", "google_ai")
+        api_key: Optional API key for the provider. If not provided, the config
+                 won't include api_key (user can set via environment variables).
+        model: Optional model name to override the default
+    
+    Returns:
+        A complete configuration dictionary ready for initialize_meta_agent
+    """
+    import copy
+    
+    provider = provider.lower()
+    if provider not in PROVIDER_DEFAULTS:
+        raise ValueError(
+            f"Unknown provider '{provider}'. "
+            f"Supported providers: {list(PROVIDER_DEFAULTS.keys())}"
+        )
+    
+    # Deep copy to avoid modifying the defaults
+    config = copy.deepcopy(PROVIDER_DEFAULTS[provider])
+    
+    # Set API key for LLM configs (only if provided)
+    if api_key:
+        config["llm_config"]["api_key"] = api_key
+        config["topic_extraction_llm_config"]["api_key"] = api_key
+    
+    # Override model if specified
+    if model:
+        config["llm_config"]["model"] = model
+        config["topic_extraction_llm_config"]["model"] = model
+    
+    # Set embedding API key (only for providers that use embeddings)
+    if api_key and config.get("build_embeddings_for_memory") and "embedding_config" in config:
+        config["embedding_config"]["api_key"] = api_key
+    
+    # Add meta agent config
+    config["meta_agent_config"] = copy.deepcopy(DEFAULT_META_AGENT_CONFIG)
+    
+    return config
 
 
 def _validate_occurred_at(occurred_at: Optional[str]) -> Optional[datetime]:
@@ -203,7 +335,7 @@ class MirixClient(AbstractClient):
         """
         try:
             # Create or get organization first
-            org_response = self._request(
+            self._request(
                 "POST",
                 "/organizations/create_or_get",
                 json={"org_id": self.org_id, "name": self.org_name},
@@ -217,7 +349,7 @@ class MirixClient(AbstractClient):
                 )
 
             # Create or get client
-            client_response = self._request(
+            self._request(
                 "POST",
                 "/clients/create_or_get",
                 json={
@@ -390,7 +522,7 @@ class MirixClient(AbstractClient):
             # Try to extract error message from response
             try:
                 error_detail = response.json().get("detail", str(e))
-            except:
+            except Exception:
                 error_detail = str(e)
             raise requests.HTTPError(f"API request failed: {error_detail}") from e
         
@@ -1192,8 +1324,10 @@ class MirixClient(AbstractClient):
     
     def initialize_meta_agent(
         self,
+        provider: Optional[str] = None,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        config_path: Optional[str] = None,
         update_agents: Optional[bool] = False,
         headers: Optional[Dict[str, str]] = None,
     ) -> AgentState:
@@ -1203,15 +1337,51 @@ class MirixClient(AbstractClient):
         This creates a meta memory agent that manages multiple specialized memory agents
         (episodic, semantic, procedural, etc.) for the current project.
         
+        There are two ways to provide configuration (in order of precedence):
+        1. provider (+ optional api_key): Use default config for the specified provider
+        2. config: Provide a complete configuration dictionary
+        
         Args:
+            provider: LLM provider name ("openai", "anthropic", "google_ai").
+                     Uses default configuration for that provider.
+            api_key: Optional API key for the LLM provider. If not provided,
+                     you can set it via environment variables (e.g., OPENAI_API_KEY).
+            model: Optional model name to override the provider's default model
             config: Configuration dictionary with llm_config, embedding_config, etc.
-            config_path: Path to YAML config file (alternative to config dict)
+            update_agents: Whether to update existing agents
+            headers: Optional HTTP headers for the request
             
         Returns:
             AgentState: The initialized meta agent
             
-        Example:
+        Examples:
+            # Simplest setup - just provider (api_key from environment variable)
             >>> client = MirixClient(api_key="your-api-key")
+            >>> meta_agent = client.initialize_meta_agent(provider="openai")
+            
+            # With explicit API key
+            >>> meta_agent = client.initialize_meta_agent(
+            ...     provider="openai",
+            ...     api_key="sk-proj-xxx"
+            ... )
+            
+            # With custom model
+            >>> meta_agent = client.initialize_meta_agent(
+            ...     provider="openai",
+            ...     api_key="sk-proj-xxx",
+            ...     model="gpt-4o"
+            ... )
+            
+            # Using Anthropic (no embeddings)
+            >>> meta_agent = client.initialize_meta_agent(
+            ...     provider="anthropic",
+            ...     api_key="sk-ant-xxx"
+            ... )
+            
+            # Using Google AI (Gemini models)
+            >>> meta_agent = client.initialize_meta_agent(provider="google_ai")
+            
+            # Using a config dictionary
             >>> config = {
             ...     "llm_config": {"model": "gemini-2.0-flash"},
             ...     "embedding_config": {"model": "text-embedding-004"}
@@ -1219,19 +1389,20 @@ class MirixClient(AbstractClient):
             >>> meta_agent = client.initialize_meta_agent(config=config)
         """
         
-        # Load config from file if provided
-        if config_path:
-            from pathlib import Path
-
-            import yaml
-            
-            config_file = Path(config_path)
-            if config_file.exists():
-                with open(config_file, "r") as f:
-                    config = yaml.safe_load(f)
+        # Option 1: Generate config from provider (api_key is optional)
+        if provider:
+            config = _get_provider_config(
+                provider=provider,
+                api_key=api_key,
+                model=model,
+            )
         
         if not config:
-            raise ValueError("Either config or config_path must be provided")
+            raise ValueError(
+                "Configuration required. Provide one of:\n"
+                "  - provider for quick setup (e.g., provider='openai')\n"
+                "  - config for a configuration dictionary"
+            )
         
         # Load system prompts from folder if specified and not already provided
         if (
@@ -1261,7 +1432,7 @@ class MirixClient(AbstractClient):
         self,
         messages: List[Dict[str, Any]],
         user_id: Optional[str] = None,
-        chaining: bool = True,
+        chaining: bool = False,
         verbose: bool = False,
         filter_tags: Optional[Dict[str, Any]] = None,
         use_cache: bool = True,

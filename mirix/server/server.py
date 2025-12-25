@@ -46,7 +46,7 @@ from mirix.config import MirixConfig
 from mirix.log import get_logger
 from mirix.orm import Base
 from mirix.orm.errors import NoResultFound
-from mirix.schemas.agent import AgentState, AgentType, CreateAgent, CreateMetaAgent
+from mirix.schemas.agent import AgentState, AgentType, CreateAgent
 from mirix.schemas.block import BlockUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 
@@ -156,7 +156,7 @@ class Server(object):
 
 
 # NOTE: hack to see if single session management works
-from mirix.settings import model_settings, settings  # noqa: E402
+from mirix.settings import settings  # noqa: E402
 
 config = MirixConfig.load()
 

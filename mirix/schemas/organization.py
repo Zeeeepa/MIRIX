@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import Field
 
-from mirix.client.utils import get_utc_time
+from mirix.utils import get_utc_time
 from mirix.schemas.mirix_base import MirixBase
 
 

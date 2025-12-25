@@ -215,19 +215,24 @@ class OpenAIClient(LLMClientBase):
         # Determine the appropriate tool_choice based on model capabilities
         tool_choice = self._get_tool_choice(tools, force_tool_call)
 
-        data = ChatCompletionRequest(
-            model=model,
-            messages=self.fill_image_content_in_messages(openai_message_list),
-            tools=(
+        request_kwargs = {
+            "model": model,
+            "messages": self.fill_image_content_in_messages(openai_message_list),
+            "tools": (
                 [OpenAITool(type="function", function=f) for f in tools]
                 if tools
                 else None
             ),
-            tool_choice=tool_choice,
-            user=str(),
-            max_completion_tokens=llm_config.max_tokens,
-            temperature=llm_config.temperature,
-        )
+            "tool_choice": tool_choice,
+            "user": str(),
+            "max_completion_tokens": llm_config.max_tokens,
+        }
+
+        # gpt-5 does not support temperature
+        if not (model and model.startswith("gpt-5")):
+            request_kwargs["temperature"] = llm_config.temperature
+
+        data = ChatCompletionRequest(**request_kwargs)
 
         if data.tools is not None and len(data.tools) > 0:
             # Convert to structured output style (which has 'strict' and no optionals)

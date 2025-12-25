@@ -4,14 +4,12 @@ This provides HTTP endpoints that wrap the SyncServer functionality,
 allowing MirixClient instances to communicate with a cloud-hosted server.
 """
 
-import copy
 import json
 import traceback
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-import requests
 from fastapi import APIRouter, Body, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -23,18 +21,12 @@ from mirix.embeddings import embedding_model
 from mirix.llm_api.llm_client import LLMClient
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType, CreateAgent
-from mirix.schemas.block import Block, BlockUpdate, CreateBlock, Human, Persona
-from mirix.schemas.client import Client, ClientCreate, ClientUpdate
+from mirix.schemas.block import Block
+from mirix.schemas.client import Client, ClientUpdate
 from mirix.schemas.embedding_config import EmbeddingConfig
 from mirix.schemas.enums import MessageRole
-from mirix.schemas.environment_variables import (
-    SandboxEnvironmentVariable,
-    SandboxEnvironmentVariableCreate,
-    SandboxEnvironmentVariableUpdate,
-)
-from mirix.schemas.file import FileMetadata
 from mirix.schemas.llm_config import LLMConfig
-from mirix.schemas.memory import ArchivalMemorySummary, Memory, RecallMemorySummary
+from mirix.schemas.memory import Memory
 from mirix.schemas.message import Message, MessageCreate
 from mirix.schemas.mirix_response import MirixResponse
 from mirix.schemas.memory_agent_tool_call import MemoryAgentToolCall as MemoryAgentToolCallSchema
@@ -45,23 +37,23 @@ from mirix.schemas.procedural_memory import ProceduralMemoryItemUpdate
 from mirix.schemas.resource_memory import ResourceMemoryItemUpdate
 from mirix.schemas.agent import CreateMetaAgent, MemoryConfig, MemoryBlockConfig, MemoryDecayConfig, UpdateMetaAgent
 from mirix.schemas.semantic_memory import SemanticMemoryItemUpdate
-from mirix.schemas.tool import Tool, ToolCreate, ToolUpdate
+from mirix.schemas.tool import Tool
 from mirix.schemas.tool_rule import BaseToolRule
 from mirix.schemas.user import User
 from mirix.server.server import SyncServer
 from mirix.server.server import db_context
+from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
 from mirix.settings import model_settings, settings
+from mirix.topic_extraction import extract_topics_with_ollama, flatten_messages_to_plain_text
 from mirix.utils import convert_message_to_mirix_message
 from mirix.orm.memory_agent_tool_call import MemoryAgentToolCall
 from mirix.orm.memory_agent_trace import MemoryAgentTrace
 from mirix.orm.memory_queue_trace import MemoryQueueTrace
-
-logger = get_logger(__name__)
-
-# Import queue components
 from mirix.queue import initialize_queue
 from mirix.queue.manager import get_manager as get_queue_manager
 from mirix.queue.queue_util import put_messages
+
+logger = get_logger(__name__)
 
 # Initialize server (single instance shared across all requests)
 _server: Optional[SyncServer] = None
@@ -163,6 +155,7 @@ async def inject_client_org_headers(request: Request, call_next):
         "/admin/auth/register",
         "/admin/auth/login",
         "/admin/auth/check-setup",
+        "/health",
     }
 
     if request.url.path in public_paths:
@@ -409,29 +402,7 @@ def _flatten_messages_to_plain_text(messages: List[Dict[str, Any]]) -> str:
     """
     Flatten OpenAI-style message payloads into a simple conversation transcript.
     """
-    transcript_parts: List[str] = []
-
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-
-        parts: List[str] = []
-        if isinstance(content, list):
-            for chunk in content:
-                if isinstance(chunk, dict):
-                    text = chunk.get("text")
-                    if text:
-                        parts.append(text.strip())
-                elif isinstance(chunk, str):
-                    parts.append(chunk.strip())
-        elif isinstance(content, str):
-            parts.append(content.strip())
-
-        combined = " ".join(filter(None, parts)).strip()
-        if combined:
-            transcript_parts.append(f"{role.upper()}: {combined}")
-
-    return "\n".join(transcript_parts)
+    return flatten_messages_to_plain_text(messages)
 
 
 def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: str) -> Optional[str]:
@@ -441,74 +412,11 @@ def extract_topics_with_local_model(messages: List[Dict[str, Any]], model_name: 
     Reference: https://github.com/ollama/ollama/blob/main/docs/api.md#chat
     """
 
-    base_url = model_settings.ollama_base_url
-    if not base_url:
-        logger.warning(
-            "local_model_for_retrieval provided (%s) but MIRIX_OLLAMA_BASE_URL is not configured",
-            model_name,
-        )
-        return None
-
-    conversation = _flatten_messages_to_plain_text(messages)
-    if not conversation:
-        logger.debug("No text content found in messages for local topic extraction")
-        return None
-
-    payload = {
-        "model": model_name,
-        "stream": False,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are a helpful assistant that extracts the topic from the user's input. "
-                    "Return a concise list of topics separated by ';' and nothing else."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    "Conversation transcript:\n"
-                    f"{conversation}\n\n"
-                    "Respond ONLY with the topic(s) separated by ';'."
-                ),
-            },
-        ],
-        "options": {
-            "temperature": 0,
-        },
-    }
-
-    try:
-        response = requests.post(
-            f"{base_url.rstrip('/')}/api/chat",
-            json=payload,
-            timeout=30,
-            proxies={"http": None, "https": None},
-        )
-        response.raise_for_status()
-        response_data = response.json()
-    except requests.RequestException as exc:
-        logger.error("Failed to extract topics with local model %s: %s", model_name, exc)
-        return None
-
-    message_payload = response_data.get("message") if isinstance(response_data, dict) else None
-    text_response: Optional[str] = None
-    if isinstance(message_payload, dict):
-        text_response = message_payload.get("content")
-    elif isinstance(response_data, dict):
-        text_response = response_data.get("content")
-
-    if isinstance(text_response, str):
-        topics = text_response.strip()
-        logger.debug("Extracted topics via local model %s: %s", model_name, topics)
-        return topics or None
-
-    logger.warning(
-        "Unexpected response format from Ollama topic extraction: %s",
-        response_data,
+    return extract_topics_with_ollama(
+        messages=messages,
+        model_name=model_name,
+        base_url=model_settings.ollama_base_url,
     )
-    return None
 
 
 # ============================================================================
@@ -653,7 +561,7 @@ async def get_agent(
     
     try:
         return server.agent_manager.get_agent_by_id(agent_id, actor=client)
-    except NoResultFound as e:
+    except NoResultFound:
         raise HTTPException(
             status_code=404,
             detail=f"Agent {agent_id} not found or not accessible"
@@ -704,8 +612,8 @@ async def update_agent(
 ):
     """Update an agent."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
 
     # TODO: Implement update_agent in server
     raise HTTPException(status_code=501, detail="Update agent not yet implemented")
@@ -1010,8 +918,8 @@ async def list_blocks(
 ):
     """List all blocks."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
     # Get default user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
     return server.block_manager.get_blocks(user=user, label=label)
@@ -1025,8 +933,8 @@ async def get_block(
 ):
     """Get a block by ID."""
     server = get_server()
-    client_id, org_id = get_client_and_org(x_client_id, x_org_id)
-    client = server.client_manager.get_client_by_id(client_id)
+    client_id, _org_id = get_client_and_org(x_client_id, x_org_id)
+    _client = server.client_manager.get_client_by_id(client_id)
     # Get admin user for block queries (blocks are user-scoped, not client-scoped)
     user = server.user_manager.get_admin_user()
     return server.block_manager.get_block_by_id(block_id, user=user)
@@ -1724,7 +1632,7 @@ async def delete_client_api_key(
             "message": f"API key {api_key_id} deleted successfully",
             "id": api_key_id,
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=404, detail=f"API key {api_key_id} not found")
 
 
@@ -1801,6 +1709,9 @@ async def initialize_meta_agent(
         )
 
     llm_config = LLMConfig(**config["llm_config"])
+    topic_extraction_llm_config = None
+    if config.get("topic_extraction_llm_config"):
+        topic_extraction_llm_config = LLMConfig(**config["topic_extraction_llm_config"])
 
     if build_embeddings_for_memory:
         if not config.get("embedding_config"):
@@ -1826,6 +1737,8 @@ async def initialize_meta_agent(
         "llm_config": llm_config,
         "embedding_config": embedding_config,
     }
+    if topic_extraction_llm_config is not None:
+        create_params["topic_extraction_llm_config"] = topic_extraction_llm_config
 
     # Flatten meta_agent_config fields into create_params
     if "meta_agent_config" in config and config["meta_agent_config"]:
@@ -2030,6 +1943,11 @@ class MemoryQueueTraceDetailResponse(BaseModel):
     trace: MemoryQueueTraceSchema
     agent_traces: List[MemoryAgentTraceWithTools]
 
+class MemoryQueueTraceInterruptRequest(BaseModel):
+    reason: Optional[str] = Field(
+        None, description="Reason for interrupting the queue trace"
+    )
+
 
 @router.get("/memory/queue-traces", response_model=List[MemoryQueueTraceSchema])
 async def list_memory_queue_traces(
@@ -2078,6 +1996,27 @@ async def get_memory_queue_trace(
         if not trace or trace.client_id != client_id:
             raise HTTPException(status_code=404, detail="Trace not found")
 
+        if trace.status == "processing":
+            now = datetime.now(timezone.utc)
+            reference = trace.started_at or trace.queued_at
+            if reference:
+                if reference.tzinfo is None:
+                    reference = reference.replace(tzinfo=timezone.utc)
+                wait_seconds = (now - reference).total_seconds()
+                logger.info(
+                    "Queue trace %s processing for %.1fs (queued_at=%s, started_at=%s, now=%s)",
+                    trace_id,
+                    wait_seconds,
+                    trace.queued_at.isoformat() if trace.queued_at else "N/A",
+                    trace.started_at.isoformat() if trace.started_at else "N/A",
+                    now.isoformat(),
+                )
+            else:
+                logger.info(
+                    "Queue trace %s processing with no queued/started timestamp",
+                    trace_id,
+                )
+
         agent_traces = (
             session.execute(
                 select(MemoryAgentTrace)
@@ -2121,6 +2060,32 @@ async def get_memory_queue_trace(
         )
 
 
+@router.post("/memory/queue-traces/{trace_id}/interrupt")
+async def interrupt_memory_queue_trace(
+    trace_id: str,
+    payload: Optional[MemoryQueueTraceInterruptRequest] = Body(None),
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    Request interruption of a running queue trace.
+    """
+    client_id, _ = get_client_and_org(x_client_id, x_org_id)
+
+    with db_context() as session:
+        trace = session.get(MemoryQueueTrace, trace_id)
+        if not trace or trace.client_id != client_id:
+            raise HTTPException(status_code=404, detail="Trace not found")
+
+    reason = payload.reason if payload else None
+    if not reason:
+        reason = "Interrupted by user"
+
+    MemoryQueueTraceManager().request_interrupt(trace_id, reason=reason)
+
+    return {"success": True, "trace_id": trace_id, "interrupt_requested": True}
+
+
 class SelfReflectionRequest(BaseModel):
     """Request model for triggering self-reflection.
 
@@ -2142,8 +2107,8 @@ class SelfReflectionRequest(BaseModel):
     procedural_ids: Optional[List[str]] = None  # Procedural memory item IDs
 
 
-# Import self-reflection service functions
-from mirix.services.self_reflection_service import (
+# Import self-reflection service functions (intentionally here due to circular imports)
+from mirix.services.self_reflection_service import (  # noqa: E402
     retrieve_memories_by_updated_at_range,
     retrieve_specific_memories_by_ids,
     build_self_reflection_prompt,
@@ -2442,7 +2407,7 @@ def retrieve_memories_by_keywords(
     try:
         user = server.user_manager.get_user_by_id(user_id)
         timezone_str = user.timezone
-    except:
+    except Exception:
         timezone_str = "UTC"
     memories = {}
 
@@ -2699,6 +2664,7 @@ async def retrieve_memory_with_conversation(
     # Extract topics from the conversation
     # TODO: Consider allowing custom model selection in the future
     llm_config = all_agents[0].llm_config
+    topic_llm_config = getattr(all_agents[0], "topic_extraction_llm_config", None) or llm_config
 
     # Check if messages have actual content before calling LLM
     has_content = False
@@ -2729,8 +2695,17 @@ async def retrieve_memory_with_conversation(
                 )
 
         if topics is None:
-            # NEW: Extract both topics and temporal expression
-            topics, temporal_expr = extract_topics_and_temporal_info(request.messages, llm_config)
+            if topic_llm_config.model_endpoint_type == "ollama":
+                topics = extract_topics_with_ollama(
+                    messages=request.messages,
+                    model_name=topic_llm_config.model,
+                    base_url=topic_llm_config.model_endpoint or model_settings.ollama_base_url,
+                )
+            else:
+                # NEW: Extract both topics and temporal expression
+                topics, temporal_expr = extract_topics_and_temporal_info(
+                    request.messages, topic_llm_config
+                )
 
         logger.debug("Extracted topics: %s, temporal: %s", topics, temporal_expr)
         key_words = topics if topics else ""
@@ -2978,7 +2953,7 @@ async def search_memory(
     try:
         user = server.user_manager.get_user_by_id(user_id)
         timezone_str = user.timezone
-    except:
+    except Exception:
         timezone_str = "UTC"
 
     # Parse filter_tags from JSON string to dict
@@ -4238,7 +4213,7 @@ class DashboardClientResponse(BaseModel):
     admin_user_id: str  # Admin user for memory operations
     created_at: Optional[datetime]
     last_login: Optional[datetime]
-    credits: float = 100.0  # Available credits for LLM API calls (1 credit = 1 dollar)
+    credits: float = 10.0  # Available credits for LLM API calls (1 credit = 1 dollar)
 
 
 class TokenResponse(BaseModel):

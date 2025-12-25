@@ -26,7 +26,7 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from mirix.client import MirixClient
 

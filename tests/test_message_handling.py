@@ -10,11 +10,9 @@ Tests cover:
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from mirix.schemas.agent import AgentState
 from mirix.schemas.client import Client
-from mirix.schemas.message import Message
 from mirix.schemas.user import User
 from mirix.services.agent_manager import AgentManager
 from mirix.services.message_manager import MessageManager

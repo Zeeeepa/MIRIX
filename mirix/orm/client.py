@@ -51,8 +51,8 @@ class Client(SqlalchemyBase, OrganizationMixin):
     # Credits for LLM usage (1 credit = 1 dollar)
     credits: Mapped[float] = mapped_column(
         nullable=False,
-        default=100.0,
-        doc="Available credits for LLM API calls. New clients start with $100 credits. 1 credit = 1 dollar.",
+        default=10.0,
+        doc="Available credits for LLM API calls. New clients start with $10 credits. 1 credit = 1 dollar.",
     )
 
     # Relationships

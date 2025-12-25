@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Type, TypeVar
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
 
 from sqlalchemy import and_, desc, select
 

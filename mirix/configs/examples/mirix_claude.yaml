@@ -8,6 +8,24 @@ llm_config:
   context_window: 200000
   # api_key: "your-anthropic-key"  # Or use ANTHROPIC_API_KEY env var
 
+# Optional: separate model for topic extraction
+topic_extraction_llm_config:
+  model: "claude-3-5-sonnet-20241022"
+  model_endpoint_type: "anthropic"
+  model_endpoint: "https://api.anthropic.com/v1"
+  context_window: 200000
+  # Local OpenAI-compatible (LM Studio / vLLM):
+  # model: "your-local-model"
+  # model_endpoint_type: "openai"
+  # model_endpoint: "http://localhost:1234/v1"
+  # is_local_model: true
+  # context_window: 8192
+  # Ollama (local):
+  # model: "llama3.2"
+  # model_endpoint_type: "ollama"
+  # model_endpoint: "http://localhost:11434"
+  # context_window: 8192
+
 build_embeddings_for_memory: true
 
 # Note: Anthropic doesn't provide embeddings, so we use OpenAI or Google

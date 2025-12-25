@@ -7,8 +7,8 @@ Your personal AI that builds memory through screen observation and natural conve
 <table>
   <tr>
     <td style="border-left: 6px solid #d35400; background: #fff3e0; padding: 12px;">
-      <strong>Important Update: 0.1.4 (Main) vs 0.1.3 (Desktop Agent)</strong><br/>
-      Starting with <code>0.1.4</code>, the <code>main</code> branch is a brand-new release line where Mirix is a pure memory system that can be plugged into any existing agents. The desktop personal assistant (frontend + backend) has been deprecated and is no longer shipped on <code>main</code>. If you need the earlier desktop application with the built-in agent, use the <code>desktop-agent</code> branch.
+      <strong>Important Update: 0.1.6 (Main) vs 0.1.3 (Desktop Agent)</strong><br/>
+      Starting with <code>0.1.6</code>, the <code>main</code> branch is a brand-new release line where Mirix is a pure memory system that can be plugged into any existing agents. The desktop personal assistant (frontend + backend) has been deprecated and is no longer shipped on <code>main</code>. If you need the earlier desktop application with the built-in agent, use the <code>desktop-agent</code> branch.
     </td>
   </tr>
 </table>
@@ -27,9 +27,46 @@ Your personal AI that builds memory through screen observation and natural conve
 - **Multi-Modal Input:** Text, images, voice, and screen captures processed seamlessly
 
 ### Quick Start
-**Step 1: Backend & Dashboard (Docker):**
+**Option A: Cloud (hosted API):**
 ```
-docker compose up -d --pull always
+pip install mirix==0.1.6
+```
+```python
+from mirix import MirixClient
+
+client = MirixClient(api_key="your_api_key_here")
+# or set MIRIX_API_KEY in your environment, then use: client = MirixClient()
+
+client.initialize_meta_agent(
+    provider="openai"
+)  # See configs in mirix/configs/examples/mirix_openai.yaml
+
+# Simple add example
+client.add(
+    user_id="demo-user",
+    messages=[
+        {"role": "user", "content": [{"type": "text", "text": "The moon now has a president."}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "Noted."}]},
+    ],
+)
+
+# For a full example, see README.md below or samples/run_client.py
+```
+
+**Option B: Local (backend + dashboard, no Docker):**
+**Step 1: Backend & Dashboard**
+```
+pip install -r requirements.txt
+```
+In terminal 1:
+```
+python scripts/start_server.py
+```
+In terminal 2:
+```
+cd dashboard
+npm install
+npm run dev
 ```
 - Dashboard: http://localhost:5173  
 - API: http://localhost:8531  
@@ -39,6 +76,10 @@ docker compose up -d --pull always
 **Step 3: Client (Python, `mirix-client`, https://pypi.org/project/mirix-client/):**
 ```
 pip install mirix-client
+```
+In terminal 3:
+```
+python samples/run_client.py
 ```
 
 Now you are ready to go! See the example below:
@@ -66,7 +107,6 @@ client.initialize_meta_agent(
             "embedding_dim": 1536,
         },
         "meta_agent_config": {
-            "system_prompts_folder": "mirix\\prompts\\system\\base",
             "agents": [
                 "core_memory_agent",
                 "resource_memory_agent",

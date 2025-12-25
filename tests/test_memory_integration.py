@@ -21,6 +21,7 @@ Test Coverage:
 import os
 import sys
 import time
+import yaml
 import requests
 from pathlib import Path
 
@@ -35,8 +36,7 @@ load_dotenv()
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from mirix import EmbeddingConfig, LLMConfig
-from mirix.client import MirixClient
+from mirix.client import MirixClient  # noqa: E402
 
 TEST_USER_ID = "demo-user"
 TEST_CLIENT_ID = "demo-client"
@@ -92,8 +92,11 @@ def client(server_process, api_auth):
     # Construct absolute path to config file
     config_path = project_root / "mirix" / "configs" / "examples" / "mirix_gemini.yaml"
     
-    result = client.initialize_meta_agent(
-        config_path=str(config_path),
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    client.initialize_meta_agent(
+        config=config,
         update_agents=False  # Don't update if already exists, just use existing
     )
     
@@ -133,7 +136,7 @@ def test_add(client):
     
     assert result is not None
     assert result.get("success") is True
-    print(f"[OK] Memory added successfully")
+    print("[OK] Memory added successfully")
 
 
 def test_retrieve_with_conversation(client):
@@ -174,7 +177,7 @@ def test_retrieve_with_conversation(client):
     assert result is not None
     assert result.get("success") is True
     assert "memories" in result
-    print(f"[OK] Retrieved memories successfully")
+    print("[OK] Retrieved memories successfully")
     
     # Display results
     if result.get("memories"):
