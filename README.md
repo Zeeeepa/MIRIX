@@ -74,6 +74,12 @@ npm run dev
 
 **Step 2: Create an API key in the dashboard (http://localhost:5173) and set as the environmental variable `MIRIX_API_KEY`.**
 
+> **⚠️ Important Note for Local Development:**  
+> When using the local version, **do NOT use the PyPI package** (`mirix==0.1.6`). You must run your code from the root folder of this project so that the local `mirix` module can be properly imported. If you previously installed the PyPI package, uninstall it first:
+> ```bash
+> pip uninstall mirix
+> ```
+
 Now you are ready to go! See the example below:
 ```python
 from mirix import MirixClient
