@@ -814,15 +814,24 @@ def trigger_memory_update_with_instruction(
         Optional[str]: None is always returned as this function does not produce a response.
     """
 
-    from mirix.local_client import create_client
+    from mirix.interface import QueuingInterface
+    from mirix.server.server import SyncServer
     from mirix.services.queue_trace_context import (
         get_agent_trace_id,
         reset_parent_agent_trace_id,
         set_parent_agent_trace_id,
     )
 
-    client = create_client()
-    agents = client.list_agents()
+    # Initialize server directly
+    interface = QueuingInterface(debug=False)
+    server = SyncServer(default_interface_factory=lambda: interface)
+    
+    # Get default client for actor
+    client_id = server.client_manager.DEFAULT_CLIENT_ID
+    org_id = server.organization_manager.DEFAULT_ORG_ID
+    client = server.client_manager.get_client_or_default(client_id, org_id)
+    
+    agents = server.agent_manager.list_agents(actor=client)
 
     # Validate that user_message is a dictionary
     if not isinstance(user_message, dict):
@@ -864,14 +873,22 @@ def trigger_memory_update_with_instruction(
     if parent_trace_id:
         parent_token = set_parent_agent_trace_id(parent_trace_id)
     try:
-        client.send_message(
-            role="user",
-            user_id=self.user.id,
+        from mirix.schemas.message import MessageCreate
+        from mirix.schemas.enums import MessageRole
+        from mirix.schemas.mirix_message_content import MessageContentType, TextContent
+        
+        # Build message
+        message_text = "[Message from Chat Agent (Now you are allowed to make multiple function calls sequentially)] " + instruction
+        message_content = [TextContent(type=MessageContentType.text, text=message_text)]
+        input_messages = [MessageCreate(role=MessageRole.user, content=message_content)]
+        
+        # Send messages via server
+        interface.clear()
+        server.send_messages(
+            actor=client,
             agent_id=matching_agent.id,
-            message="[Message from Chat Agent (Now you are allowed to make multiple function calls sequentially)] "
-            + instruction,
-            existing_file_uris=user_message["existing_file_uris"],
-            retrieved_memories=user_message.get("retrieved_memories", None),
+            input_messages=input_messages,
+            user=self.user,
         )
     finally:
         if parent_token:
@@ -1022,12 +1039,12 @@ def trigger_memory_update(
             else:
                 message_copy = deepcopy(user_message["message"])
 
-            system_msg = TextContent(
-                text=(
-                    "[System Message] According to the instructions, the retrieved memories "
-                    "and the above content, update the corresponding memory."
-                )
-            )
+            system_msg = "[System Message] According to the instructions, the retrieved memories and the above content, update the corresponding memory."
+            
+            if not user_message["chaining"]:
+                system_msg += " You are only being called ONCE. Please call all memory update tools IMMEDIATELY in the current response. Do not call search tools, update the memory directly according to the memory in the system prompt."
+
+            system_msg = TextContent(text=system_msg)
 
             if isinstance(message_copy.content, str):
                 message_copy.content = [TextContent(text=message_copy.content), system_msg]

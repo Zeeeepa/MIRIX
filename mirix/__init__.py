@@ -6,13 +6,6 @@ from mirix.client import MirixClient as MirixClient
 
 # Server-only imports (only available when full package is installed)
 try:
-    from mirix.local_client import LocalClient as LocalClient
-    from mirix.local_client import create_client as create_client
-except ImportError:
-    LocalClient = None
-    create_client = None
-
-try:
     from mirix.sdk import Mirix as Mirix
     from mirix.sdk import load_config as load_config
 except ImportError:

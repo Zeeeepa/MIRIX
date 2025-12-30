@@ -17,6 +17,10 @@ class FileMetadata(FileMetadataBase):
     """Representation of a single FileMetadata"""
 
     id: str = FileMetadataBase.generate_id_field()
+    client_id: Optional[str] = Field(
+        None,
+        description="The unique identifier of the client associated with the document.",
+    )
     organization_id: Optional[str] = Field(
         None,
         description="The unique identifier of the organization associated with the document.",

@@ -1946,19 +1946,6 @@ class Agent(BaseAgent):
             for m in input_messages
         ]
 
-        extra_message_objects = (
-            [
-                prepare_input_message_create(
-                    m,
-                    self.agent_state.id,
-                    wrap_user_message=False,
-                    wrap_system_message=True,
-                )
-                for m in extra_messages
-            ]
-            if extra_messages is not None
-            else None
-        )
         next_input_message = message_objects
         counter = 0
         total_usage = UsageStatistics()
@@ -2051,7 +2038,6 @@ class Agent(BaseAgent):
             step_response = self.inner_step(
                 first_input_messge=first_input_message,
                 messages=next_input_message,
-                extra_messages=extra_message_objects,
                 initial_message_count=initial_message_count,
                 chaining=chaining,
                 llm_client=llm_client,
@@ -2998,13 +2984,6 @@ These keywords have been used to retrieve relevant memories from the database.
                 )
 
             input_message_sequence = in_context_messages + messages
-
-            if extra_messages is not None:
-                input_message_sequence = (
-                    input_message_sequence[:initial_message_count]
-                    + extra_messages
-                    + input_message_sequence[initial_message_count:]
-                )
 
             if (
                 len(input_message_sequence) > 1

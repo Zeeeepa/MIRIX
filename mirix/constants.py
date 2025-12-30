@@ -102,7 +102,7 @@ DEFAULT_PRESET = "memgpt_chat"
 # Note that we don't include "conversation_search_date" for now
 BASE_TOOLS = [
     # "send_intermediate_message",
-    "conversation_search",
+    # "conversation_search",
     "search_in_memory",
     "list_memory_within_timerange",
 ]

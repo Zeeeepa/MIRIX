@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, String
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from mirix.orm.mixins import OrganizationMixin
@@ -8,6 +8,7 @@ from mirix.orm.sqlalchemy_base import SqlalchemyBase
 from mirix.schemas.file import FileMetadata as PydanticFileMetadata
 
 if TYPE_CHECKING:
+    from mirix.orm.client import Client
     from mirix.orm.organization import Organization
 
 
@@ -17,6 +18,9 @@ class FileMetadata(SqlalchemyBase, OrganizationMixin):
     __tablename__ = "files"
     __pydantic_model__ = PydanticFileMetadata
 
+    client_id: Mapped[Optional[str]] = mapped_column(
+        String, ForeignKey("clients.id"), nullable=True
+    )
     source_id: Mapped[Optional[str]] = mapped_column(
         String,
         nullable=True,
@@ -54,4 +58,7 @@ class FileMetadata(SqlalchemyBase, OrganizationMixin):
     # relationships
     organization: Mapped["Organization"] = relationship(
         "Organization", back_populates="files", lazy="selectin"
+    )
+    client: Mapped["Client"] = relationship(
+        "Client", back_populates="files", lazy="selectin"
     )

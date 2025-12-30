@@ -3,12 +3,11 @@ Mirix Client Module
 
 This module provides client implementations for interacting with Mirix agents:
 - AbstractClient: Base interface for all clients
-- MirixClient: For cloud deployments (server accessed via REST API)
+- MirixClient: For cloud/remote deployments (server accessed via REST API)
 
-For embedded/local deployments, use mirix.LocalClient instead.
+For embedded deployments, use the Mirix SDK directly.
 """
 
-from mirix.client.client import AbstractClient
 from mirix.client.remote_client import MirixClient
 
-__all__ = ["AbstractClient", "MirixClient"]
+__all__ = ["MirixClient"]

@@ -1,15 +1,14 @@
 # Mirix Configuration - Google Gemini Setup
-# Configuration using Google's Gemini 2.0 Flash with large context window
 
 llm_config:
-  model: "gemini-2.0-flash"
+  model: "gemini-3-flash-preview"
   model_endpoint_type: "google_ai"
   model_endpoint: "https://generativelanguage.googleapis.com"
   context_window: 1000000
 
 # Optional: separate model for topic extraction
 topic_extraction_llm_config:
-  model: "gemini-2.0-flash"
+  model: "gemini-3-flash-preview"
   model_endpoint_type: "google_ai"
   model_endpoint: "https://generativelanguage.googleapis.com"
   context_window: 1000000
@@ -28,7 +27,7 @@ topic_extraction_llm_config:
 build_embeddings_for_memory: true
 
 embedding_config:
-  embedding_model: "text-embedding-004"
+  embedding_model: "gemini-embedding-001"
   embedding_endpoint_type: "google_ai"
   embedding_endpoint: "https://generativelanguage.googleapis.com"
   embedding_dim: 768

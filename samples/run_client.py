@@ -399,6 +399,11 @@ def main():
         config=config,
         update_agents=True,
     )
+
+    import base64
+
+    with open("D:/work/Mirix/assets/logo.png", "rb") as image_file:
+        b64 = base64.b64encode(image_file.read()).decode('utf-8')
     
     result = client.add(
     #    user_id=user_id,  # Optional - uses admin user if None
@@ -408,19 +413,17 @@ def main():
                "content": [{
                    "type": "text",
                    "text": (
-                       "Hi! My name is David, and I'm a senior software engineer at TechCorp. "
-                       "I prefer Python over JavaScript, and my favorite IDE is VS Code. "
-                       "Yesterday, I attended the quarterly planning meeting where we discussed the new AI features roadmap. "
-                       "Last week, I completed the database migration project successfully. "
-                       "I've learned that microservices architecture requires careful API design and that "
-                       "distributed tracing is essential for debugging complex systems. "
-                       "I reviewed the Q4 Performance Report and the System Architecture Documentation from our wiki. "
-                       "For deploying our application, the process is: first run the test suite, then build the Docker image, "
-                       "push to the registry, and finally apply the Kubernetes manifests in staging before production. "
-                       "My production database password is db_prod_2024! and the API key for our payment gateway is sk-live-abc123xyz."
-                       "Please update all memories to reflect my latest activities and preferences."
+                       "Save whatever you see in the image."
                    )
-               }]
+               }, 
+               {
+                'type': 'image_url',
+                "image_url": {
+                    "url": f"data:image/png;base64,{b64}",
+                    "detail": "high"
+                }
+               }
+               ]
            },
        ],
        chaining=False

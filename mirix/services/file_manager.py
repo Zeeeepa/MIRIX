@@ -53,6 +53,23 @@ class FileManager:
             return [file_metadata.to_pydantic() for file_metadata in results]
 
     @enforce_types
+    def get_files_by_client_id(
+        self,
+        client_id: str,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = 50,
+    ) -> List[PydanticFileMetadata]:
+        """Get all files for a specific client."""
+        with self.session_maker() as session:
+            results = FileMetadataModel.list(
+                db_session=session,
+                client_id=client_id,
+                cursor=cursor,
+                limit=limit,
+            )
+            return [file_metadata.to_pydantic() for file_metadata in results]
+
+    @enforce_types
     def update_file_metadata(self, file_id: str, **kwargs) -> PydanticFileMetadata:
         """Update file metadata."""
         with self.session_maker() as session:
@@ -91,7 +108,11 @@ class FileManager:
 
     @enforce_types
     def create_file_metadata_from_path(
-        self, file_path: str, organization_id: str, source_id: Optional[str] = None
+        self,
+        file_path: str,
+        client_id: str,
+        organization_id: Optional[str] = None,
+        source_id: Optional[str] = None,
     ) -> PydanticFileMetadata:
         """Create file metadata from a file path by extracting file information."""
         if not os.path.exists(file_path):
@@ -129,6 +150,7 @@ class FileManager:
 
         # Create file metadata
         file_metadata = PydanticFileMetadata(
+            client_id=client_id,
             organization_id=organization_id,
             source_id=source_id,
             file_name=file_name,
@@ -143,7 +165,10 @@ class FileManager:
 
     @enforce_types
     def search_files_by_name(
-        self, file_name: str, organization_id: Optional[str] = None
+        self,
+        file_name: str,
+        client_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ) -> List[PydanticFileMetadata]:
         """Search files by name pattern."""
         with self.session_maker() as session:
@@ -153,7 +178,11 @@ class FileManager:
                 func.lower(FileMetadataModel.file_name).contains(func.lower(file_name))
             )
 
-            if organization_id:
+            if client_id:
+                query = query.filter(
+                    FileMetadataModel.client_id == client_id
+                )
+            elif organization_id:
                 query = query.filter(
                     FileMetadataModel.organization_id == organization_id
                 )
@@ -163,7 +192,10 @@ class FileManager:
 
     @enforce_types
     def get_files_by_type(
-        self, file_type: str, organization_id: Optional[str] = None
+        self,
+        file_type: str,
+        client_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ) -> List[PydanticFileMetadata]:
         """Get files by file type."""
         with self.session_maker() as session:
@@ -171,7 +203,11 @@ class FileManager:
                 FileMetadataModel.file_type == file_type
             )
 
-            if organization_id:
+            if client_id:
+                query = query.filter(
+                    FileMetadataModel.client_id == client_id
+                )
+            elif organization_id:
                 query = query.filter(
                     FileMetadataModel.organization_id == organization_id
                 )
@@ -181,7 +217,10 @@ class FileManager:
 
     @enforce_types
     def check_file_exists(
-        self, file_path: str, organization_id: Optional[str] = None
+        self,
+        file_path: str,
+        client_id: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ) -> bool:
         """Check if a file with the given path already exists in the database."""
         with self.session_maker() as session:
@@ -190,7 +229,11 @@ class FileManager:
                     FileMetadataModel.file_path == file_path
                 )
 
-                if organization_id:
+                if client_id:
+                    query = query.filter(
+                        FileMetadataModel.client_id == client_id
+                    )
+                elif organization_id:
                     query = query.filter(
                         FileMetadataModel.organization_id == organization_id
                     )
@@ -201,8 +244,10 @@ class FileManager:
                 return False
 
     @enforce_types
-    def get_file_stats(self, organization_id: Optional[str] = None) -> dict:
-        """Get file statistics for an organization or globally."""
+    def get_file_stats(
+        self, client_id: Optional[str] = None, organization_id: Optional[str] = None
+    ) -> dict:
+        """Get file statistics for a client, organization, or globally."""
         with self.session_maker() as session:
             from sqlalchemy import func
 
@@ -214,7 +259,11 @@ class FileManager:
                 ),
             )
 
-            if organization_id:
+            if client_id:
+                query = query.filter(
+                    FileMetadataModel.client_id == client_id
+                )
+            elif organization_id:
                 query = query.filter(
                     FileMetadataModel.organization_id == organization_id
                 )

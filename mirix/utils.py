@@ -1574,7 +1574,8 @@ def _generate_file_hash(content: bytes) -> str:
 def _save_image_from_base64(
     base64_data: str,
     file_manager: "FileManager",
-    org_id: str,
+    client_id: str,
+    organization_id: Optional[str],
     images_dir: Path,
     detail: str = "auto",
 ) -> FileMetadata:
@@ -1600,7 +1601,9 @@ def _save_image_from_base64(
                 f.write(image_data)
 
         return file_manager.create_file_metadata_from_path(
-            file_path=str(file_path), organization_id=org_id
+            file_path=str(file_path),
+            client_id=client_id,
+            organization_id=organization_id,
         )
 
     except Exception as e:
@@ -1610,7 +1613,8 @@ def _save_image_from_base64(
 def _save_image_from_url(
     url: str,
     file_manager: "FileManager",
-    org_id: str,
+    client_id: str,
+    organization_id: Optional[str],
     images_dir: Path,
     detail: str = "auto",
 ) -> FileMetadata:
@@ -1636,7 +1640,9 @@ def _save_image_from_url(
                 f.write(image_data)
 
         return file_manager.create_file_metadata_from_path(
-            file_path=str(file_path), organization_id=org_id
+            file_path=str(file_path),
+            client_id=client_id,
+            organization_id=organization_id,
         )
 
     except Exception as e:
@@ -1648,7 +1654,8 @@ def _save_image_from_url(
 def _save_image_from_file_uri(
     file_uri: str,
     file_manager: "FileManager",
-    org_id: str,
+    client_id: str,
+    organization_id: Optional[str],
     images_dir: Path,
 ) -> FileMetadata:
     """Copy an image from file URI and return FileMetadata."""
@@ -1675,7 +1682,9 @@ def _save_image_from_file_uri(
             shutil.copy2(source_path, file_path)
 
         return file_manager.create_file_metadata_from_path(
-            file_path=str(file_path), organization_id=org_id
+            file_path=str(file_path),
+            client_id=client_id,
+            organization_id=organization_id,
         )
 
     except Exception as e:
@@ -1685,7 +1694,10 @@ def _save_image_from_file_uri(
 
 
 def _save_image_from_google_cloud_uri(
-    cloud_uri: str, file_manager: "FileManager", org_id: str
+    cloud_uri: str,
+    file_manager: "FileManager",
+    client_id: str,
+    organization_id: Optional[str],
 ) -> FileMetadata:
     """Create FileMetadata from Google Cloud URI without downloading the image."""
     parsed_uri = urlparse(cloud_uri)
@@ -1709,7 +1721,8 @@ def _save_image_from_google_cloud_uri(
 
     return file_manager.create_file_metadata(
         FileMetadata(
-            organization_id=org_id,
+            client_id=client_id,
+            organization_id=organization_id,
             file_name=file_name,
             file_path=None,
             source_url=None,
@@ -1723,7 +1736,10 @@ def _save_image_from_google_cloud_uri(
 
 
 def _save_file_from_path(
-    file_path: str, file_manager: "FileManager", org_id: str
+    file_path: str,
+    file_manager: "FileManager",
+    client_id: str,
+    organization_id: Optional[str],
 ) -> FileMetadata:
     """Save a file from local path and return FileMetadata."""
     try:
@@ -1733,7 +1749,9 @@ def _save_file_from_path(
             raise FileNotFoundError(f"File not found: {file_path}")
 
         return file_manager.create_file_metadata_from_path(
-            file_path=str(file_path_obj), organization_id=org_id
+            file_path=str(file_path_obj),
+            client_id=client_id,
+            organization_id=organization_id,
         )
 
     except Exception as e:
@@ -1776,7 +1794,11 @@ def _determine_file_type(file_path: str) -> str:
 
 
 def _create_file_metadata_from_url(
-    url: str, file_manager: "FileManager", org_id: str, detail: str = "auto"
+    url: str,
+    file_manager: "FileManager",
+    client_id: str,
+    organization_id: Optional[str],
+    detail: str = "auto",
 ) -> FileMetadata:
     """Create FileMetadata from URL without downloading the image."""
     del detail  # detail currently unused but kept for signature parity
@@ -1801,7 +1823,8 @@ def _create_file_metadata_from_url(
 
         return file_manager.create_file_metadata(
             FileMetadata(
-                organization_id=org_id,
+                client_id=client_id,
+                organization_id=organization_id,
                 file_name=file_name,
                 file_path=None,
                 source_url=url,
@@ -1823,6 +1846,7 @@ def convert_message_to_mirix_message(
     role: str = "user",
     *,
     org_id: Optional[str] = None,
+    client_id: Optional[str] = None,
     file_manager: Optional["FileManager"] = None,
     images_dir: Optional[Path] = None,
 ) -> List[MessageCreate]:
@@ -1839,10 +1863,10 @@ def convert_message_to_mirix_message(
 
         def ensure_file_context(
             needs_images_dir: bool = False,
-        ) -> tuple["FileManager", str, Optional[Path]]:
-            if org_id is None:
+        ) -> tuple["FileManager", str, Optional[str], Optional[Path]]:
+            if client_id is None:
                 raise ValueError(
-                    "org_id is required when converting messages containing file or image data."
+                    "client_id is required when converting messages containing file or image data."
                 )
 
             nonlocal resolved_file_manager, resolved_images_dir
@@ -1856,7 +1880,7 @@ def convert_message_to_mirix_message(
                     images_root = _get_images_directory()
                     resolved_images_dir = images_root
 
-            return resolved_file_manager, org_id, images_root
+            return resolved_file_manager, client_id, org_id, images_root
 
         def convert_message(m):
             if m["type"] == "text":
@@ -1867,16 +1891,21 @@ def convert_message_to_mirix_message(
 
                 # Handle the image based on URL type
                 if url.startswith("data:"):
-                    fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                    fm, resolved_client_id, resolved_org_id, resolved_images_dir = ensure_file_context(
                         needs_images_dir=True
                     )
                     file_metadata = _save_image_from_base64(
-                        url, fm, resolved_org_id, resolved_images_dir, detail
+                        url,
+                        fm,
+                        resolved_client_id,
+                        resolved_org_id,
+                        resolved_images_dir,
+                        detail,
                     )
                 else:
-                    fm, resolved_org_id, _ = ensure_file_context()
+                    fm, resolved_client_id, resolved_org_id, _ = ensure_file_context()
                     file_metadata = _create_file_metadata_from_url(
-                        url, fm, resolved_org_id, detail
+                        url, fm, resolved_client_id, resolved_org_id, detail
                     )
 
                 return ImageContent(
@@ -1890,11 +1919,16 @@ def convert_message_to_mirix_message(
                 data = m["image_data"]["data"]
                 detail = m["image_data"].get("detail", "auto")
 
-                fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                fm, resolved_client_id, resolved_org_id, resolved_images_dir = ensure_file_context(
                     needs_images_dir=True
                 )
                 file_metadata = _save_image_from_base64(
-                    data, fm, resolved_org_id, resolved_images_dir, detail
+                    data,
+                    fm,
+                    resolved_client_id,
+                    resolved_org_id,
+                    resolved_images_dir,
+                    detail,
                 )
 
                 return ImageContent(
@@ -1911,11 +1945,15 @@ def convert_message_to_mirix_message(
 
                 if file_type.startswith("image/"):
                     # Handle as image
-                    fm, resolved_org_id, resolved_images_dir = ensure_file_context(
+                    fm, resolved_client_id, resolved_org_id, resolved_images_dir = ensure_file_context(
                         needs_images_dir=True
                     )
                     file_metadata = _save_image_from_file_uri(
-                        file_path, fm, resolved_org_id, resolved_images_dir
+                        file_path,
+                        fm,
+                        resolved_client_id,
+                        resolved_org_id,
+                        resolved_images_dir,
                     )
                     return ImageContent(
                         type=MessageContentType.image_url,
@@ -1924,8 +1962,13 @@ def convert_message_to_mirix_message(
                     )
                 else:
                     # Handle as general file (e.g., PDF, DOC, etc.)
-                    fm, resolved_org_id, _ = ensure_file_context()
-                    file_metadata = _save_file_from_path(file_path, fm, resolved_org_id)
+                    fm, resolved_client_id, resolved_org_id, _ = ensure_file_context()
+                    file_metadata = _save_file_from_path(
+                        file_path,
+                        fm,
+                        resolved_client_id,
+                        resolved_org_id,
+                    )
                     return FileContent(
                         type=MessageContentType.file_uri, file_id=file_metadata.id
                     )
@@ -1935,9 +1978,12 @@ def convert_message_to_mirix_message(
                 # Handle both the typo version and the correct version from the test file
                 file_uri = m.get("google_cloud_file_uri") or m.get("file_uri")
 
-                fm, resolved_org_id, _ = ensure_file_context()
+                fm, resolved_client_id, resolved_org_id, _ = ensure_file_context()
                 file_metadata = _save_image_from_google_cloud_uri(
-                    file_uri, fm, resolved_org_id
+                    file_uri,
+                    fm,
+                    resolved_client_id,
+                    resolved_org_id,
                 )
                 return CloudFileContent(
                     type=MessageContentType.google_cloud_file_uri,

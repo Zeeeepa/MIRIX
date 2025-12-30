@@ -213,7 +213,7 @@ def test_credit_deduction_openai_call(monkeypatch):
 
 
 def test_credit_deduction_gemini_call(monkeypatch):
-    model = "gemini-1.5-flash"
+    model = "gemini-3-flash-preview"
     prompt_tokens = 80
     completion_tokens = 25
     cached_tokens = 0

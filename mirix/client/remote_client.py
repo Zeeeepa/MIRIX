@@ -13,7 +13,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from mirix.client.client import AbstractClient
 from mirix.constants import FUNCTION_RETURN_CHAR_LIMIT
 from mirix.log import get_logger
 from mirix.schemas.agent import AgentState, AgentType
@@ -215,7 +214,7 @@ def _validate_occurred_at(occurred_at: Optional[str]) -> Optional[datetime]:
         )
 
 
-class MirixClient(AbstractClient):
+class MirixClient():
     """
     Client that communicates with a remote Mirix server via REST API.
     
@@ -228,7 +227,6 @@ class MirixClient(AbstractClient):
     Example:
         >>> client = MirixClient(
         ...     api_key="your-api-key",
-        ...     base_url="https://api.mirix.ai",
         ... )
         >>> meta_agent = client.initialize_meta_agent(
         ...     config={"llm_config": {...}, "embedding_config": {...}},
@@ -241,13 +239,8 @@ class MirixClient(AbstractClient):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        client_name: Optional[str] = None,
-        client_scope: str = "",
-        client_id: Optional[str] = None,
-        org_name: Optional[str] = None,           
-        org_id: Optional[str] = None,
+        api_key: Optional[str] = None,
         debug: bool = False,
         timeout: int = 60,
         max_retries: int = 3,
@@ -263,22 +256,19 @@ class MirixClient(AbstractClient):
 
         Args:
             api_key: API key for authentication (required; can also be set via MIRIX_API_KEY env var)
-            base_url: Base URL of the Mirix API server (optional, can also be set via MIRIX_API_URL env var, default: "http://localhost:8000")
-            client_name: Client name (optional, defaults to a generic label)
-            client_scope: Client scope (read, write, read_write, admin), default: "read_write"
             debug: Whether to enable debug logging
             timeout: Request timeout in seconds
             max_retries: Number of retries for failed requests
             headers: Optional headers to include in the initialization requests
         """
-        super().__init__(debug=debug)
-        
-        # Get base URL from parameter or environment variable
-        self.base_url = (
-            base_url or os.environ.get("MIRIX_API_URL", "http://localhost:8531")
+
+        self.debug = debug
+
+        # Get base URL from environment variable
+        self.base_url = base_url or (
+            os.environ.get("MIRIX_API_URL", "http://localhost:8531")
         ).rstrip("/")
 
-        self.client_scope = client_scope            
         self.timeout = timeout
         self._known_users: Set[str] = set()
         self.api_key = api_key or os.environ.get("MIRIX_API_KEY")
@@ -292,11 +282,6 @@ class MirixClient(AbstractClient):
 
         # Set headers - API key identifies client and org
         self.session.headers.update({"X-API-Key": self.api_key})
-
-        self.client_id = client_id
-        self.client_name = client_name or client_id
-        self.org_id = org_id
-        self.org_name = org_name or self.org_id
 
         # Track initialized meta agent for this project
         self._meta_agent: Optional[AgentState] = None
@@ -322,67 +307,10 @@ class MirixClient(AbstractClient):
         
         self.session.headers.update({"Content-Type": "application/json"})
 
-    def _ensure_org_and_client_exist(self, headers: Optional[Dict[str, str]] = None):
-        """
-        Ensure that the organization and client exist on the server.
-        Creates them if they don't exist.
-        
-        Note: This method does NOT create users. Users are created per-request
-        based on the user_id parameter in add() and other methods.
-
-        Args:
-            headers: Optional headers to include in the request
-        """
-        try:
-            # Create or get organization first
-            self._request(
-                "POST",
-                "/organizations/create_or_get",
-                json={"org_id": self.org_id, "name": self.org_name},
-                headers=headers,
-            )
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Organization initialized: %s (name: %s)",
-                    self.org_id,
-                    self.org_name,
-                )
-
-            # Create or get client
-            self._request(
-                "POST",
-                "/clients/create_or_get",
-                json={
-                    "client_id": self.client_id,
-                    "name": self.client_name,
-                    "org_id": self.org_id,
-                    "scope": self.client_scope,
-                    "status": "active",
-                },
-                headers=headers,
-            )
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Client initialized: %s (name: %s, scope: %s)",
-                    self.client_id,
-                    self.client_name,
-                    self.client_scope,
-                )
-        except Exception as e:
-            # Don't fail initialization if this fails - the server might handle it
-            if self.debug:
-                logger.debug(
-                    "[MirixClient] Note: Could not pre-create org/client: %s", e
-                )
-                logger.debug(
-                    "[MirixClient] Server will create them on first request if needed"
-                )
-
     def create_or_get_user(
         self,
         user_id: Optional[str] = None,
         user_name: Optional[str] = None,
-        org_id: Optional[str] = None,   # Deprecated: ignored (org resolved from API key)
         headers: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -397,7 +325,6 @@ class MirixClient(AbstractClient):
         Args:
             user_id: Optional user ID. If not provided, a random ID will be generated.
             user_name: Optional user name. Defaults to user_id if not provided.
-            org_id: Deprecated. Organization is resolved from the API key.
             
         Returns:
             str: The user_id (either existing or newly created)
@@ -1328,7 +1255,7 @@ class MirixClient(AbstractClient):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
-        update_agents: Optional[bool] = False,
+        update_agents: Optional[bool] = True,
         headers: Optional[Dict[str, str]] = None,
     ) -> AgentState:
         """
@@ -1703,7 +1630,6 @@ class MirixClient(AbstractClient):
         similarity_threshold: Optional[float] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
@@ -1744,7 +1670,6 @@ class MirixClient(AbstractClient):
             end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
                      Only episodic memories with occurred_at <= end_date will be returned.
                      Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
-            org_id: Optional organization scope override (defaults to client's org)
         
         Returns:
             Dict containing:
@@ -1839,19 +1764,17 @@ class MirixClient(AbstractClient):
         search_field: str = "null",
         search_method: str = "bm25",
         limit: int = 10,
-        client_id: Optional[str] = None,
         filter_tags: Optional[Dict[str, Any]] = None,
         similarity_threshold: Optional[float] = None,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        org_id: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Search for memories across ALL users in the organization with optional temporal filtering.
         Results are automatically filtered by client scope.
         
-        If client_id is provided, uses that client's organization.
+        The organization and client are automatically determined from the API key.
         
         Args:
             query: Search query
@@ -1866,7 +1789,6 @@ class MirixClient(AbstractClient):
                          - For "all": use "null" (default)
             search_method: Search method. Options: "bm25" (default), "embedding"
             limit: Maximum results per memory type (total across all users)
-            client_id: Optional client ID (uses its org_id and scope for filtering)
             filter_tags: Optional additional filter tags (scope added automatically)
             similarity_threshold: Optional similarity threshold for embedding search (0.0-2.0).
                                  Only results with cosine distance < threshold are returned.
@@ -1878,7 +1800,6 @@ class MirixClient(AbstractClient):
             end_date: Optional end date/time for filtering episodic memories (ISO 8601 format).
                      Only episodic memories with occurred_at <= end_date will be returned.
                      Examples: "2025-12-05T23:59:59" or "2025-12-05T23:59:59Z"
-            org_id: Optional organization scope (overridden by client's org if client_id provided)
         
         Returns:
             Dict containing:
@@ -1904,10 +1825,9 @@ class MirixClient(AbstractClient):
             ... )
             >>> print(f"Found {results['count']} memories across users")
             >>> 
-            >>> # Search with specific client and additional filters
+            >>> # Search with additional filters
             >>> results = client.search_all_users(
             ...     query="project documentation",
-            ...     client_id="client-123",
             ...     filter_tags={"project": "alpha"},
             ...     memory_type="resource"
             ... )
@@ -1915,7 +1835,6 @@ class MirixClient(AbstractClient):
             >>> # Search across all users with temporal filtering
             >>> results = client.search_all_users(
             ...     query="project updates",
-            ...     client_id="client-123",
             ...     start_date="2025-12-01T00:00:00",
             ...     end_date="2025-12-05T23:59:59"
             ... )
@@ -1923,7 +1842,6 @@ class MirixClient(AbstractClient):
             >>> # Search across all users with similarity threshold
             >>> results = client.search_all_users(
             ...     query="QuickBooks troubleshooting",
-            ...     client_id="client-123",
             ...     search_method="embedding",
             ...     similarity_threshold=0.7,
             ...     limit=20
@@ -1941,14 +1859,6 @@ class MirixClient(AbstractClient):
             "search_method": search_method,
             "limit": limit,
         }
-        
-        # Add client_id if provided (server will use this client's org_id)
-        if client_id:
-            params["client_id"] = client_id
-        
-        # Add org_id only if explicitly provided
-        if org_id:
-            params["org_id"] = org_id
         
         # Add filter_tags if provided
         if filter_tags:

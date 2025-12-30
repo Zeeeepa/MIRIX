@@ -10,6 +10,7 @@ from mirix.schemas.client import Client as PydanticClient
 if TYPE_CHECKING:
     from mirix.orm import Organization
     from mirix.orm.client_api_key import ClientApiKey
+    from mirix.orm.file import FileMetadata
     from mirix.orm.user import User
 
 
@@ -67,6 +68,12 @@ class Client(SqlalchemyBase, OrganizationMixin):
     )
     users: Mapped[List["User"]] = relationship(
         "User",
+        back_populates="client",
+        cascade="all, delete-orphan",
+        lazy="selectin"
+    )
+    files: Mapped[List["FileMetadata"]] = relationship(
+        "FileMetadata",
         back_populates="client",
         cascade="all, delete-orphan",
         lazy="selectin"

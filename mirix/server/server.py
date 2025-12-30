@@ -504,7 +504,9 @@ class SyncServer(Server):
             self.admin_user = self.user_manager.create_admin_user()
             self.default_client = self.client_manager.create_default_client()
             # self.block_manager.add_default_blocks(actor=self.admin_user)
-            self.tool_manager.upsert_base_tools(actor=self.default_client)
+            self.tool_manager.upsert_base_tools(
+                actor=self.default_client, force_reload=True
+            )
 
 
     def load_agent(

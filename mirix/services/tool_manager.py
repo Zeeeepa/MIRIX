@@ -163,7 +163,9 @@ class ToolManager:
                 raise ValueError(f"Tool with id {tool_id} not found.")
 
     @enforce_types
-    def upsert_base_tools(self, actor: PydanticClient) -> List[PydanticTool]:
+    def upsert_base_tools(
+        self, actor: PydanticClient, force_reload: bool = False
+    ) -> List[PydanticTool]:
         """Add default tools in base.py"""
         functions_to_schema = {}
         module_names = ["base", "memory_tools", "extras"]
@@ -171,7 +173,11 @@ class ToolManager:
         for module_name in module_names:
             full_module_name = f"mirix.functions.function_sets.{module_name}"
             try:
+                if force_reload:
+                    importlib.invalidate_caches()
                 module = importlib.import_module(full_module_name)
+                if force_reload:
+                    module = importlib.reload(module)
             except Exception as e:
                 # Handle other general exceptions
                 raise e
@@ -218,6 +224,11 @@ class ToolManager:
                         f"Tool name {name} is not in the list of tool names: {BASE_TOOLS + CORE_MEMORY_TOOLS + EPISODIC_MEMORY_TOOLS + PROCEDURAL_MEMORY_TOOLS + KNOWLEDGE_MEMORY_TOOLS + RESOURCE_MEMORY_TOOLS + META_MEMORY_TOOLS + SEMANTIC_MEMORY_TOOLS + UNIVERSAL_MEMORY_TOOLS + CHAT_AGENT_TOOLS + EXTRAS_TOOLS + MCP_TOOLS}"
                     )
 
+                schema_data = functions_to_schema.get(name)
+                json_schema = (
+                    schema_data.get("json_schema") if schema_data else None
+                )
+
                 # create to tool
                 tools.append(
                     self.create_or_update_tool(
@@ -226,6 +237,7 @@ class ToolManager:
                             tags=tags,
                             source_type="python",
                             tool_type=tool_type,
+                            json_schema=json_schema,
                         ),
                         actor=actor,
                     )

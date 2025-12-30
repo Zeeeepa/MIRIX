@@ -30,12 +30,9 @@ MODEL_PRICING = {
     # OpenAI Models - GPT-5 Series
     "gpt-5.2": {"input": 0.875, "cached_input": 0.0875, "output": 7.00},
     "gpt-5.2-chat-latest": {"input": 0.875, "cached_input": 0.0875, "output": 7.00},
-    "gpt-5.2-pro": {"input": 10.50, "cached_input": None, "output": 84.00},
     "gpt-5.1": {"input": 0.625, "cached_input": 0.0625, "output": 5.00},
     "gpt-5.1-chat-latest": {"input": 0.625, "cached_input": 0.0625, "output": 5.00},
     "gpt-5": {"input": 0.625, "cached_input": 0.0625, "output": 5.00},
-    "gpt-5-chat-latest": {"input": 0.625, "cached_input": 0.0625, "output": 5.00},
-    "gpt-5-pro": {"input": 7.50, "cached_input": None, "output": 60.00},
     "gpt-5-mini": {"input": 0.125, "cached_input": 0.0125, "output": 1.00},
     "gpt-5-nano": {"input": 0.025, "cached_input": 0.0025, "output": 0.20},
 
@@ -62,7 +59,6 @@ MODEL_PRICING = {
     # xAI Grok Models
     "grok-4-1-fast-reasoning": {"input": 0.20, "cached_input": 0.05, "output": 0.50},
     "grok-4-1-fast-non-reasoning": {"input": 0.20, "cached_input": 0.05, "output": 0.50},
-    "grok-code-fast-1": {"input": 0.20, "cached_input": 0.02, "output": 1.50},
     "grok-4-fast-reasoning": {"input": 0.20, "cached_input": 0.05, "output": 0.50},
     "grok-4-fast-non-reasoning": {"input": 0.20, "cached_input": 0.05, "output": 0.50},
     "grok-4-0709": {"input": 3.00, "cached_input": 0.75, "output": 15.00},
@@ -70,16 +66,9 @@ MODEL_PRICING = {
     "grok-3": {"input": 3.00, "cached_input": 0.75, "output": 15.00},
 
     # Google Gemini Models
-    "gemini-2.0-flash": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
-    "gemini-2.0-flash-exp": {"input": 0.10, "cached_input": 0.025, "output": 0.40},
-    "gemini-1.5-pro": {"input": 1.25, "cached_input": 0.315, "output": 5.00},
-    "gemini-1.5-pro-latest": {"input": 1.25, "cached_input": 0.315, "output": 5.00},
-    "gemini-1.5-flash": {"input": 0.075, "cached_input": 0.01875, "output": 0.30},
-    "gemini-1.5-flash-latest": {"input": 0.075, "cached_input": 0.01875, "output": 0.30},
-    "gemini-1.0-pro": {"input": 0.50, "cached_input": None, "output": 1.50},
-
-    # Default fallback pricing (conservative estimate)
-    "default": {"input": 0.125, "cached_input": 0.0125, "output": 1.00},
+    "gemini-3-flash-preview": {"input": 0.50, "cached_input": 0.05, "output": 3.00}, # verified
+    "gemini-2.0-flash": {"input": 0.30, "cached_input": 0.03, "output": 2.50},  # verified
+    "gemini-2.0-flash-lite": {"input": 0.10, "cached_input": 0.01, "output": 0.40},  # verified
 }
 
 
@@ -94,6 +83,9 @@ def get_model_pricing(model: str) -> Tuple[float, Optional[float], float]:
         Tuple of (input_price_per_1m, cached_input_price_per_1m, output_price_per_1m) in dollars
         cached_input_price_per_1m is None if caching is not supported for the model
         All prices include the PRICING_ALPHA markup.
+    
+    Raises:
+        ValueError: If the model is not found in MODEL_PRICING
     """
 
     def apply_alpha(pricing: dict) -> Tuple[float, Optional[float], float]:
@@ -107,13 +99,25 @@ def get_model_pricing(model: str) -> Tuple[float, Optional[float], float]:
     if model in MODEL_PRICING:
         return apply_alpha(MODEL_PRICING[model])
 
+    # Allow versioned models to match base models
+    # e.g., "gpt-5-mini-2025-01-01" matches "gpt-5-mini"
+    # but "gpt-99" should NOT match anything
     for model_key in MODEL_PRICING:
-        if model.startswith(model_key) or model_key.startswith(model.split("-")[0]):
+        if model.startswith(model_key + "-") or model.startswith(model_key):
             logger.debug("Using pricing for %s (matched from %s)", model_key, model)
             return apply_alpha(MODEL_PRICING[model_key])
 
-    logger.warning("No pricing found for model '%s', using default pricing", model)
-    return apply_alpha(MODEL_PRICING["default"])
+    # Get list of available models for error message
+    available_models = sorted(MODEL_PRICING.keys())
+    error_msg = (
+        f"Model '{model}' is not supported. "
+        f"Available models: {', '.join(available_models[:10])}"
+    )
+    if len(available_models) > 10:
+        error_msg += f"... and {len(available_models) - 10} more"
+    
+    logger.error(error_msg)
+    raise ValueError(error_msg)
 
 
 def calculate_cost(

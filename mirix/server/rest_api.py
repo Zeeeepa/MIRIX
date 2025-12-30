@@ -258,7 +258,10 @@ def validate_embedding_config(embedding_config: EmbeddingConfig) -> None:
 
 
 def extract_topics_and_temporal_info(
-    messages: List[Dict[str, Any]], llm_config: LLMConfig
+    messages: List[Dict[str, Any]],
+    llm_config: LLMConfig,
+    client_id: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """
     Extract topics AND temporal expressions from a list of messages using LLM.
@@ -284,7 +287,9 @@ def extract_topics_and_temporal_info(
                 new_messages.extend(msg["content"])
             messages = new_messages
 
-        temporary_messages = convert_message_to_mirix_message(messages)
+        temporary_messages = convert_message_to_mirix_message(
+            messages, client_id=client_id, org_id=org_id
+        )
         temporary_messages = [
             prepare_input_message_create(
                 msg, agent_id="topic_extraction", wrap_user_message=False, wrap_system_message=True
@@ -380,7 +385,12 @@ def extract_topics_and_temporal_info(
     return None, None
 
 
-def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLMConfig) -> Optional[str]:
+def extract_topics_from_messages(
+    messages: List[Dict[str, Any]],
+    llm_config: LLMConfig,
+    client_id: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> Optional[str]:
     """
     Extract topics from a list of messages using LLM.
     
@@ -394,7 +404,9 @@ def extract_topics_from_messages(messages: List[Dict[str, Any]], llm_config: LLM
     Returns:
         Extracted topics as a string (separated by ';') or None if extraction fails
     """
-    topics, _ = extract_topics_and_temporal_info(messages, llm_config)
+    topics, _ = extract_topics_and_temporal_info(
+        messages, llm_config, client_id=client_id, org_id=org_id
+    )
     return topics
 
 
@@ -981,6 +993,37 @@ async def list_llm_configs(
     """List available LLM configurations."""
     server = get_server()
     return server.list_llm_models()
+
+
+@router.get("/config/llm/supported-models")
+async def list_supported_models(
+    x_client_id: Optional[str] = Header(None),
+    x_org_id: Optional[str] = Header(None),
+):
+    """
+    List all models that have pricing configured and are supported for use.
+    
+    Returns a list of model names that can be used in llm_config.model.
+    """
+    from mirix.pricing import MODEL_PRICING
+    
+    models = sorted(MODEL_PRICING.keys())
+    
+    # Group models by provider for better organization
+    grouped_models = {
+        "openai_gpt5": [m for m in models if m.startswith("gpt-5")],
+        "openai_gpt4": [m for m in models if m.startswith("gpt-4")],
+        "openai_o_series": [m for m in models if m.startswith("o1") or m.startswith("o3") or m.startswith("o4")],
+        "xai_grok": [m for m in models if m.startswith("grok")],
+        "google_gemini": [m for m in models if m.startswith("gemini")],
+    }
+    
+    return {
+        "success": True,
+        "total_count": len(models),
+        "all_models": models,
+        "grouped_models": grouped_models,
+    }
 
 
 @router.get("/config/embedding", response_model=List[EmbeddingConfig])
@@ -1709,9 +1752,28 @@ async def initialize_meta_agent(
         )
 
     llm_config = LLMConfig(**config["llm_config"])
+    
+    # Validate LLM model is supported (has pricing configured)
+    from mirix.pricing import get_model_pricing
+    try:
+        get_model_pricing(llm_config.model)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid LLM model: {e}",
+        )
+    
     topic_extraction_llm_config = None
     if config.get("topic_extraction_llm_config"):
         topic_extraction_llm_config = LLMConfig(**config["topic_extraction_llm_config"])
+        # Validate topic extraction model is supported
+        try:
+            get_model_pricing(topic_extraction_llm_config.model)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid topic extraction LLM model: {e}",
+            )
 
     if build_embeddings_for_memory:
         if not config.get("embedding_config"):
@@ -1894,7 +1956,9 @@ async def add_memory(
                 raise ValueError(f"Invalid content type: {type(content)}")
         message = new_message
 
-    input_messages = convert_message_to_mirix_message(message)
+    input_messages = convert_message_to_mirix_message(
+        message, client_id=client_id, org_id=org_id
+    )
 
     # Add client scope to filter_tags (create if not provided)
     if request.filter_tags is not None:
@@ -2704,7 +2768,10 @@ async def retrieve_memory_with_conversation(
             else:
                 # NEW: Extract both topics and temporal expression
                 topics, temporal_expr = extract_topics_and_temporal_info(
-                    request.messages, topic_llm_config
+                    request.messages,
+                    topic_llm_config,
+                    client_id=client_id,
+                    org_id=org_id,
                 )
 
         logger.debug("Extracted topics: %s, temporal: %s", topics, temporal_expr)

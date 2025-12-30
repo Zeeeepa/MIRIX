@@ -93,6 +93,12 @@ class QueueWorker:
         # Lazy import to avoid circular dependency
         from mirix.schemas.message import MessageCreate
         from mirix.schemas.enums import MessageRole
+        from mirix.schemas.mirix_message_content import (
+            TextContent,
+            ImageContent,
+            FileContent,
+            CloudFileContent,
+        )
         
         # Map role
         if proto_msg.role == proto_msg.ROLE_USER:
@@ -102,8 +108,42 @@ class QueueWorker:
         else:
             role = MessageRole.user  # Default
         
-        # Get content (currently only supporting text_content)
-        content = proto_msg.text_content if proto_msg.HasField('text_content') else ""
+        # Get content - check for structured_content first, then text_content
+        content = ""
+        if proto_msg.HasField('structured_content'):
+            # Convert structured_content to list of content objects
+            from mirix.schemas.mirix_message_content import MessageContentType
+            
+            content_list = []
+            for proto_part in proto_msg.structured_content.parts:
+                if proto_part.HasField('text'):
+                    content_list.append(TextContent(
+                        type=MessageContentType.text,
+                        text=proto_part.text.text
+                    ))
+                elif proto_part.HasField('image'):
+                    image_kwargs = {
+                        'type': MessageContentType.image_url,
+                        'image_id': proto_part.image.image_id
+                    }
+                    if proto_part.image.HasField('detail'):
+                        image_kwargs['detail'] = proto_part.image.detail
+                    content_list.append(ImageContent(**image_kwargs))
+                elif proto_part.HasField('file'):
+                    content_list.append(FileContent(
+                        type=MessageContentType.file_uri,
+                        file_id=proto_part.file.file_id
+                    ))
+                elif proto_part.HasField('cloud_file'):
+                    content_list.append(CloudFileContent(
+                        type=MessageContentType.google_cloud_file_uri,
+                        cloud_file_uri=proto_part.cloud_file.cloud_file_uri
+                    ))
+                else:
+                    logger.warning("Unknown content part type in protobuf message, skipping")
+            content = content_list
+        elif proto_msg.HasField('text_content'):
+            content = proto_msg.text_content
         
         return MessageCreate(
             role=role,
@@ -303,12 +343,13 @@ class QueueWorker:
             try:
                 # Get message from queue (with timeout to allow graceful shutdown)
                 # Use partition-specific get if partition_id is set and queue supports it
+                message: QueueMessage
                 if self._partition_id is not None and hasattr(self.queue, 'get_from_partition'):
-                    message: QueueMessage = self.queue.get_from_partition(
+                    message = self.queue.get_from_partition(
                         self._partition_id, timeout=1.0
                     )
                 else:
-                    message: QueueMessage = self.queue.get(timeout=1.0)
+                    message = self.queue.get(timeout=1.0)
                 
                 # Log receipt of message
                 logger.debug(

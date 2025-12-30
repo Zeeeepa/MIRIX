@@ -4,11 +4,24 @@ from typing import List, Optional
 from mirix.schemas.client import Client
 from mirix.schemas.message import MessageCreate
 from mirix.schemas.enums import MessageRole
-from mirix.schemas.mirix_message_content import TextContent
+from mirix.schemas.mirix_message_content import (
+    TextContent,
+    ImageContent,
+    FileContent,
+    CloudFileContent,
+)
 
 from mirix.queue.message_pb2 import User as ProtoUser
 from mirix.queue.message_pb2 import MessageCreate as ProtoMessageCreate
 from mirix.queue.message_pb2 import QueueMessage
+from mirix.queue.message_pb2 import (
+    MessageContentList,
+    MessageContentPart,
+    TextContent as ProtoTextContent,
+    ImageContent as ProtoImageContent,
+    FileContent as ProtoFileContent,
+    CloudFileContent as ProtoCloudFileContent,
+)
 import mirix.queue as queue
 from mirix.services.memory_queue_trace_manager import MemoryQueueTraceManager
 
@@ -94,15 +107,37 @@ def put_messages(
             # Handle content (can be string or list)
             if isinstance(msg.content, str):
                 proto_msg.text_content = msg.content
-            # For list content, we'd need to convert to structured_content
-            # but for now, just convert to string representation
             elif isinstance(msg.content, list):
-                # Convert list of content to string for now
-                text_parts = []
+                # Convert list of content to structured_content
+                proto_content_list = MessageContentList()
                 for content_part in msg.content:
+                    proto_part = MessageContentPart()
+                    
                     if isinstance(content_part, TextContent):
-                        text_parts.append(content_part.text)
-                proto_msg.text_content = "\n".join(text_parts)
+                        proto_text = ProtoTextContent()
+                        proto_text.text = content_part.text
+                        proto_part.text.CopyFrom(proto_text)
+                    elif isinstance(content_part, ImageContent):
+                        proto_image = ProtoImageContent()
+                        proto_image.image_id = content_part.image_id
+                        if content_part.detail:
+                            proto_image.detail = content_part.detail
+                        proto_part.image.CopyFrom(proto_image)
+                    elif isinstance(content_part, FileContent):
+                        proto_file = ProtoFileContent()
+                        proto_file.file_id = content_part.file_id
+                        proto_part.file.CopyFrom(proto_file)
+                    elif isinstance(content_part, CloudFileContent):
+                        proto_cloud_file = ProtoCloudFileContent()
+                        proto_cloud_file.cloud_file_uri = content_part.cloud_file_uri
+                        proto_part.cloud_file.CopyFrom(proto_cloud_file)
+                    else:
+                        logger.warning("Unknown content type: %s, skipping", type(content_part))
+                        continue
+                    
+                    proto_content_list.parts.append(proto_part)
+                
+                proto_msg.structured_content.CopyFrom(proto_content_list)
             
             # Optional fields
             if msg.name:
