@@ -27,6 +27,9 @@ PRICING_ALPHA = 1.5
 # Format: "model_name": {"input": $X.XX, "cached_input": $X.XX or None, "output": $Y.YY}
 # Updated: December 2024 from https://platform.openai.com/docs/pricing
 MODEL_PRICING = {
+    # Default model pricing (fallback for unknown models)
+    "default": {"input": 0.075, "cached_input": 0.01875, "output": 0.30},
+
     # OpenAI Models - GPT-5 Series
     "gpt-5.2": {"input": 0.875, "cached_input": 0.0875, "output": 7.00},
     "gpt-5.2-chat-latest": {"input": 0.875, "cached_input": 0.0875, "output": 7.00},
@@ -84,8 +87,6 @@ def get_model_pricing(model: str) -> Tuple[float, Optional[float], float]:
         cached_input_price_per_1m is None if caching is not supported for the model
         All prices include the PRICING_ALPHA markup.
     
-    Raises:
-        ValueError: If the model is not found in MODEL_PRICING
     """
 
     def apply_alpha(pricing: dict) -> Tuple[float, Optional[float], float]:
@@ -107,17 +108,11 @@ def get_model_pricing(model: str) -> Tuple[float, Optional[float], float]:
             logger.debug("Using pricing for %s (matched from %s)", model_key, model)
             return apply_alpha(MODEL_PRICING[model_key])
 
-    # Get list of available models for error message
-    available_models = sorted(MODEL_PRICING.keys())
-    error_msg = (
-        f"Model '{model}' is not supported. "
-        f"Available models: {', '.join(available_models[:10])}"
+    logger.warning(
+        "Model '%s' not found in MODEL_PRICING; using default pricing.",
+        model,
     )
-    if len(available_models) > 10:
-        error_msg += f"... and {len(available_models) - 10} more"
-    
-    logger.error(error_msg)
-    raise ValueError(error_msg)
+    return apply_alpha(MODEL_PRICING["default"])
 
 
 def calculate_cost(

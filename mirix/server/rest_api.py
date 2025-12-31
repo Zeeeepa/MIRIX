@@ -1753,27 +1753,10 @@ async def initialize_meta_agent(
 
     llm_config = LLMConfig(**config["llm_config"])
     
-    # Validate LLM model is supported (has pricing configured)
-    from mirix.pricing import get_model_pricing
-    try:
-        get_model_pricing(llm_config.model)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid LLM model: {e}",
-        )
-    
     topic_extraction_llm_config = None
     if config.get("topic_extraction_llm_config"):
         topic_extraction_llm_config = LLMConfig(**config["topic_extraction_llm_config"])
-        # Validate topic extraction model is supported
-        try:
-            get_model_pricing(topic_extraction_llm_config.model)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid topic extraction LLM model: {e}",
-            )
+
 
     if build_embeddings_for_memory:
         if not config.get("embedding_config"):
