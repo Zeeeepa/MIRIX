@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 load_dotenv(REPO_ROOT / ".env", override=False)
 
 from mirix import MirixClient  # noqa: E402
+from mirix import MirixTerminalClient  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -384,13 +385,18 @@ def main():
     project_root = script_dir.parent
     # Build path to config file
     
-    # Create MirixClient (connects to server via REST API)
-    api_key = os.environ.get("MIRIX_API_KEY")
-    if not api_key:
-        raise ValueError("MIRIX_API_KEY is required to run this sample.")
-    
-    client = MirixClient(
-        api_key=api_key,
+    # # Create MirixClient (connects to server via REST API)
+    # api_key = os.environ.get("MIRIX_API_KEY")
+    # if not api_key:
+    #     raise ValueError("MIRIX_API_KEY is required to run this sample.")
+    # # with api_key:    
+    # client = MirixClient(
+    #     api_key=api_key,
+    # )
+
+    # without api_key:
+    client = MirixTerminalClient(
+        client_id='demo-client',
     )
 
     config = yaml.safe_load(open(args.config))

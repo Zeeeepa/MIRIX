@@ -35,7 +35,7 @@ Get your API key and view memory call traces at https://app.mirix.io.
 ```python
 from mirix import MirixClient
 
-client = MirixClient(api_key="your_api_key_here")
+client = MirixTerClient(api_key="your_api_key_here")
 # or set MIRIX_API_KEY in your environment, then use: client = MirixClient()
 
 client.initialize_meta_agent(
@@ -74,6 +74,17 @@ npm run dev
 
 **Step 2: Create an API key in the dashboard (http://localhost:5173) and set as the environmental variable `MIRIX_API_KEY`.**
 
+**Option C: Local (backend only, no dashboard):**
+**Step 1: Backend**
+```
+pip install -r requirements.txt
+python scripts/start_server.py --allow-terminal-user-creation
+```
+- API: http://localhost:8531  
+
+**Step 2: Create or load a client from the API**
+You can bootstrap a client from code using `client_name` (or `client_id`) and the server will create the client + admin user for you.
+
 > **⚠️ Important Note for Local Development:**  
 > When using the local version, **do NOT use the PyPI package** (`mirix==0.1.6`). You must run your code from the root folder of this project so that the local `mirix` module can be properly imported. If you previously installed the PyPI package, uninstall it first:
 > ```bash
@@ -82,10 +93,18 @@ npm run dev
 
 Now you are ready to go! See the example below:
 ```python
+# If you went with Option B (dashboard enabled, you need to get api_key from the dashboard)
 from mirix import MirixClient
-
 client = MirixClient(
     api_key="your-api-key", # if you set MIRIX_API_KEY as the environmental variable then you don't need this
+    base_url="http://localhost:8531",
+)
+
+# If you went with Option C (no api_key required): 
+from mirix import MirixTerminalClient
+client = MirixClient(
+    client_id="demo-client-id",
+    client_name="demo-client-name",
     base_url="http://localhost:8531",
 )
 

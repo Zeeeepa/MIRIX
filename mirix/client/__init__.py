@@ -9,5 +9,6 @@ For embedded deployments, use the Mirix SDK directly.
 """
 
 from mirix.client.remote_client import MirixClient
+from mirix.client.remote_client_terminal import MirixTerminalClient
 
-__all__ = ["MirixClient"]
+__all__ = ["MirixClient", "MirixTerminalClient"]

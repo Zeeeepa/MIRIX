@@ -3,6 +3,7 @@ __version__ = "0.1.0"
 
 # Client imports (always available)
 from mirix.client import MirixClient as MirixClient
+from mirix.client import MirixTerminalClient as MirixTerminalClient
 
 # Server-only imports (only available when full package is installed)
 try:

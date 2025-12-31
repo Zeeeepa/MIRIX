@@ -11,6 +11,8 @@ Options:
     --reload            Enable auto-reload for development
     --workers N         Number of worker processes (default: 1)
     --log-level LEVEL   Log level (default: info)
+    --allow-terminal-user-creation
+                        Enable terminal client creation and client-id auth
 """
 
 import argparse
@@ -67,9 +69,21 @@ def main():
         action="store_true",
         help="Run in production mode with multiple workers (requires gunicorn)",
     )
+
+    parser.add_argument(
+        "--allow-terminal-user-creation",
+        action="store_true",
+        help="Enable terminal client creation and client-id auth",
+    )
     
     args = parser.parse_args()
     
+    app_path = (
+        "mirix.server.rest_api_terminal:app"
+        if args.allow_terminal_user_creation
+        else "mirix.server.rest_api:app"
+    )
+
     # Check if running in production mode
     if args.production:
         import importlib.util
@@ -83,11 +97,12 @@ def main():
         print(f"  Port: {args.port}")
         print(f"  Workers: {args.workers}")
         print(f"  Log level: {args.log_level}")
+        print(f"  App: {app_path}")
         print()
         
         # Run with gunicorn
         os.system(
-            f"gunicorn mirix.server.rest_api:app "
+            f"gunicorn {app_path} "
             f"--workers {args.workers} "
             f"--worker-class uvicorn.workers.UvicornWorker "
             f"--bind {args.host}:{args.port} "
@@ -108,6 +123,7 @@ def main():
         print(f"  Port: {args.port}")
         print(f"  Log level: {args.log_level}")
         print(f"  Auto-reload: {args.reload}")
+        print(f"  App: {app_path}")
         print()
         print("Server will be available at:")
         print(f"  http://{args.host}:{args.port}")
@@ -121,7 +137,7 @@ def main():
         print()
         
         uvicorn.run(
-            "mirix.server.rest_api:app",
+            app_path,
             host=args.host,
             port=args.port,
             reload=args.reload,
